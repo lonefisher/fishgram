@@ -17,6 +17,8 @@ delivery/
 *.local.yml
 .env
 .env.*
+__pycache__/
+.superpowers/
 # >>> Comet managed project state >>>
 !/.comet/
 /.comet/*

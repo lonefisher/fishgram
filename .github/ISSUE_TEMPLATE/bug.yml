@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a FishGram failure using sanitized information.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: FishGram version and channel
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Windows version
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Failure and reproduction
+      description: Remove personal channel names, queries and message contents.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized error
+      description: Never attach account data, tdata, API credentials, private keys or raw build logs.

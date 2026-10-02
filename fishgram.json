@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "product": "FishGram",
+  "platform": "windows-x64",
+  "minimumOs": "Windows 11",
+  "upstreamTag": "v7.2.9",
+  "upstreamCommit": "fb2e33209517e1a34637d837bfadb3783f2fd59c",
+  "upstreamVersion": "7.2.9",
+  "revision": 8,
+  "channel": "stable",
+  "msvc": "14.44",
+  "windowsSdk": "10.0.26100.0",
+  "qt": "5.15.19",
+  "autoUpdate": false,
+  "releaseReady": false,
+  "runtimeDirectory": "FishGramData",
+  "payloadFiles": ["Telegram.exe", "Updater.exe"],
+  "payloadDlls": []
+}
