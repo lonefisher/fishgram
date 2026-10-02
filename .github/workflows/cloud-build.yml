@@ -1,0 +1,120 @@
+name: Cloud build
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      cold:
+        description: Ignore dependency restore cache for a measured cold build
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: cloud-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  dependencies:
+    name: Prepare trusted dependencies
+    runs-on: windows-2022
+    timeout-minutes: 350
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Exact cache identity
+        id: key
+        shell: pwsh
+        env:
+          INPUT_HASH: ${{ hashFiles('fishgram.json', 'tools/prepare*', 'tools/common.ps1', 'tdesktop/Telegram/build/prepare/**', 'tdesktop/Telegram/build/qt_version.py') }}
+        run: |
+          if (-not $env:INPUT_HASH) { throw 'Missing dependency identity' }
+          "key=deps-windows2022-x64-$env:INPUT_HASH" >> $env:GITHUB_OUTPUT
+      - name: Restore trusted exact cache
+        id: cache
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.cold) }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: ${{ steps.key.outputs.key }}
+      - name: Measure runner resources
+        shell: pwsh
+        run: ./tools/measure-runner.ps1 -Label before-dependencies
+      - name: Prepare without application identity
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/prepare-dependencies.ps1 -Silent
+      - name: Measure prepared dependencies
+        if: always()
+        shell: pwsh
+        run: ./tools/measure-runner.ps1 -Label after-dependencies
+      - name: Save cache only from maintainer-reviewed main
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: ${{ steps.key.outputs.key }}
+      - name: Save sanitized resource measurements
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dependency-measurements
+          path: reports/runner-*.json
+          retention-days: 7
+  compile:
+    name: Test identity compile
+    needs: dependencies
+    # PRs cannot save untrusted dependencies. Build them again in this job until
+    # a matching trusted main cache exists. No PR-generated cache is consumed.
+    runs-on: windows-2022
+    timeout-minutes: 350
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Restore trusted dependencies
+        id: cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: ${{ needs.dependencies.outputs.key }}
+      - name: Prepare if trusted cache is unavailable
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/prepare-dependencies.ps1 -Silent
+      - name: Measure runner resources
+        shell: pwsh
+        run: ./tools/measure-runner.ps1 -Label before-compile
+      - name: Build non-releasable test identity
+        shell: pwsh
+        run: ./tools/build-telegram.ps1 -TestIdentity -Parallel 4
+      - name: Record actual build result
+        if: always()
+        shell: pwsh
+        run: ./tools/measure-runner.ps1 -Label after-compile
+      - name: Sanitized resource measurements only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compile-measurements
+          path: reports/runner-*.json
+          retention-days: 7
+      # No executable, raw logs, CMake cache, API identity or signing material is
+      # uploaded. Public binaries remain blocked by the complete release gates.

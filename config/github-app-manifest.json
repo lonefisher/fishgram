@@ -1,0 +1,16 @@
+{
+  "name": "FishGram upgrade candidates",
+  "url": "https://github.com/lonefisher/fishgram",
+  "public": false,
+  "description": "Create review-only official upgrade candidates for FishGram. Install only on fishgram and tdesktop.",
+  "hook_attributes": {"active": false},
+  "default_permissions": {
+    "metadata": "read",
+    "contents": "write",
+    "issues": "write",
+    "pull_requests": "write",
+    "workflows": "write",
+    "checks": "read"
+  },
+  "default_events": []
+}

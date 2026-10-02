@@ -64,12 +64,14 @@ function Enter-FishGramToolchain {
     $nativePath = $null
     foreach ($line in $variables) {
         if ($line -match '^([^=]+)=(.*)$') {
-            if ($Matches[1] -ieq 'PATH') {
+            $variableName = $Matches[1]
+            $variableValue = $Matches[2]
+            if ($variableName -ieq 'PATH') {
                 # Some launch environments contain both PATH and Path. Prefer the
                 # vcvars result rather than a duplicate inherited value.
-                if (-not $nativePath -or $Matches[2] -match '\\VC\\Tools\\MSVC\\') { $nativePath = $Matches[2] }
+                if (-not $nativePath -or $variableValue -match '\\VC\\Tools\\MSVC\\') { $nativePath = $variableValue }
             }
-            else { Set-Item -LiteralPath ('Env:' + $Matches[1]) -Value $Matches[2] }
+            else { Set-Item -LiteralPath ('Env:' + $variableName) -Value $variableValue }
         }
     }
     if (-not $nativePath) { throw 'MSVC environment did not return PATH.' }

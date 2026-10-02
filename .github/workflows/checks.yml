@@ -1,0 +1,53 @@
+name: Repository checks
+on:
+  push:
+    branches: [main, 'comet/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  repository:
+    name: Repository checks
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Enable long paths on this disposable runner
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Fetch fixed upstream identity
+        shell: pwsh
+        run: |
+          $recipe=Get-Content -Raw fishgram.json | ConvertFrom-Json
+          git -C tdesktop fetch --depth=1 origin $recipe.upstreamCommit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Repository, recipe and script checks
+        shell: pwsh
+        run: |
+          . ./tools/common.ps1
+          $recipe=Get-FishGramRecipe
+          $null=Assert-FishGramSource $PWD.Path $recipe
+          git -C tdesktop diff --exit-code $recipe.upstreamCommit -- AGENTS.md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $files=Get-ChildItem tools -Filter '*.ps1'
+          foreach ($f in $files) {
+            $tokens=$null; $errors=$null
+            $null=[Management.Automation.Language.Parser]::ParseFile($f.FullName,[ref]$tokens,[ref]$errors)
+            if ($errors.Count) { throw ('Syntax error in '+$f.Name) }
+          }
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Production helper tests
+        shell: pwsh
+        run: ./tools/test-restricted-search.ps1

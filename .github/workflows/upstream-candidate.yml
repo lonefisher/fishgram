@@ -1,0 +1,41 @@
+name: Official upgrade candidates
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: official-upgrade-candidate
+  cancel-in-progress: false
+jobs:
+  candidate:
+    if: vars.UPGRADE_APP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: upgrade-automation
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Obtain narrowly scoped App installation token
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        with:
+          app-id: ${{ vars.UPGRADE_APP_ID }}
+          private-key: ${{ secrets.UPGRADE_APP_PRIVATE_KEY }}
+          owner: lonefisher
+          repositories: |
+            fishgram
+            tdesktop
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-workflows: write
+          permission-checks: read
+      - name: Create review candidates only
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          gh auth setup-git
+          python3 tools/upstream_candidate.py
