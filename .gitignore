@@ -1,0 +1,24 @@
+.private/
+Libraries/
+ThirdParty/
+build-*/
+logs/
+dist/
+tdesktop-baseline/
+.agents/
+.codex/
+.devin/
+.worktrees/
+runtime/
+packages/
+delivery/
+*.local.json
+*.local.yaml
+*.local.yml
+.env
+.env.*
+# >>> Comet managed project state >>>
+!/.comet/
+/.comet/*
+!/.comet/config.yaml
+# <<< Comet managed project state <<<
