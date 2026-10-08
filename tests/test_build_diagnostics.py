@@ -53,3 +53,7 @@ class BuildDiagnosticsTests(unittest.TestCase):
     def test_unknown_dependency_names_are_not_published(self):
         value = diagnostics.extract('Could NOT find private-secret (missing: private-secret)')
         self.assertEqual(value["missingDependencies"], [])
+
+    def test_root_cmake_filename_is_captured(self):
+        value = diagnostics.extract('CMake Error at CMakeLists.txt:38 (message):\nprivate-secret')
+        self.assertEqual(value["cmakeErrors"], [{"file": "CMakeLists.txt", "line": 38}])

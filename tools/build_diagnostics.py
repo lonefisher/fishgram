@@ -6,7 +6,7 @@ import re
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _MSVC = re.compile(r"(?:^|[\\/])(?P<file>[A-Za-z0-9_.-]+\.(?:cpp|cc|c|h|hpp))\((?P<line>\d+)(?:,\d+)?\)\s*:\s*(?:fatal\s+)?error\s+(?P<code>C\d{4})\b")
 _LINK = re.compile(r"\b(?:fatal\s+)?error\s+(?P<code>LNK\d{4})\b")
-_CMAKE = re.compile(r"CMake Error at (?:[^\r\n]*[\\/])?(?P<file>[A-Za-z0-9_.-]+(?:\.cmake|CMakeLists\.txt)):(?P<line>\d+)")
+_CMAKE = re.compile(r"CMake Error at (?:[^\r\n]*[\\/])?(?P<file>(?:[A-Za-z0-9_.-]+\.cmake|CMakeLists\.txt)):(?P<line>\d+)")
 _MISSING = re.compile(r"Could NOT find (?P<package>[A-Za-z0-9_]+)\s*\(missing:\s*(?P<variables>[^)]{0,2048})\)")
 # Values are a fixed public vocabulary, never copied from arbitrary log text.
 _DEPENDENCIES = {

@@ -99,6 +99,10 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: ./tools/prepare-dependencies.ps1 -Silent
+      - name: Recreate runner-local Python after cache restore
+        if: steps.cache.outputs.cache-hit == 'true'
+        shell: pwsh
+        run: ./tools/refresh-build-python.ps1
       - name: Measure runner resources
         shell: pwsh
         run: ./tools/measure-runner.ps1 -Label before-compile
