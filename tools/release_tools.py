@@ -54,6 +54,22 @@ def git(root, *arguments):
     return subprocess.check_output(['git', '-c', 'core.longpaths=true', '-C', str(root), *arguments], text=True).strip()
 
 
+def verify_built_payload(files, record):
+    recorded = record.get('files')
+    if not isinstance(recorded, dict) or set(recorded) != {p.name for p in files}:
+        raise ValueError('Build record must bind every payload file.')
+    for path in files:
+        entry = recorded[path.name]
+        if not isinstance(entry, dict):
+            raise ValueError('Invalid built file record.')
+        size, digest = entry.get('size'), entry.get('sha256')
+        if (type(size) is not int or size <= 0 or not isinstance(digest, str)
+                or not re.fullmatch(r'[a-f0-9]{64}', digest)):
+            raise ValueError('Invalid built file record.')
+        if path.stat().st_size != size or sha256(path) != digest:
+            raise ValueError('Payload differs from the built candidate.')
+
+
 def make_package(root, payload, output, record_path):
     root, payload, output = Path(root).resolve(), Path(payload).resolve(), Path(output).resolve()
     recipe = json.loads((root / 'fishgram.json').read_text(encoding='utf-8-sig'))
@@ -66,6 +82,7 @@ def make_package(root, payload, output, record_path):
         raise ValueError('Build record does not match this checkout.')
     if record.get('channel') != recipe['channel'] or record.get('autoUpdate') != recipe['autoUpdate']:
         raise ValueError('Build configuration differs from recipe.')
+    verify_built_payload(files, record)
     if output.exists():
         raise ValueError('Existing candidate output cannot be replaced.')
     # Never nest the candidate output in a running data or input directory.
@@ -74,7 +91,12 @@ def make_package(root, payload, output, record_path):
     submodules = git(root / 'tdesktop', 'submodule', 'status', '--recursive').splitlines()
     if not submodules or any(line.startswith(('-', '+', 'U')) for line in submodules):
         raise ValueError('Recursive dependencies are missing or inconsistent.')
-    record.update(schema=1, product='FishGram', platform=recipe['platform'], updateVersion=update_version(recipe['upstreamVersion'], recipe['revision']), releaseReady=False, submodules=submodules, files={p.name: {'size': p.stat().st_size, 'sha256': sha256(p)} for p in files})
+    record.update(schema=1, product='FishGram', platform=recipe['platform'],
+                  upstreamCommit=recipe['upstreamCommit'], upstreamTag=recipe['upstreamTag'],
+                  upstreamVersion=recipe['upstreamVersion'],
+                  updateVersion=update_version(recipe['upstreamVersion'], recipe['revision']),
+                  releaseReady=False, submodules=submodules,
+                  files={p.name: {'size': p.stat().st_size, 'sha256': sha256(p)} for p in files})
     output.mkdir(parents=True)
     archive = output / f'FishGram-{version}-{recipe["platform"]}-candidate.zip'
     with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_DEFLATED) as package:

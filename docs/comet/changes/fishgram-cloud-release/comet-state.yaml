@@ -1,0 +1,306 @@
+schema: comet.native.v4
+name: fishgram-cloud-release
+language: zh-CN
+phase: build
+status: active
+state_version: 14
+brief: brief.md
+document_constraints_version: 1
+shape_confirmation_hash: 5a8f359331a601d5770341733413ed4749514880755bea90494bea35e585b112
+spec_changes:
+  - capability: cloud-release
+    operation: create
+    source: specs/cloud-release/spec.md
+workspace:
+  isolation: worktree
+  change_branch: comet/fishgram-cloud-release-implementation
+  target_branch: main
+  finish: null
+loop:
+  stage: repairing
+  goal_cycle: 1
+  iteration: 3
+  attempt: 0
+  retry_epoch: 1
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids:
+    - A1
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  next_action: submit-builder-candidate
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：产品名称、独立图标、应用ID、默认数据目录统一FishGram，自己的API身份，非官方说明、基本功能与广告保留，无新增遥测/官方崩溃上报。
+    result: pending
+    reason: null
+  - id: A2
+    source: brief.md
+    text: A2：源码和子模块一致性、五组生产helper、脚本及测试身份编译对全部PR运行；外部PR无法访问发行API或签名密钥。
+    result: passed
+    reason:
+      text: 当前 PR 检查工作流覆盖源码/递归依赖、脚本、生产 helper 和测试身份编译；发行凭据仅注入受保护候选流程，且外部 PR 无发行权限。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：标准Windows
+      runner从固定父/源/递归依赖提交无缓存实际完成准备与客户端构建，记录空间、耗时、工具链和程序哈希；如失败报告实际瓶颈，不算本机成功。
+    result: pending
+    reason: null
+  - id: A4
+    source: brief.md
+    text: A4：可信依赖缓存按平台/工具链/准备内容精确绑定，实际缓存构建通过且不缓存或上传API配置/客户端编译目录。
+    result: pending
+    reason: null
+  - id: A5
+    source: brief.md
+    text: A5：受保护环境和分支检查有效，产品候选从已审查输入使用FishGram身份；所有发行前置门槛未通过时没有公开二进制或更新索引。
+    result: pending
+    reason: null
+  - id: A6
+    source: brief.md
+    text: A6：首次和重复官方检查、冲突、CI失败均正确；机器人使用仅两仓库GitHub App创建关联PR/去重记录，不能绕过检查、自动发布或更新客户端。
+    result: pending
+    reason: null
+  - id: A7
+    source: brief.md
+    text: A7：清单包含父/源/递归提交、工具链、平台渠道完整版本及产物SHA256；对应源码与构建脚本、GPLv3/OpenSSL例外/依赖许可完整。
+    result: pending
+    reason: null
+  - id: A8
+    source: brief.md
+    text: A8：实测同一云端候选后不重编译，人工签名对应程序哈希，发布附件并公开下载核验后最后更新索引；已发布标签附件不覆盖。
+    result: pending
+    reason: null
+builder_handoff:
+  candidate_id: f9b4b2d4-0903-415f-b765-19f0b908734e
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:f173d8f1-f641-4de7-8037-b0fd0ef25231
+  iteration: 2
+  summary:
+    text: "Cloud candidate70af274/sourcee222737 now records official baseline
+      commit/tag/version in internal and protected product ZIP manifests;
+      mandatory recipe binding rejects missing/mismatched provenance. Directed
+      checks: release gate29/29, actual product ZIP6/6, sign8/8with real
+      compiledPacker and publication19/19. Exact current source
+      archive41repositories/15813files fully hashed;93license
+      entries/unresolved0. PublicPages239c8a9 bootstrap HTTP200 equals committed
+      page and stable/beta/key metadata404; productreleasecount0. No production
+      credentials or signed public release, no mainmerge/push/restart of
+      live7ba/e222 testidentity CI."
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  checks:
+    - name:
+        text: Product candidate actual ZIP and Git bindings
+        truncated: false
+      result: passed
+      note:
+        text: .private/candidate-packaging-green.log6/6no skips incl
+          recipefalse/effectivetrue,identity/trust negatives, changedbytes
+          and3real link boundaries; all-red log3fail beforefix.
+        truncated: false
+    - name:
+        text: Existing release gate regression
+        truncated: false
+      result: passed
+      note:
+        text: .private/release-gate-link-regression.log28/28
+          includingQA/sign/manifest/pins/identity.
+        truncated: false
+    - name:
+        text: Current full source/parent CI
+        truncated: false
+      result: not-run
+      note:
+        text: 37785578154/e222737 fullsource compile live;37785610848/7ba2169
+          parentdependencies live. Those runs precede b606 packaging-only fix.
+          Historical cold37031108321/warm37743424883 success
+          testidentity/updatesOFF are not current product acceptance.
+        truncated: false
+    - name:
+        text: Production credentials and real Windows product QA
+        truncated: false
+      result: not-run
+      note:
+        text: OwnFishGram API/offlineroot/App absent, no production product or Win11
+          signed/recovery/searchmatrix evidence. Synthetic inputs remain test
+          fixtures only.
+        truncated: false
+    - name:
+        text: Official baseline binding RED/GREEN
+        truncated: false
+      result: passed
+      note:
+        text: cloud-baseline-manifest-red/green.log:6 missing or forged values
+          reproduced, now29/29; actual product ZIP6/6 verifies all3baseline
+          fields in embedded/external manifests.
+        truncated: false
+    - name:
+        text: Actual current corresponding source
+        truncated: false
+      result: passed
+      note:
+        text: cloud-source-audit.json
+          for70af274/e222737:41nodes/15813hashedfiles/archiveSHAeef37725bb0086119ffee76e973c50622055a6daac660d7fb8c4075c6f8d8eb1;license93/unresolved0;not
+          actualproductcandidate.
+        truncated: false
+    - name:
+        text: Public Pages bootstrap
+        truncated: false
+      result: passed
+      note:
+        text: pages-bootstrap-readback.json:239c8a9 HTTP200 exact
+          committedHTML;stable.json/beta.json/keys manifest+sig404. POSTPages409
+          alreadyenabled, actualGET/build/publicreadback confirms
+          correctpublicsourcegh-pages/root. No updateindex/release.
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: OwnAPI/root/issuer/App remainunconfigured; environmentsecret names all
+        empty at authenticated16:06UTCpreflight.
+        Reviewer/adminbranchcontrolsverified. Pages now configured, original
+        earlierblockedreport preserved.
+      truncated: false
+    - text: Newparent70af274 packages-onlyfix is local;
+        runningfulltestidentityinputs7ba/e222 not thisparent/product. Historical
+        cold/warmsuccess olderupdatesOFF.
+      truncated: false
+    - text: Runtime source-check priorpermission failure resolved through main
+        authorizedGitmetadata route; originalfailedreceipt preserved.
+        Firstpermissionreview timedout; returnedinstructionsallowedonceretry,
+        successfulactual41nodeexport.
+      truncated: false
+    - text: No productioncloud cold/cached package,
+        cleanWin11/UAC/realaccounts/search6/signedrestart/recovery/publishedchainyet.
+        No public release orindexuntilallpass.
+      truncated: false
+    - text: "Originalsearch source unchanged: earlierbound5helpers+13sharedcore
+        remainsvalid forsourcee222; targetedmanifestchanges noC++edit."
+      truncated: false
+    - text: Synthetic program/keys and realPacker testfixtures cannot substitute
+        ownAPI/trust/manualproductQA.
+      truncated: false
+  known_limits_truncated: false
+  review: null
+  submitted_at: 2026-10-08T16:29:17.274Z
+blockers: []
+verification: null
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: Independent read-only review of A1-A8 for parent b606bca/source e222737.
+        A2 passes from checked-in PR workflow configuration and the three bound
+        Runtime checks; A1 and A3-A8 remain blocked by missing production
+        identity/configuration, current-candidate cloud and cache runs,
+        authenticated GitHub metadata, exact product archive, and real
+        Windows/release evidence. Synthetic tests are reported only as synthetic
+        evidence. No release approval.
+      truncated: false
+    completed_at: 2026-10-08T15:49:36.229Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 用户明确要求继续独立核查，并补充15:52 UTC GitHub API状态：父run 37785610848 (head 7ba2169)
+        与源码run 37785578154 (head e222737) 均进入client
+        compile；这两个run不是冻结的本地候选b606bca。继续只读核查当前scope并以实际权威读回更新结论。
+      truncated: false
+    completed_at: 2026-10-08T15:50:29.691Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 2
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: A1、A3、A4、A5、A6、A7、A8 均缺少其完整验收所需的真实证据，全部保持 blocked。A2 已由既有 Runtime
+        状态通过，不在本轮 scope。当前没有首发或公开发布依据。
+      truncated: false
+    completed_at: 2026-10-08T16:08:52.951Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 2
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: User authorized completing the full plan. Preserve external blockers and
+        original independent reports; fix the same missing official-baseline
+        traceability in protected and internal package manifests, and restore
+        exact-source archive evidence using the authorized Git metadata path.
+      truncated: false
+    completed_at: 2026-10-08T16:15:49.599Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: 已逐项核验当前候选 A1-A8。A2 通过；A1、A3-A8 因自有 API/真实云端产品构建、缓存构建、GitHub App 或实际
+        Windows/签名发布证据缺失而阻塞。A7 源码与许可部分已真实验证，完整产品清单和 QA 仍缺。保留先前报告中的外部阻塞；不以合成程序、旧
+        CI 输入或回归夹具替代产品验收。
+      truncated: false
+    completed_at: 2026-10-08T16:39:37.261Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 实际父仓库冷缓存测试身份CI37785610848在链接阶段失败，脱敏诊断只有LNK1102，磁盘剩余82.85GB但缺少内存提交量与链接器宿主证据。按用户已批准完整范围修复云端诊断遗漏并重新验证；保持自有API/App/密钥和实机发行外部阻塞，绝不以重试或合成产物替代通过。
+      truncated: false
+    completed_at: 2026-10-08T17:49:55.715Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-10-02T14:46:14.908Z

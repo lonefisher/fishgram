@@ -38,7 +38,7 @@ jobs:
           "key=deps-windows2022-x64-$env:INPUT_HASH" >> $env:GITHUB_OUTPUT
       - name: Restore trusted exact cache
         id: cache
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.cold) }}
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.cold
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
@@ -46,14 +46,15 @@ jobs:
             ThirdParty
           key: ${{ steps.key.outputs.key }}
       - name: Measure runner resources
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         shell: pwsh
         run: ./tools/measure-runner.ps1 -Label before-dependencies
       - name: Prepare without application identity
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: ./tools/prepare-dependencies.ps1 -Silent
       - name: Measure prepared dependencies
-        if: always()
+        if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         shell: pwsh
         run: ./tools/measure-runner.ps1 -Label after-dependencies
       - name: Save cache only from maintainer-reviewed main
@@ -65,7 +66,7 @@ jobs:
             ThirdParty
           key: ${{ steps.key.outputs.key }}
       - name: Save sanitized resource measurements
-        if: always()
+        if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: dependency-measurements
@@ -74,8 +75,8 @@ jobs:
   compile:
     name: Test identity compile
     needs: dependencies
-    # PRs cannot save untrusted dependencies. Build them again in this job until
-    # a matching trusted main cache exists. No PR-generated cache is consumed.
+    # PR dependency jobs compute the key only. Prepare once here on a cache
+    # miss: PR outputs never populate a cache used by protected product builds.
     runs-on: windows-2022
     timeout-minutes: 350
     steps:
@@ -99,12 +100,22 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: ./tools/prepare-dependencies.ps1 -Silent
+      - name: Recreate runner-local Python after cache restore
+        if: steps.cache.outputs.cache-hit == 'true'
+        shell: pwsh
+        run: ./tools/refresh-build-python.ps1
       - name: Measure runner resources
         shell: pwsh
         run: ./tools/measure-runner.ps1 -Label before-compile
       - name: Build non-releasable test identity
         shell: pwsh
-        run: ./tools/build-telegram.ps1 -TestIdentity -Parallel 4
+        run: ./tools/build-telegram.ps1 -TestIdentity -TestUpdateSystem -Parallel 4
+      - name: Test production update and recovery helpers
+        shell: pwsh
+        run: |
+          ./tools/test-update-policy.ps1
+          ./tools/test-update-transaction.ps1
+          ./tools/test-update-verify.ps1
       - name: Record actual build result
         if: always()
         shell: pwsh
@@ -114,7 +125,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: compile-measurements
-          path: reports/runner-*.json
+          path: |
+            reports/runner-*.json
+            reports/*-diagnostics.json
           retention-days: 7
       # No executable, raw logs, CMake cache, API identity or signing material is
       # uploaded. Public binaries remain blocked by the complete release gates.
