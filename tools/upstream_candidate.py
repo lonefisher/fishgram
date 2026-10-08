@@ -59,11 +59,37 @@ def git(root, *args, check=True):
 
 
 def issue_once(repo, title, body):
-    issues = api(f'repos/{repo}/issues?state=all&per_page=100')
-    existing = next((item for item in issues if item['title'] == title and 'pull_request' not in item), None)
-    if existing:
-        return existing['html_url']
+    if repo not in (PRODUCT, SOURCE):
+        raise ValueError('Only FishGram repositories may receive candidate records.')
+    for page in range(1, 101):
+        issues = api(f'repos/{repo}/issues?state=all&per_page=100&page={page}')
+        existing = next((item for item in issues if item['title'] == title and 'pull_request' not in item), None)
+        if existing:
+            return existing['html_url']
+        if len(issues) < 100:
+            break
+    else:
+        raise RuntimeError('Issue pagination limit reached; refusing a possible duplicate.')
     return api(f'repos/{repo}/issues', 'POST', {'title': title, 'body': body})['html_url']
+
+
+def record_candidate_failures(tag, source_pr, parent_pr):
+    failed = []
+    for repo, candidate in ((SOURCE, source_pr), (PRODUCT, parent_pr)):
+        for page in range(1, 101):
+            checks = api(f'repos/{repo}/commits/{candidate["head"]["sha"]}/check-runs?per_page=100&page={page}')
+            entries = checks['check_runs']
+            failed += [repo + ': ' + item['name'] for item in entries
+                       if item.get('conclusion') in ('failure', 'timed_out', 'cancelled', 'action_required')]
+            if len(entries) < 100:
+                break
+        else:
+            raise RuntimeError('Candidate check pagination limit reached.')
+    if failed:
+        issue_once(PRODUCT, f'Upstream {tag}: candidate CI failed',
+                   'Candidate remains unpromoted.\n\n' + source_pr['html_url'] + '\n'
+                   + parent_pr['html_url'] + '\n\nFailed checks:\n'
+                   + '\n'.join('- ' + name for name in failed))
 
 
 def existing_pr(repo, branch):
@@ -94,10 +120,7 @@ def main():
     source_pr = existing_pr(SOURCE, branch)
     parent_pr = existing_pr(PRODUCT, branch)
     if source_pr and parent_pr:
-        checks = api(f'repos/{SOURCE}/commits/{source_pr["head"]["sha"]}/check-runs')
-        failed = [item['name'] for item in checks['check_runs'] if item.get('conclusion') in ('failure', 'timed_out', 'cancelled', 'action_required')]
-        if failed:
-            issue_once(PRODUCT, f'Upstream {tag}: candidate CI failed', 'Candidate remains unpromoted.\n\n' + source_pr['html_url'] + '\n' + parent_pr['html_url'] + '\n\nFailed checks:\n' + '\n'.join('- ' + name for name in failed))
+        record_candidate_failures(tag, source_pr, parent_pr)
         print('Existing linked candidates retained.')
         return
     with tempfile.TemporaryDirectory(prefix='fishgram-upgrade-') as temporary:

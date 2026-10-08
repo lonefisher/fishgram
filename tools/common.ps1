@@ -58,6 +58,7 @@ function Get-FishGramToolchain {
 
 function Enter-FishGramToolchain {
     param($Recipe, $Toolchain)
+    if (($env:FISHGRAM_TOOLCHAIN_STAMP -eq ($Toolchain.vcvars + '|' + $Recipe.windowsSdk + '|' + $Recipe.msvc)) -and (Get-Command cl -ErrorAction SilentlyContinue)) { return }
     $setup = '"' + $Toolchain.vcvars + '" ' + $Recipe.windowsSdk + ' -vcvars_ver=' + $Recipe.msvc + ' >nul && set'
     $variables = & $env:ComSpec /d /s /c $setup
     Assert-NativeSuccess 'MSVC environment setup'
@@ -77,14 +78,15 @@ function Enter-FishGramToolchain {
     if (-not $nativePath) { throw 'MSVC environment did not return PATH.' }
     $env:PATH = ((@('cmake', 'ninja', 'python') | ForEach-Object { Split-Path -Parent $Toolchain[$_] }) -join ';') + ';' + $nativePath
     $env:QT = $Recipe.qt
+    $env:FISHGRAM_TOOLCHAIN_STAMP = $Toolchain.vcvars + '|' + $Recipe.windowsSdk + '|' + $Recipe.msvc
 }
 
 function Assert-FishGramSource {
     param([string]$Root, $Recipe)
     $source = Join-Path $Root 'tdesktop'
-    $versionFile = Join-Path $source 'Telegram\SourceFiles\core\version.h'
+    $versionFile = Join-Path $source 'Telegram\build\version'
     $version = Get-Content -Raw -LiteralPath $versionFile
-    if ($version -notmatch ('AppVersionStr\s*=\s*"' + [regex]::Escape($Recipe.upstreamVersion) + '"')) { throw 'Source version does not match the recipe.' }
+    if ($version -notmatch ('(?m)^AppVersionStr\s+' + [regex]::Escape($Recipe.upstreamVersion) + '\s*\r?$')) { throw 'Source version does not match the recipe.' }
     $pointer = & git -c core.longpaths=true -C $Root ls-files --stage -- tdesktop
     Assert-NativeSuccess 'Parent source pointer'
     $head = & git -c core.longpaths=true -C $source rev-parse HEAD

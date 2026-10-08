@@ -33,7 +33,7 @@ git add -- tdesktop
 git push --recurse-submodules=check
 ```
 
-父仓库保存 gitlink，子模块保存源码历史，分别提交和推送。源码测试目录被上游忽略时，明确 force-add 审查后的五组测试，不加入旧的复制 helper。公开历史不包含本机维护文档分支、API 身份、账户信息、日志、截图、查询词和个人频道名。
+父仓库保存 gitlink，子模块保存源码历史，分别提交和推送。源码测试目录被上游忽略时，明确 force-add 审查后的生产 helper、搜索核心及更新测试，不加入旧的复制 helper。公开历史不包含本机维护文档分支、API 身份、账户信息、日志、截图、查询词和个人频道名。
 
 ## 官方升级
 
@@ -58,6 +58,10 @@ git -C tdesktop submodule update --init --recursive
 
 PR 编译使用显式 `-TestIdentity`，绝不能发行该产物。产品身份只在受保护候选构建中开放。所有可能含 API 配置的编译目录、缓存和日志均为私有；CI 不上传它们。
 
+更新系统的生产验签、Packer往返与Windows事务测试见[更新开发验证](UPDATE-TESTING.md)；完整密钥维护见[密钥指南](KEY-MANAGEMENT.md)，FishGram应用身份配置见[应用身份](APPLICATION-IDENTITY.md)。局部测试不替代正式安装和账户恢复验收。
+
+换机器、App 权限、受保护环境、secret 名称与 Pages 接续见 [GitHub 配置](GITHUB-CONFIGURATION.md)。先配置并读回，再启用每日候选；正式发布仍须完整验收。
+
 打包先把批准的程序文件复制到全新 payload 目录，仅允许配方列出的 exe/DLL；运行目录与打包目录必须分开。`package-telegram.ps1` 接收明确的 `-InputDirectory`、`-BuildRecord` 和 `-OutputDirectory`，拒绝已有输出、未批准文件、链接、缺少的递归依赖或不匹配的构建记录。不得从包含 tdata 的运行目录重打 ZIP。对应源码发行包含所有递归依赖和必要脚本，保留 GPLv3、OpenSSL 例外及依赖许可。
 
 ## 验收与发行
@@ -69,6 +73,8 @@ PR 编译使用显式 `-TestIdentity`，绝不能发行该产物。产品身份�
 通过完整门槛后，人工批准签名；只对已验收候选打包签名，不能重编译。附件发布后重新下载验证哈希与签名，再最后更新索引。机器人不得自动发布。自己的更新签名保证更新来源；不等同 Windows Authenticode，下载说明须明确。
 
 ## 安装、回退与数据恢复
+
+本机账户快照与显式恢复工具见[数据恢复指南](DATA-RECOVERY.md)，独立程序回退见[程序恢复](PROGRAM-RECOVERY.md)。候选 Updater 已接入跨官方基线替换前的原生快照回调；合成快照与 Python 恢复互操作已有开发证据，真实账户迁移、客户端退出和恢复仍须独立验收。
 
 指定安装目录和工作目录正常退出目标实例，读回程序路径确认，不按名称批量终止。退出失败停止替换。更新安装使用程序备份和事务日志，保留最近三个程序版本。跨官方基线前正常退出，建立并核实数据快照，默认保留最近两份。
 

@@ -50,4 +50,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Production helper tests
         shell: pwsh
-        run: ./tools/test-restricted-search.ps1
+        run: |
+          ./tools/test-restricted-search.ps1
+          ./tools/test-restricted-search-integration.ps1

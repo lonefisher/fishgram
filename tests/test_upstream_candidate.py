@@ -1,6 +1,7 @@
 import importlib.util
 import unittest
 from pathlib import Path
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location('upstream_candidate', Path(__file__).resolve().parents[1] / 'tools/upstream_candidate.py')
 bot = importlib.util.module_from_spec(spec)
@@ -33,6 +34,34 @@ class UpgradePolicyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bot.push_arguments(branch)
         self.assertEqual(bot.push_arguments('upgrade/v7.3.0')[-1], 'HEAD:refs/heads/upgrade/v7.3.0')
+
+    def test_parent_and_source_ci_failures_are_recorded(self):
+        source = {'head': {'sha': 'a' * 40}, 'html_url': 'https://github.com/lonefisher/tdesktop/pull/3'}
+        parent = {'head': {'sha': 'b' * 40}, 'html_url': 'https://github.com/lonefisher/fishgram/pull/4'}
+        responses = [
+            {'check_runs': [{'name': 'source compile', 'conclusion': 'success'}]},
+            {'check_runs': [{'name': 'parent compile', 'conclusion': 'failure'}]}]
+        with mock.patch.object(bot, 'api', side_effect=responses), mock.patch.object(bot, 'issue_once') as issue:
+            bot.record_candidate_failures('v7.3.0', source, parent)
+        issue.assert_called_once()
+        self.assertIn('parent compile', issue.call_args.args[2])
+        self.assertIn(source['html_url'], issue.call_args.args[2])
+        self.assertIn(parent['html_url'], issue.call_args.args[2])
+
+    def test_successful_candidates_have_no_failure_issue(self):
+        source = {'head': {'sha': 'a' * 40}, 'html_url': 'source'}
+        parent = {'head': {'sha': 'b' * 40}, 'html_url': 'parent'}
+        with mock.patch.object(bot, 'api', return_value={'check_runs': []}), mock.patch.object(bot, 'issue_once') as issue:
+            bot.record_candidate_failures('v7.3.0', source, parent)
+        issue.assert_not_called()
+
+    def test_issue_deduplication_reads_subsequent_pages(self):
+        first = [{'title': 'unrelated', 'html_url': 'ignored'} for _ in range(100)]
+        wanted = {'title': 'Upstream v7.3.0: conflicts need review', 'html_url': 'existing'}
+        with mock.patch.object(bot, 'api', side_effect=[first, [wanted]]) as api:
+            self.assertEqual(bot.issue_once(bot.SOURCE, wanted['title'], 'new body'), 'existing')
+        self.assertEqual(api.call_count, 2)
+        self.assertTrue(all(call.args[0].startswith('repos/lonefisher/tdesktop/issues?') for call in api.call_args_list))
 
 
 if __name__ == '__main__':

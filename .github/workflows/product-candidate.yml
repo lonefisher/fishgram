@@ -1,0 +1,88 @@
+name: FishGram protected product candidate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: fishgram-product-candidate-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  candidate:
+    if: github.ref == 'refs/heads/main'
+    environment: candidate
+    runs-on: windows-2022
+    timeout-minutes: 350
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Validate reviewed commit and recursive pins before credentials
+        shell: pwsh
+        run: |
+          python tools/release_gate.py check-checkout --root . --commit '${{ github.sha }}'
+          if ($LASTEXITCODE) { throw 'Reviewed checkout was rejected.' }
+          python tools/release_gate.py check-private-workspace --root .
+          if ($LASTEXITCODE) { throw 'Private workspace material was rejected.' }
+          if (-not (Test-Path config/update-trust/root-public.pem) -or
+              -not (Test-Path config/update-trust/issuer-public.pem) -or
+              -not (Test-Path config/update-trust/manifest.min.json) -or
+              -not (Test-Path config/update-trust/manifest.sig)) { throw 'Reviewed FishGram production public update trust is absent.' }
+          if (Get-ChildItem config/update-trust -Force | Where-Object { $_.Name -match 'test|fixture|private|secret' }) { throw 'Update trust contains forbidden test/private material.' }
+          python tools/key_management.py check --manifest config/update-trust/manifest.min.json --signature config/update-trust/manifest.sig --root-public config/update-trust/root-public.pem
+          if ($LASTEXITCODE) { throw 'Reviewed production update trust was rejected.' }
+      - name: Exact dependency cache identity
+        id: key
+        shell: pwsh
+        env:
+          INPUT_HASH: ${{ hashFiles('fishgram.json', 'tools/prepare*', 'tools/common.ps1', 'tdesktop/Telegram/build/prepare/**', 'tdesktop/Telegram/build/qt_version.py') }}
+        run: |
+          if (-not $env:INPUT_HASH) { throw 'Missing dependency identity' }
+          "key=deps-windows2022-x64-$env:INPUT_HASH" >> $env:GITHUB_OUTPUT
+      - name: Restore exact trusted dependencies
+        id: cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: ${{ steps.key.outputs.key }}
+      - name: Prepare dependencies when exact trusted cache is absent
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/prepare-dependencies.ps1 -Silent
+      - name: Refresh runner Python after cache restore
+        if: steps.cache.outputs.cache-hit == 'true'
+        shell: pwsh
+        run: ./tools/refresh-build-python.ps1
+      - name: Build protected product candidate
+        shell: pwsh
+        env:
+          FISHGRAM_API_ID: ${{ secrets.FISHGRAM_API_ID }}
+          FISHGRAM_API_HASH: ${{ secrets.FISHGRAM_API_HASH }}
+        run: ./tools/build-telegram.ps1 -ProductCandidate -Parallel 4
+      - name: Package recorded candidate and corresponding source
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'fishgram-candidate'
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          python tools/release_gate.py package-candidate --root . --record build-modified/build-record.json --output (Join-Path $stage 'package')
+          if ($LASTEXITCODE) { throw 'Candidate packaging failed.' }
+          python tools/export_source.py --root . --parent-commit $env:GITHUB_SHA --output (Join-Path $stage 'FishGram-corresponding-source.zip')
+          if ($LASTEXITCODE) { throw 'Corresponding-source export failed.' }
+          python tools/release_gate.py bind-source --manifest (Join-Path $stage 'package/build-manifest.json') --source (Join-Path $stage 'FishGram-corresponding-source.zip') --output (Join-Path $stage 'candidate-record.json')
+          if ($LASTEXITCODE) { throw 'Corresponding-source binding failed.' }
+          if ((Get-ChildItem $stage -File -Recurse | Where-Object { $_.Name -match 'log|cache|api-' }).Count) { throw 'Private build material found in candidate artifact staging.' }
+      - name: Upload internal candidate artifact only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fishgram-product-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/fishgram-candidate/**
+          if-no-files-found: error
+          retention-days: 14
