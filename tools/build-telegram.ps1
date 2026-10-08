@@ -20,7 +20,7 @@ if ($TestIdentity) {
     if (-not [int]::TryParse($env:FISHGRAM_API_ID, [ref]$apiId) -or $apiId -le 0) { throw 'Invalid application identity.' }
     $apiHash = $env:FISHGRAM_API_HASH
 } else {
-    $credential = Import-Clixml -LiteralPath (Join-Path $private 'telegram-api.clixml')
+    $credential = Import-Clixml -LiteralPath (Join-Path $private 'fishgram-api.clixml')
     if ($credential -isnot [Management.Automation.PSCredential]) { throw 'Invalid encrypted identity.' }
     $apiId = 0
     if (-not [int]::TryParse($credential.UserName, [ref]$apiId) -or $apiId -le 0) { throw 'Invalid application identity.' }
@@ -32,9 +32,22 @@ try {
     $contents = 'set(TDESKTOP_API_ID "' + $apiId + '" CACHE STRING "" FORCE)' + "`n" + 'set(TDESKTOP_API_HASH "' + $apiHash + '" CACHE STRING "" FORCE)' + "`n"
     Set-Content -LiteralPath $cache -Value $contents -Encoding ascii
     $disabled = if ($recipe.autoUpdate) { 'OFF' } else { 'ON' }
-    & $toolchain.cmake -S $source -B $build -G 'Ninja Multi-Config' -C $cache -D "DESKTOP_APP_DISABLE_AUTOUPDATE=$disabled" -D CMAKE_CONFIGURATION_TYPES=Release *> (Join-Path $root 'logs\configure.log')
+    $trust = Join-Path $root 'config/update-trust'
+    & $toolchain.cmake -S $source -B $build -G 'Ninja Multi-Config' -C $cache -D "DESKTOP_APP_DISABLE_AUTOUPDATE=$disabled" -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON -D "FISHGRAM_REVISION=$($recipe.revision)" -D "TDESKTOP_UPDATE_CHANNEL=$($recipe.channel)" -D "FISHGRAM_UPDATE_TRUST_DIRECTORY=$trust" -D CMAKE_CONFIGURATION_TYPES=Release *> (Join-Path $root 'logs\configure.log')
+    $configureExit = $LASTEXITCODE
+    if ($configureExit -ne 0 -and $TestIdentity) {
+        & $toolchain.python (Join-Path $PSScriptRoot 'build_diagnostics.py') (Join-Path $root 'logs/configure.log') (Join-Path $root 'reports/configure-diagnostics.json')
+    }
+    $global:LASTEXITCODE = $configureExit
     Assert-NativeSuccess 'Configure; inspect private logs locally'
     & $toolchain.cmake --build $build --config Release --target Telegram --parallel $Parallel *> (Join-Path $root 'logs\build.log')
+    $compileExit = $LASTEXITCODE
+    if ($compileExit -ne 0 -and $TestIdentity) {
+        # Only codes and source basenames may leave the runner. Raw compiler
+        # output and command lines can contain application identity settings.
+        & $toolchain.python (Join-Path $PSScriptRoot 'build_diagnostics.py') (Join-Path $root 'logs/build.log') (Join-Path $root 'reports/build-diagnostics.json')
+    }
+    $global:LASTEXITCODE = $compileExit
     Assert-NativeSuccess 'Build; inspect private logs locally'
     $identity = if ($TestIdentity) { 'test' } else { 'product' }
     $record = [ordered]@{ version = (Get-FishGramVersion $recipe); channel = $recipe.channel; identity = $identity; parentCommit = (& git -C $root rev-parse HEAD); sourceCommit = (& git -C $source rev-parse HEAD); toolchain = @{ msvc = $toolchain.msvc; sdk = $toolchain.sdk; qt = $recipe.qt }; autoUpdate = $recipe.autoUpdate }

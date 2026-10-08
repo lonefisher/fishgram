@@ -58,6 +58,8 @@ git -C tdesktop submodule update --init --recursive
 
 PR 编译使用显式 `-TestIdentity`，绝不能发行该产物。产品身份只在受保护候选构建中开放。所有可能含 API 配置的编译目录、缓存和日志均为私有；CI 不上传它们。
 
+更新系统的生产验签、Packer往返与Windows事务测试见[更新开发验证](UPDATE-TESTING.md)；完整密钥维护见[密钥指南](KEY-MANAGEMENT.md)，FishGram应用身份配置见[应用身份](APPLICATION-IDENTITY.md)。局部测试不替代正式安装和账户恢复验收。
+
 打包先把批准的程序文件复制到全新 payload 目录，仅允许配方列出的 exe/DLL；运行目录与打包目录必须分开。`package-telegram.ps1` 接收明确的 `-InputDirectory`、`-BuildRecord` 和 `-OutputDirectory`，拒绝已有输出、未批准文件、链接、缺少的递归依赖或不匹配的构建记录。不得从包含 tdata 的运行目录重打 ZIP。对应源码发行包含所有递归依赖和必要脚本，保留 GPLv3、OpenSSL 例外及依赖许可。
 
 ## 验收与发行
