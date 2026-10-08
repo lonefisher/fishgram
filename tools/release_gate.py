@@ -16,6 +16,7 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import stat
 import subprocess
 import zipfile
 
@@ -224,6 +225,22 @@ def check_private_workspace(root):
         raise GateError("A private credential or build path is committed in the checkout.")
 
 
+def _plain_build_path(root, path):
+    """Keep recorded build bytes within ordinary checkout directories."""
+    if root not in path.parents:
+        raise GateError("Build output must remain inside the checkout.")
+    current = path
+    while current != root:
+        try:
+            info = current.lstat()
+        except OSError as error:
+            raise GateError("Required build output is missing or unreadable.") from error
+        if (stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+            raise GateError("Build output cannot contain links or reparse points.")
+        current = current.parent
+
+
 def package_candidate(root, record_path, output):
     """Create the internal ZIP from the explicitly recorded product build."""
     import shutil
@@ -261,10 +278,12 @@ def package_candidate(root, record_path, output):
     for name in payload_names:
         _safe_base(name, "Payload name")
         path = build / name
+        _plain_build_path(root, path)
         entry = record["files"][name]
         if not path.is_file() or path.stat().st_size != entry["size"] or sha256_file(path) != entry["sha256"]:
             raise GateError("Build output differs from recorded bytes: " + name)
     packer = build / "Packer.exe"
+    _plain_build_path(root, packer)
     verify_tool(record, "Packer.exe", packer)
     if output.exists() or output.is_relative_to(root):
         raise GateError("Candidate output must be a new directory outside the checkout.")

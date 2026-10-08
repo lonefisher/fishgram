@@ -8,6 +8,8 @@ This workflow prepares internal candidates and a fail-closed signing request. It
 
 The workflow restores only the existing exact Windows dependency cache (`Libraries` and `ThirdParty`) or prepares those dependencies. It then builds Telegram, Updater, and Packer with product identity and production FishGram update trust, packages only recorded payload bytes, exports corresponding source once from committed Git objects, and binds its external `candidate-record.json` after both archives exist. The retained internal artifact contains the candidate ZIP, embedded build manifest, Packer, corresponding-source ZIP, and external candidate record. Raw build logs, CMake/API cache, and credentials are excluded.
 
+The product workflow uses `release_gate.py package-candidate`; `package-telegram.ps1` is an internal development helper. Product packaging rejects test identity, disposable trust, mismatched recipe flags or changed program bytes before creating output. Payload files, Packer, and their build-directory ancestors must be ordinary paths inside the checkout; symbolic links and Windows reparse points are rejected even when their target hashes match. Temporary Git repositories and synthetic binaries exercise this exact packaging entry, ZIP/hash/license read-back, and those negative cases; this evidence does not replace a real cloud product candidate or Windows 11 acceptance.
+
 The current checkout has no `config/update-trust` production public bundle. The workflow must fail before reading API credentials until the reviewed FishGram root public key, issuer public key, root-signed manifest, and detached signature are committed at that path. Test fixtures and private keys are never accepted there.
 
 ## Signing preparation
