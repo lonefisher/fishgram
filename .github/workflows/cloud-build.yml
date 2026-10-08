@@ -114,7 +114,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: compile-measurements
-          path: reports/runner-*.json
+          path: |
+            reports/runner-*.json
+            reports/*-diagnostics.json
           retention-days: 7
       # No executable, raw logs, CMake cache, API identity or signing material is
       # uploaded. Public binaries remain blocked by the complete release gates.

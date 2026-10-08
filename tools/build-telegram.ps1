@@ -33,8 +33,18 @@ try {
     Set-Content -LiteralPath $cache -Value $contents -Encoding ascii
     $disabled = if ($recipe.autoUpdate) { 'OFF' } else { 'ON' }
     & $toolchain.cmake -S $source -B $build -G 'Ninja Multi-Config' -C $cache -D "DESKTOP_APP_DISABLE_AUTOUPDATE=$disabled" -D CMAKE_CONFIGURATION_TYPES=Release *> (Join-Path $root 'logs\configure.log')
+    $configureExit = $LASTEXITCODE
+    if ($configureExit -ne 0 -and $TestIdentity) {
+        & $toolchain.python (Join-Path $PSScriptRoot 'build_diagnostics.py') (Join-Path $root 'logs/configure.log') (Join-Path $root 'reports/configure-diagnostics.json')
+    }
+    $global:LASTEXITCODE = $configureExit
     Assert-NativeSuccess 'Configure; inspect private logs locally'
     & $toolchain.cmake --build $build --config Release --target Telegram --parallel $Parallel *> (Join-Path $root 'logs\build.log')
+    $buildExit = $LASTEXITCODE
+    if ($buildExit -ne 0 -and $TestIdentity) {
+        & $toolchain.python (Join-Path $PSScriptRoot 'build_diagnostics.py') (Join-Path $root 'logs/build.log') (Join-Path $root 'reports/build-diagnostics.json')
+    }
+    $global:LASTEXITCODE = $buildExit
     Assert-NativeSuccess 'Build; inspect private logs locally'
     $identity = if ($TestIdentity) { 'test' } else { 'product' }
     $record = [ordered]@{ version = (Get-FishGramVersion $recipe); channel = $recipe.channel; identity = $identity; parentCommit = (& git -C $root rev-parse HEAD); sourceCommit = (& git -C $source rev-parse HEAD); toolchain = @{ msvc = $toolchain.msvc; sdk = $toolchain.sdk; qt = $recipe.qt }; autoUpdate = $recipe.autoUpdate }
