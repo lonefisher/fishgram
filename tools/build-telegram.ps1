@@ -4,10 +4,13 @@ if ($TestUpdateSystem -and -not $TestIdentity) { throw 'Disposable update trust 
 if ($ProductCandidate -and ($TestIdentity -or $TestUpdateSystem)) { throw 'A product candidate cannot use the test identity or disposable update trust.' }
 if ($ProductCandidate -and (-not $env:FISHGRAM_API_ID -or -not $env:FISHGRAM_API_HASH)) { throw 'Protected product candidates require FISHGRAM_API_ID and FISHGRAM_API_HASH from the candidate environment.' }
 . (Join-Path $PSScriptRoot 'common.ps1')
+. (Join-Path $PSScriptRoot 'memory-diagnostics.ps1')
 $root = Split-Path -Parent $PSScriptRoot
 $recipe = Get-FishGramRecipe $root
 $toolchain = Get-FishGramToolchain $recipe
 Enter-FishGramToolchain $recipe $toolchain
+$linker = (Get-Command link.exe -ErrorAction Stop).Source
+Invoke-FishGramMemoryDiagnostics -Python $toolchain.python -Label build-context -Linker $linker -Output (Join-Path $root 'reports/memory-context-diagnostics.json')
 $source = Assert-FishGramSource $root $recipe
 if ($Parallel -lt 1) { throw 'Parallel must be positive.' }
 $build = Join-Path $root 'build-modified'
@@ -61,6 +64,9 @@ try {
     if ($ProductCandidate) { $targets += 'Packer' }
     & $toolchain.cmake --build $build --config Release --target $targets --parallel $Parallel *> (Join-Path $root 'logs\build.log')
     $compileExit = $LASTEXITCODE
+    $memoryLabel = if ($compileExit -ne 0) { 'build-failure' } else { 'build-complete' }
+    $global:LASTEXITCODE = $compileExit
+    Invoke-FishGramMemoryDiagnostics -Python $toolchain.python -Label $memoryLabel -Linker $linker -Output (Join-Path $root 'reports/memory-result-diagnostics.json')
     if ($compileExit -ne 0 -and $TestIdentity) {
         # Only codes and source basenames may leave the runner. Raw compiler
         # output and command lines can contain application identity settings.

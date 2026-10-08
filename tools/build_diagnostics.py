@@ -8,6 +8,8 @@ _MSVC = re.compile(r"(?:^|[\\/])(?P<file>[A-Za-z0-9_.-]+\.(?:cpp|cc|c|h|hpp))\((
 _LINK = re.compile(r"\b(?:fatal\s+)?error\s+(?P<code>LNK\d{4})\b")
 _CMAKE = re.compile(r"CMake Error at (?:[^\r\n]*[\\/])?(?P<file>(?:[A-Za-z0-9_.-]+\.cmake|CMakeLists\.txt)):(?P<line>\d+)")
 _MISSING = re.compile(r"Could NOT find (?P<package>[A-Za-z0-9_]+)\s*\(missing:\s*(?P<variables>[^)]{0,2048})\)")
+_FAILED = re.compile(r'^FAILED:[^\r\n]*', re.MULTILINE)
+_TARGET = re.compile(r'(?:^|[\\/\s"])(Telegram\.exe|Updater\.exe|Packer\.exe)(?=[\s"]|$)')
 # Values are a fixed public vocabulary, never copied from arbitrary log text.
 _DEPENDENCIES = {
     "OpenSSL": {"OPENSSL_CRYPTO_LIBRARY", "OPENSSL_SSL_LIBRARY", "OPENSSL_INCLUDE_DIR"},
@@ -20,6 +22,8 @@ _DEPENDENCIES = {
 
 def extract(data: str) -> dict:
     data = _ANSI.sub("", data)
+    targets = list(dict.fromkeys(target for line in _FAILED.findall(data)
+                                for target in _TARGET.findall(line)))
     missing = []
     for match in _MISSING.finditer(data):
         package = match["package"]
@@ -48,6 +52,7 @@ def extract(data: str) -> dict:
             if len(errors) == 32:
                 break
     return {"schema": 1, "compilerErrors": errors, "cmakeErrors": cmake, "missingDependencies": missing,
+            "buildTargets": targets,
             "ninjaStopped": "ninja: build stopped" in data,
             "cmakeFailed": "CMake Error" in data,
             "hasDiagnostic": bool(errors or cmake or missing)}

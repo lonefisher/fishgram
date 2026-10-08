@@ -57,3 +57,24 @@ class BuildDiagnosticsTests(unittest.TestCase):
     def test_root_cmake_filename_is_captured(self):
         value = diagnostics.extract('CMake Error at CMakeLists.txt:38 (message):\nprivate-secret')
         self.assertEqual(value["cmakeErrors"], [{"file": "CMakeLists.txt", "line": 38}])
+
+    def test_link_failure_target_is_fixed_vocabulary_without_command_or_path(self):
+        value = diagnostics.extract('FAILED: Release/Telegram.exe secret-identity\n'
+                                    'link.exe /DAPI_HASH=secret-identity\n'
+                                    'LINK : fatal error LNK1102: out of memory\n')
+        self.assertEqual(value['buildTargets'], ['Telegram.exe'])
+        self.assertEqual(value['compilerErrors'], [{'code': 'LNK1102'}])
+        self.assertNotIn('secret-identity', str(value))
+        self.assertNotIn('Release/', str(value))
+
+    def test_unknown_failed_targets_and_private_names_are_not_exposed(self):
+        value = diagnostics.extract('FAILED: C:/private/account.exe secret\n'
+                                    'FAILED: C:/private/secretTelegram.exe\n')
+        self.assertEqual(value['buildTargets'], [])
+        self.assertNotIn('private', str(value))
+        self.assertNotIn('secret', str(value))
+
+    def test_failed_target_names_are_deduplicated(self):
+        value = diagnostics.extract('FAILED: Release/Updater.exe\n'
+                                    'FAILED: Release/Updater.exe\nFAILED: "Release/Packer.exe"\n')
+        self.assertEqual(value['buildTargets'], ['Updater.exe', 'Packer.exe'])

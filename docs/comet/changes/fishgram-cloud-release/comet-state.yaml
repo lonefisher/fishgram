@@ -1,9 +1,9 @@
 schema: comet.native.v4
 name: fishgram-cloud-release
 language: zh-CN
-phase: verify
-status: await-user
-state_version: 13
+phase: build
+status: active
+state_version: 14
 brief: brief.md
 document_constraints_version: 1
 shape_confirmation_hash: 5a8f359331a601d5770341733413ed4749514880755bea90494bea35e585b112
@@ -17,10 +17,10 @@ workspace:
   target_branch: main
   finish: null
 loop:
-  stage: await-user
+  stage: repairing
   goal_cycle: 1
-  iteration: 2
-  attempt: 1
+  iteration: 3
+  attempt: 0
   retry_epoch: 1
   failed_iteration_count: 0
   no_progress_count: 0
@@ -33,15 +33,13 @@ loop:
     - A6
     - A7
     - A8
-  next_action: resolve-verifier-blocker
+  next_action: submit-builder-candidate
 acceptance:
   - id: A1
     source: brief.md
     text: A1：产品名称、独立图标、应用ID、默认数据目录统一FishGram，自己的API身份，非官方说明、基本功能与广告保留，无新增遥测/官方崩溃上报。
-    result: blocked
-    reason:
-      text: 尚无 FishGram 自有 API 身份和产品候选，因此无法确认产品身份及真实产品行为的完整验收。
-      truncated: false
+    result: pending
+    reason: null
   - id: A2
     source: brief.md
     text: A2：源码和子模块一致性、五组生产helper、脚本及测试身份编译对全部PR运行；外部PR无法访问发行API或签名密钥。
@@ -53,49 +51,33 @@ acceptance:
     source: brief.md
     text: A3：标准Windows
       runner从固定父/源/递归依赖提交无缓存实际完成准备与客户端构建，记录空间、耗时、工具链和程序哈希；如失败报告实际瓶颈，不算本机成功。
-    result: blocked
-    reason:
-      text: 没有绑定当前父提交 70af27400ce9e1dd40c563f8f36f2585fde897f9 的标准 Windows runner
-        无缓存产品构建及完整产物记录；现有 37785578154/37785610848 对应 e222737/7ba2169，不能替代。
-      truncated: false
+    result: pending
+    reason: null
   - id: A4
     source: brief.md
     text: A4：可信依赖缓存按平台/工具链/准备内容精确绑定，实际缓存构建通过且不缓存或上传API配置/客户端编译目录。
-    result: blocked
-    reason:
-      text: 没有当前候选的可信依赖缓存命中构建及产物证据。
-      truncated: false
+    result: pending
+    reason: null
   - id: A5
     source: brief.md
     text: A5：受保护环境和分支检查有效，产品候选从已审查输入使用FishGram身份；所有发行前置门槛未通过时没有公开二进制或更新索引。
-    result: blocked
-    reason:
-      text: 分支严格保护、管理员约束和候选/发行 reviewer 规则已读回，但 candidate/release 环境 secret
-        名称为空，未生成真实产品候选；公开 Pages 当前无稳定/Beta索引、签名清单或程序发布。upgrade-automation 无
-        reviewer 符合每日自动候选设计，不作为缺陷。
-      truncated: false
+    result: pending
+    reason: null
   - id: A6
     source: brief.md
     text: A6：首次和重复官方检查、冲突、CI失败均正确；机器人使用仅两仓库GitHub App创建关联PR/去重记录，不能绕过检查、自动发布或更新客户端。
-    result: blocked
-    reason:
-      text: 升级 workflow 代码和 fixture 回归存在，但 GitHub App 尚未配置，缺少真实安装授权及首次/重复/冲突/CI失败行为证据。
-      truncated: false
+    result: pending
+    reason: null
   - id: A7
     source: brief.md
     text: A7：清单包含父/源/递归提交、工具链、平台渠道完整版本及产物SHA256；对应源码与构建脚本、GPLv3/OpenSSL例外/依赖许可完整。
-    result: blocked
-    reason:
-      text: 对应源码归档已绑定父 70af274/源码 e222737：41 个仓库节点、15,813 个文件哈希、93 个许可路径、未解析许可
-        0；但没有真实产品候选清单及其产物哈希/完整版本与渠道绑定，A7 全项未满足。
-      truncated: false
+    result: pending
+    reason: null
   - id: A8
     source: brief.md
     text: A8：实测同一云端候选后不重编译，人工签名对应程序哈希，发布附件并公开下载核验后最后更新索引；已发布标签附件不覆盖。
-    result: blocked
-    reason:
-      text: 尚无真实云端候选实测、同一候选人工签名、附件公开下载核验及最后晋升索引的完整链路。
-      truncated: false
+    result: pending
+    reason: null
 builder_handoff:
   candidate_id: f9b4b2d4-0903-415f-b765-19f0b908734e
   identity_provider: skill-coordinated
@@ -216,117 +198,8 @@ builder_handoff:
   known_limits_truncated: false
   review: null
   submitted_at: 2026-10-08T16:29:17.274Z
-blockers:
-  - owner: user
-    reason:
-      text: 已逐项核验当前候选 A1-A8。A2 通过；A1、A3-A8 因自有 API/真实云端产品构建、缓存构建、GitHub App 或实际
-        Windows/签名发布证据缺失而阻塞。A7 源码与许可部分已真实验证，完整产品清单和 QA 仍缺。保留先前报告中的外部阻塞；不以合成程序、旧
-        CI 输入或回归夹具替代产品验收。
-      truncated: false
-    acceptance_ids:
-      - A1
-      - A3
-      - A4
-      - A5
-      - A6
-      - A7
-      - A8
-    resolution_action: resolve-verifier-blocker
-verification:
-  candidate_id: f9b4b2d4-0903-415f-b765-19f0b908734e
-  identity_provider: skill-coordinated
-  verifier_execution_ref: skill-coordinated:verifier:69f4eee6-aac5-4524-b0b9-163c2884456f
-  iteration: 2
-  attempt: 1
-  assurance: skill-coordinated
-  verdict: blocked
-  checks:
-    - id: cloud-fixed-source-scripts
-      name:
-        text: Pinned source, official instructions and build scripts
-        truncated: false
-      argv_display:
-        - text: -NoProfile
-          truncated: false
-        - text: -Command
-          truncated: false
-        - text: . ./tools/common.ps1; $r=Get-FishGramRecipe; $null=Assert-FishGramSource
-            $PWD.Path $r; git -c core.longpaths=true -C tdesktop diff
-            --exit-code $r.upstreamCommit -- AGENTS.md; if($LASTEXITCODE){exit
-            $LASTEXITCODE}; $pins=@(git -c core.longpaths=true -C tdesktop
-            submodule status --recursive); if($LASTEXITCODE -or $pins.Count -ne
-            39 -or @($pins | Where-Object {$_ -match '^[-+U]'}).Count){throw
-            'Recursive pins mismatch'}; foreach($f in Get-ChildItem tools
-            -Filter
-            '*.ps1'){$t=$null;$e=$null;$null=[Management.Automation.Language.Parser]::ParseFile($f.FullName,[ref]$t,[ref]$e);if($e.Count){throw
-            $f.Name}};git -c submodule.recurse=false diff --check
-            --ignore-submodules;exit $LASTEXITCODE
-          truncated: false
-      argv_truncated: false
-      cwd_ref: .
-      status: passed
-      exit_code: 0
-      duration_ms: 11896
-    - id: cloud-manifest-packaging-policy
-      name:
-        text: Reviewed baseline, actual product ZIP and release/publication regressions
-        truncated: false
-      argv_display:
-        - text: -c
-          truncated: false
-        - text: import unittest;
-            patterns=['test_candidate_packaging.py','test_release_gate.py','test_release_tools.py','test_publish_release.py'];
-            s=unittest.TestSuite(unittest.defaultTestLoader.discover('tests',pattern=p)
-            for p in patterns); r=unittest.TextTestRunner(verbosity=2).run(s);
-            raise SystemExit(0 if r.wasSuccessful() and not r.skipped else 1)
-          truncated: false
-      argv_truncated: false
-      cwd_ref: .
-      status: passed
-      exit_code: 0
-      duration_ms: 86751
-    - id: cloud-current-source-license
-      name:
-        text: Exact current recursive committed source, all file hashes and licenses
-        truncated: false
-      argv_display:
-        - text: .private/check-current-source.py
-          truncated: false
-      argv_truncated: false
-      cwd_ref: .
-      status: passed
-      exit_code: 0
-      duration_ms: 58887
-    - id: cloud-pages-bootstrap
-      name:
-        text: Actual public Pages bytes with no update promotion
-        truncated: false
-      argv_display:
-        - text: .private/check-pages-bootstrap.py
-          truncated: false
-      argv_truncated: false
-      cwd_ref: .
-      status: passed
-      exit_code: 0
-      duration_ms: 2128
-  summary:
-    text: 已逐项核验当前候选 A1-A8。A2 通过；A1、A3-A8 因自有 API/真实云端产品构建、缓存构建、GitHub App 或实际
-      Windows/签名发布证据缺失而阻塞。A7 源码与许可部分已真实验证，完整产品清单和 QA 仍缺。保留先前报告中的外部阻塞；不以合成程序、旧 CI
-      输入或回归夹具替代产品验收。
-    truncated: false
-  risks:
-    - text: Runtime 四项绑定检查均 PASS：固定源/脚本；包装、清单、发布回归 59/59 且无跳过；精确递归源码与许可审计；实际 Pages
-        HTML 与提交 239c8a9 一致且更新资产返回 404。
-      truncated: false
-    - text: 候选 ZIP/清单基线绑定、真实 Packer 签名测试 8/8 为本机回归证据；不等同生产云端构建或人工签名产品。
-      truncated: false
-    - text: 历史 cold/warm 构建使用测试身份且关闭更新，不能证明当前产品验收。
-      truncated: false
-    - text: 当前 verifier 首次 Git 状态读回受 worktree 元数据路径权限限制；采用 Runtime 已授权 Git 元数据路径的成功 41
-        节点导出与 SHA 审计，不据此判定 A7 归档失败。
-      truncated: false
-  risks_truncated: false
-  completed_at: 2026-10-08T16:39:37.261Z
+blockers: []
+verification: null
 history:
   - goal_cycle: 1
     iteration: 1
@@ -408,6 +281,15 @@ history:
         CI 输入或回归夹具替代产品验收。
       truncated: false
     completed_at: 2026-10-08T16:39:37.261Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 实际父仓库冷缓存测试身份CI37785610848在链接阶段失败，脱敏诊断只有LNK1102，磁盘剩余82.85GB但缺少内存提交量与链接器宿主证据。按用户已批准完整范围修复云端诊断遗漏并重新验证；保持自有API/App/密钥和实机发行外部阻塞，绝不以重试或合成产物替代通过。
+      truncated: false
+    completed_at: 2026-10-08T17:49:55.715Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
@@ -418,7 +300,7 @@ history_overflow:
     blocked: 0
     execution-error: 0
     recovery: 0
-verification_result: blocked
-verification_report: verification.md
+verification_result: pending
+verification_report: null
 archived: false
 created_at: 2026-10-02T14:46:14.908Z
