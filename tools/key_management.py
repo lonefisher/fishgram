@@ -101,12 +101,9 @@ def _require_new_path(path: Path) -> Path:
     path = Path(os.path.abspath(path.expanduser()))
     if not path.parent.is_dir():
         raise KeyManagementError(f"Parent directory does not exist: {path.parent}")
-    try:
-        resolved_parent = path.parent.resolve(strict=True)
-    except OSError as error:
-        raise KeyManagementError(f"Could not resolve parent directory: {path.parent}") from error
-    if os.path.normcase(str(resolved_parent)) != os.path.normcase(str(path.parent)):
-        raise KeyManagementError(f"Refusing redirected or symlinked parent directory: {path.parent}")
+    # Inspect the caller's path before canonicalizing. Windows resolve expands
+    # ordinary 8.3 aliases (for example RUNNER~1); text inequality is not proof
+    # of redirection. Every original ancestor must still be a non-reparse node.
     ancestor = path.parent
     while True:
         try:
@@ -123,7 +120,13 @@ def _require_new_path(path: Path) -> Path:
         ancestor = ancestor.parent
     if os.path.lexists(path):
         raise KeyManagementError(f"Refusing to overwrite existing file: {path}")
-    return path
+    try:
+        resolved_parent = path.parent.resolve(strict=True)
+        if not os.path.samefile(path.parent, resolved_parent):
+            raise KeyManagementError("Parent directory changed during validation.")
+    except OSError as error:
+        raise KeyManagementError(f"Could not resolve parent directory: {path.parent}") from error
+    return resolved_parent / path.name
 
 
 def _write_new(path: Path, data: bytes, private: bool = False) -> None:

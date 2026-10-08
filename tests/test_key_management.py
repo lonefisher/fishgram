@@ -1,5 +1,6 @@
 import importlib.util
 import contextlib
+import ctypes
 import io
 import json
 import os
@@ -260,6 +261,26 @@ class KeyManagementTests(unittest.TestCase):
             keys._require_new_path(linked / "secret.pem")
         with self.assertRaisesRegex(keys.KeyManagementError, "overwrite"):
             keys._require_new_path(self.root / "dangling")
+
+    @unittest.skipUnless(os.name == "nt", "Windows short-path alias regression")
+    def test_short_parent_alias_is_accepted_without_relaxing_reparse_guard(self):
+        from ctypes import wintypes
+        get_short = ctypes.WinDLL("kernel32", use_last_error=True).GetShortPathNameW
+        get_short.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+        get_short.restype = wintypes.DWORD
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = get_short(str(self.root), buffer, len(buffer))
+        self.assertGreater(length, 0)
+        self.assertLess(length, len(buffer))
+        short_parent = Path(buffer.value)
+        if os.path.normcase(str(short_parent)) == os.path.normcase(str(short_parent.resolve())):
+            self.skipTest("The temporary volume does not provide a distinct 8.3 alias.")
+        self.assertTrue(os.path.samefile(short_parent, self.root))
+        private = short_parent / "alias-private.pem"
+        public = short_parent / "alias-public.pem"
+        keys.generate_issuer(private, public, self.password)
+        self.assertIn(b"ENCRYPTED PRIVATE KEY", (self.root / private.name).read_bytes()[:80])
+        self.assertTrue((self.root / public.name).is_file())
 
 
 if __name__ == "__main__":
