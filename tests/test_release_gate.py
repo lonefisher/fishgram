@@ -28,6 +28,7 @@ def digest(data):
 
 PAYLOAD = {'Telegram.exe': b'candidate telegram bytes', 'Updater.exe': b'candidate updater bytes'}
 RECIPE = {'product': 'FishGram', 'platform': 'windows-x64', 'upstreamVersion': '7.2.9',
+          'upstreamTag': 'v7.2.9', 'upstreamCommit': 'f' * 40,
           'revision': 8, 'channel': 'stable', 'msvc': '14.44', 'windowsSdk': '10.0.26100.0',
           'qt': '5.15.19', 'autoUpdate': False, 'payloadFiles': ['Telegram.exe', 'Updater.exe'],
           'payloadDlls': []}
@@ -40,6 +41,8 @@ def manifest(files=None, **overrides):
         'identity': 'product', 'productCandidate': True, 'autoUpdate': True,
         'recipeAutoUpdate': False, 'testUpdateTrust': False, 'releaseReady': False,
         'parentCommit': PARENT, 'sourceCommit': SOURCE,
+        'upstreamVersion': RECIPE['upstreamVersion'], 'upstreamTag': RECIPE['upstreamTag'],
+        'upstreamCommit': RECIPE['upstreamCommit'],
         'toolchain': {'msvc': '14.44.35207', 'sdk': '10.0.26100.0', 'qt': '5.15.19'},
         'files': files if files is not None else {
             name: {'size': len(data), 'sha256': digest(data)} for name, data in PAYLOAD.items()},
@@ -97,6 +100,17 @@ def qa_for(record, **overrides):
 
 
 class ManifestTests(unittest.TestCase):
+    def test_official_baseline_is_required_and_matches_reviewed_recipe(self):
+        for field in ('upstreamCommit', 'upstreamTag', 'upstreamVersion'):
+            missing = manifest()
+            del missing[field]
+            with self.subTest(missing=field), self.assertRaises(gate.GateError):
+                gate.validate_manifest(missing, RECIPE)
+        for override in ({'upstreamCommit': 'e' * 40}, {'upstreamTag': 'v7.2.8'},
+                         {'upstreamVersion': '7.2.8'}):
+            with self.subTest(override=override), self.assertRaises(gate.GateError):
+                gate.validate_manifest(manifest(**override), RECIPE)
+
     def test_valid_product_manifest(self):
         info = gate.validate_manifest(manifest(), RECIPE)
         self.assertEqual(info['versionBase'], 7002009)

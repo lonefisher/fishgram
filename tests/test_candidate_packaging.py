@@ -33,6 +33,7 @@ class CandidatePackagingTests(unittest.TestCase):
         self.commit(source)
         self.recipe = {
             'product': 'FishGram', 'platform': 'windows-x64', 'upstreamVersion': '7.2.9',
+            'upstreamTag': 'v7.2.9', 'upstreamCommit': self.git(source, 'rev-parse', 'HEAD'),
             'revision': 8, 'channel': 'stable', 'msvc': '14.44', 'windowsSdk': '10.0.26100.0',
             'qt': '5.15.19', 'autoUpdate': False, 'releaseReady': False,
             'payloadFiles': ['Telegram.exe', 'Updater.exe'], 'payloadDlls': [],
@@ -78,11 +79,16 @@ class CandidatePackagingTests(unittest.TestCase):
         self.assertFalse(manifest['recipeAutoUpdate'])
         self.assertTrue(manifest['autoUpdate'])
         self.assertFalse(manifest['releaseReady'])
+        for field in ('upstreamCommit', 'upstreamTag', 'upstreamVersion'):
+            self.assertEqual(manifest[field], self.recipe[field])
         archive = self.output / manifest['archive']['name']
         gate.validate_manifest(manifest, self.recipe)
         gate.verify_package(manifest, archive)
         gate.verify_tool(manifest, 'Packer.exe', self.output / 'Packer.exe')
         with zipfile.ZipFile(archive) as bundle:
+            embedded = json.loads(bundle.read('build-manifest.json'))
+            for field in ('upstreamCommit', 'upstreamTag', 'upstreamVersion'):
+                self.assertEqual(embedded[field], self.recipe[field])
             self.assertEqual(bundle.read('Telegram.exe'), (self.build / 'Telegram.exe').read_bytes())
             self.assertEqual(bundle.read('LICENSE'), b'GPL fixture')
             self.assertEqual(bundle.read('LEGAL'), b'OpenSSL exception fixture')

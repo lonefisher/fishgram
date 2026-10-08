@@ -91,7 +91,12 @@ def make_package(root, payload, output, record_path):
     submodules = git(root / 'tdesktop', 'submodule', 'status', '--recursive').splitlines()
     if not submodules or any(line.startswith(('-', '+', 'U')) for line in submodules):
         raise ValueError('Recursive dependencies are missing or inconsistent.')
-    record.update(schema=1, product='FishGram', platform=recipe['platform'], updateVersion=update_version(recipe['upstreamVersion'], recipe['revision']), releaseReady=False, submodules=submodules, files={p.name: {'size': p.stat().st_size, 'sha256': sha256(p)} for p in files})
+    record.update(schema=1, product='FishGram', platform=recipe['platform'],
+                  upstreamCommit=recipe['upstreamCommit'], upstreamTag=recipe['upstreamTag'],
+                  upstreamVersion=recipe['upstreamVersion'],
+                  updateVersion=update_version(recipe['upstreamVersion'], recipe['revision']),
+                  releaseReady=False, submodules=submodules,
+                  files={p.name: {'size': p.stat().st_size, 'sha256': sha256(p)} for p in files})
     output.mkdir(parents=True)
     archive = output / f'FishGram-{version}-{recipe["platform"]}-candidate.zip'
     with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_DEFLATED) as package:

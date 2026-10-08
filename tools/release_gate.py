@@ -124,10 +124,16 @@ def validate_manifest(manifest, recipe=None):
     if not match:
         raise GateError("Manifest version is missing or malformed.")
     upstream, revision = match.group(1), int(match.group(2))
+    _sha(manifest.get("upstreamCommit"), "Official baseline commit")
+    if manifest.get("upstreamVersion") != upstream or manifest.get("upstreamTag") != "v" + upstream:
+        raise GateError("Manifest official baseline version or tag is missing or inconsistent.")
     base, update = _update_version(upstream, revision)
     if manifest.get("updateVersion") != update:
         raise GateError("Manifest update version does not match the pinned recipe version.")
     if recipe is not None:
+        if any(manifest.get(field) != recipe[field]
+               for field in ("upstreamCommit", "upstreamTag", "upstreamVersion")):
+            raise GateError("Manifest official baseline differs from the reviewed recipe.")
         if manifest.get("version") != f"{recipe['upstreamVersion']}-r{recipe['revision']}":
             raise GateError("Manifest version does not match the pinned recipe.")
         if manifest.get("channel") != recipe["channel"] or manifest.get("platform") != recipe["platform"]:
@@ -263,6 +269,8 @@ def package_candidate(root, record_path, output):
     payload_names = set(recipe["payloadFiles"]) | set(recipe["payloadDlls"])
     validate_manifest({
         "schema": 1, "product": "FishGram", "version": record["version"],
+        "upstreamCommit": recipe["upstreamCommit"], "upstreamTag": recipe["upstreamTag"],
+        "upstreamVersion": recipe["upstreamVersion"],
         "updateVersion": _update_version(recipe["upstreamVersion"], recipe["revision"])[1],
         "channel": recipe["channel"], "platform": recipe["platform"],
         "toolchain": record.get("toolchain"), "files": record.get("files"),
@@ -292,6 +300,8 @@ def package_candidate(root, record_path, output):
     archive_path = output / f"FishGram-{version}-{recipe['platform']}-candidate.zip"
     manifest = {
         "schema": 1, "product": "FishGram", "version": version,
+        "upstreamCommit": recipe["upstreamCommit"], "upstreamTag": recipe["upstreamTag"],
+        "upstreamVersion": recipe["upstreamVersion"],
         "updateVersion": _update_version(recipe["upstreamVersion"], recipe["revision"])[1],
         "channel": recipe["channel"], "platform": recipe["platform"],
         "identity": "product", "productCandidate": True, "autoUpdate": True,

@@ -3,7 +3,7 @@ name: fishgram-cloud-release
 language: zh-CN
 phase: build
 status: active
-state_version: 3
+state_version: 10
 brief: brief.md
 document_constraints_version: 1
 shape_confirmation_hash: 5a8f359331a601d5770341733413ed4749514880755bea90494bea35e585b112
@@ -17,15 +17,22 @@ workspace:
   target_branch: main
   finish: null
 loop:
-  stage: building
+  stage: repairing
   goal_cycle: 1
-  iteration: 1
+  iteration: 2
   attempt: 0
-  retry_epoch: 0
+  retry_epoch: 1
   failed_iteration_count: 0
   no_progress_count: 0
   execution_failure_count: 0
-  previous_unresolved_ids: []
+  previous_unresolved_ids:
+    - A1
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
   next_action: submit-builder-candidate
 acceptance:
   - id: A1
@@ -36,8 +43,13 @@ acceptance:
   - id: A2
     source: brief.md
     text: A2：源码和子模块一致性、五组生产helper、脚本及测试身份编译对全部PR运行；外部PR无法访问发行API或签名密钥。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: PR workflows invoke source/submodule and script checks, Python tests, both
+        production search helpers, and test-identity compile; bound
+        fixed-source/search/tooling Runtime checks passed, with 107 tooling
+        tests and no skips.
+      truncated: false
   - id: A3
     source: brief.md
     text: A3：标准Windows
@@ -69,10 +81,160 @@ acceptance:
     text: A8：实测同一云端候选后不重编译，人工签名对应程序哈希，发布附件并公开下载核验后最后更新索引；已发布标签附件不覆盖。
     result: pending
     reason: null
-builder_handoff: null
+builder_handoff:
+  candidate_id: 1e121c8f-a8a7-4917-9446-88762a80732d
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:1e55a45c-c3c4-4c85-b74f-fc2d861630a5
+  iteration: 1
+  summary:
+    text: Cloud change locally integrates reviewed FishGram branding, build/release
+      gates and source e222737 into b606bca, with39recursive dependencies exact
+      and clean. Product workflow retains sanitized diagnostic behavior. Actual
+      product packager exercised with real temporary Git repositories and
+      synthetic bytes:6/6 no skips, existingreleasegate28/28 pass. Three
+      redirected program/Packer/build paths reproduced before minimal
+      link/reparse guard and rejected after. No public main merge or
+      push/restart of live full CI; no production credentials, release,
+      signature or index promotion.
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  checks:
+    - name:
+        text: Product candidate actual ZIP and Git bindings
+        truncated: false
+      result: passed
+      note:
+        text: .private/candidate-packaging-green.log6/6no skips incl
+          recipefalse/effectivetrue,identity/trust negatives, changedbytes
+          and3real link boundaries; all-red log3fail beforefix.
+        truncated: false
+    - name:
+        text: Existing release gate regression
+        truncated: false
+      result: passed
+      note:
+        text: .private/release-gate-link-regression.log28/28
+          includingQA/sign/manifest/pins/identity.
+        truncated: false
+    - name:
+        text: Current full source/parent CI
+        truncated: false
+      result: not-run
+      note:
+        text: 37785578154/e222737 fullsource compile live;37785610848/7ba2169
+          parentdependencies live. Those runs precede b606 packaging-only fix.
+          Historical cold37031108321/warm37743424883 success
+          testidentity/updatesOFF are not current product acceptance.
+        truncated: false
+    - name:
+        text: Production credentials and real Windows product QA
+        truncated: false
+      result: not-run
+      note:
+        text: OwnFishGram API/offlineroot/App absent, no production product or Win11
+          signed/recovery/searchmatrix evidence. Synthetic inputs remain test
+          fixtures only.
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: Complete cloud/currentproduct no-cache/cached records still pending;
+        syntheticpackaging cannot prove cleanWin11 operation.
+      truncated: false
+    - text: OwnAPI/root/issuer and exactlytwo-repo GitHubApp unavailable. Main/release
+        approval gates retain restrictions; never fabricate credentials or reuse
+        otherapp identity.
+      truncated: false
+    - text: Upgrade fixture simulations can support implementation but cannot
+        substitute actual installationtoken
+        creation/duplicate/conflict/CIbehavior.
+      truncated: false
+    - text: Originalsearch remains2/8, 2second normalcondition target unchanged;
+        fullsignedrestart/UAC/accountcross-baseline/recovery matrix missing.
+      truncated: false
+    - text: "Normalexit accountmigration snapshot missing: userreported possiblecrash,
+        privatepreservationqualifiedfalse; Cua backgroundlaunch refused
+        withoutprocess, noforegroundescalation."
+      truncated: false
+    - text: This candidate is local only. CurrentpublicfullCI7ba/e222 input preserved
+        whileb606 packagingfix isreviewable separately. Nofirstrelease until all
+        gates proven.
+      truncated: false
+  known_limits_truncated: false
+  review: null
+  submitted_at: 2026-10-08T15:40:46.056Z
 blockers: []
 verification: null
-history: []
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: Independent read-only review of A1-A8 for parent b606bca/source e222737.
+        A2 passes from checked-in PR workflow configuration and the three bound
+        Runtime checks; A1 and A3-A8 remain blocked by missing production
+        identity/configuration, current-candidate cloud and cache runs,
+        authenticated GitHub metadata, exact product archive, and real
+        Windows/release evidence. Synthetic tests are reported only as synthetic
+        evidence. No release approval.
+      truncated: false
+    completed_at: 2026-10-08T15:49:36.229Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 用户明确要求继续独立核查，并补充15:52 UTC GitHub API状态：父run 37785610848 (head 7ba2169)
+        与源码run 37785578154 (head e222737) 均进入client
+        compile；这两个run不是冻结的本地候选b606bca。继续只读核查当前scope并以实际权威读回更新结论。
+      truncated: false
+    completed_at: 2026-10-08T15:50:29.691Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 2
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: A1、A3、A4、A5、A6、A7、A8 均缺少其完整验收所需的真实证据，全部保持 blocked。A2 已由既有 Runtime
+        状态通过，不在本轮 scope。当前没有首发或公开发布依据。
+      truncated: false
+    completed_at: 2026-10-08T16:08:52.951Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 2
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: User authorized completing the full plan. Preserve external blockers and
+        original independent reports; fix the same missing official-baseline
+        traceability in protected and internal package manifests, and restore
+        exact-source archive evidence using the authorized Git metadata path.
+      truncated: false
+    completed_at: 2026-10-08T16:15:49.599Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
