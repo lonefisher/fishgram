@@ -18,7 +18,11 @@ python tools/data_recovery.py snapshot --work-dir D:\FishGram\FishGramData --ins
 
 Windows 最终发布目录改名遇到错误 5、32、33 时，最多尝试 11 次，等待总预算为 1 秒。仅这一处改名重试，不重新复制、写清单或执行恢复事务。每次尝试都重新校验原 canonical root/partial 的文件身份及无链接目录链，目标须不存在，并使用不覆盖目标的 Windows rename；路径被替换、目标出现或其他错误立即停止。持久锁最终失败时不清理旧快照；工具安全清理本次 partial，若锁仍阻止清理，会保留原失败及附加提示，不掩盖原错误。释放锁并排查后才可处理残留 partial，不应把残留目录当成完整快照。
 
-快照包含可恢复登录的数据，内容没有额外加密。工具设置并逐 ACE 读回 Windows 保护 DACL，核对当前用户、SYSTEM 和 Administrators 的 SID、允许类型、完整权限掩码及目录继承范围，并拒绝额外或不匹配的 ACE；不保留原始 ACL。清单 JSON 写入和读取均限制为 8 MiB，超限清单不会发布快照或触发旧快照清理。快照、清单及事务记录只放在被忽略的本机私有目录，不提交 Git、贴到问题单或上传云端。控制台只显示状态和随机 ID，不输出账户内容或文件清单。
+快照包含可恢复登录的数据，内容没有额外加密。Windows ACL 按 native `TrustedPrincipals` 契约设置并逐 ACE、所有者及 DACL 保护位读回：普通令牌的当前用户可完全控制；提升令牌的当前用户仅有读取/执行权限；SYSTEM 与 Administrators 完全控制。当前用户完全控制时，所有者限当前用户、SYSTEM 或 Administrators；当前用户只读时，所有者限 SYSTEM 或 Administrators，避免当前用户通过 owner 隐含的 WRITE_DAC 改写 ACL。DACL 只能包含这三类允许 ACE，并校验目录继承标志和继承 ACE 标记；拒绝额外、拒绝型、未知类型或权限不匹配的 ACE。读取 native 提升快照时保留其只读 ACL，不尝试改写快照树；显式恢复只读取快照，并把恢复暂存与回滚数据写到调用者拥有的工作目录。清单 JSON 写入和读取均限制为 8 MiB，超限清单不会发布快照或触发旧快照清理。快照、清单及事务记录只放在本机私有目录，不提交 Git、贴到问题单或上传云端。控制台只显示状态和随机 ID，不输出账户内容或文件清单。
+
+新对象的默认 owner 来自 TOKEN_OWNER，不能仅凭 TokenElevation 假定为 Administrators。Python `_private_acl` 在提升模式下显式设置 O:BA 与 OWNER_SECURITY_INFORMATION，并读回确认 Administrators owner；设置或读回失败即停止，不弹出 UAC。native 测试夹具采用相同的提升判断与显式 owner，并在创建子目录前读回 ACL。参见 [Windows 新对象所有者规则](https://learn.microsoft.com/en-us/windows/win32/secauthz/owner-of-a-new-object)。
+
+数据操作锁始终锁定偏移 0 的 1 字节范围。已有锁文件不可写时以只读句柄打开；Python 不向空锁文件写入填充字节。Windows `_locking` 支持只读描述符以及超出 EOF 的锁范围，因此 0 字节文件也能互斥；native 自己建立的锁文件会初始化 1 字节。参见 [MSVC _locking](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/locking?view=msvc-170) 与 [LockFileEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex)。
 
 ## 明确选择数据恢复
 
@@ -44,7 +48,11 @@ python tools/data_recovery.py recover --work-dir D:\FishGram\FishGramData --inst
 
 ## 当前验证边界
 
-已用合成文件树验证两份保留、内容与空目录、实际 Windows 进程识别、复制期间重新启动、变化检测、空间不足、链接、重叠、篡改、路径穿越、显式恢复、替换失败和模拟中断恢复；Windows gate 测试还确认共享客户端 lease 会阻止数据工具，并且独占 lease 覆盖操作期间的进程检查。账户数据从未用于这些测试。未接入 gate 的旧客户端仍由重复进程检查保护，无法获得 gate-aware 客户端提供的启动互斥；Windows 11 实际账户迁移及自动更新完整验收仍待单独完成。
+已用合成文件树验证两份保留、内容与空目录、实际 Windows 进程识别、复制期间重新启动、变化检测、空间不足、链接、重叠、篡改、路径穿越、显式恢复、替换失败和模拟中断恢复；ACL 用例覆盖普通完整权限、native 提升时用户只读、可信所有者、继承 ACE 与拒绝型/额外/错误权限/不可信所有者。新增真实文件测试用合成 ACL 阻止数据写入，即使测试令牌启用了管理员组也需以只读句柄打开；在空文件上取得 Python 锁后，另一进程的 Python 锁被阻止，直接 LockFileEx 返回 ERROR_LOCK_VIOLATION（33），释放后两者均能取得锁，文件仍为 0 字节。该 ACL 含测试专用 deny ACE，不是生产快照信任夹具。另以模拟 TokenElevation 加真实 Win32 安全描述符解析验证 Python 请求 Administrators owner，没有执行实际提升的 owner 修改。
+
+本轮限定 Python 套件运行 36 项，35 项通过，native 互操作用例因未指定重建后的测试程序而跳过。native 互操作测试会读回真实快照 DACL 并执行显式恢复；旧测试 exe 不能验证本轮夹具修改。Windows gate 测试还确认共享客户端 lease 会阻止数据工具，并且独占 lease 覆盖操作期间的进程检查。账户数据从未用于这些测试。当前自动化验证没有以真实提升令牌运行；提升快照与普通令牌实际恢复仍须在独立 Windows 验收中确认。未接入 gate 的旧客户端仍由重复进程检查保护，无法获得 gate-aware 客户端提供的启动互斥；Windows 11 实际账户迁移及自动更新完整验收仍待单独完成。
+
+稳定修复后，主代理重新严格编译原生测试与 Updater，原生快照和 Python 恢复互操作及全部 36 项数据测试通过，无 native 跳过；只读空锁也用真实受限 ACL 和两个独立进程验证互斥。此前“native 测试程序未配置”的结果仅是子任务定向运行的边界。仍没有真实 UAC 或真实账户验收。
 
 真实账户跨官方基线迁移、Windows 11 实机运行与恢复、独立程序回退工具及断电耐久性仍待验证。此工具不替代更新器的程序事务，也不承诺只换旧 exe 就能安全降级。
 

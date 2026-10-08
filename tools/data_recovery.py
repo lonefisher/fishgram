@@ -32,12 +32,37 @@ JOURNAL = '.fishgram-data-restore.json'
 MARKER = '.fishgram-snapshots'
 MAX_MANIFEST = 8 * 1024 * 1024
 FILE_ALL_ACCESS = 0x001F01FF
+FILE_GENERIC_READ_EXECUTE = 0x001200A9
+INHERITED_ACE = 0x10
 
 
-def _validate_private_acl_entries(entries, expected_sids, directory: bool) -> None:
-    expected_flags = 0x03 if directory else 0
-    expected = {(sid, 0, expected_flags, FILE_ALL_ACCESS) for sid in expected_sids}
-    if len(entries) != 3 or len(expected) != 3 or set(entries) != expected:
+def _validate_private_acl_entries(entries, expected_sids, directory: bool, *, owner_sid=None,
+                                  protected=None, require_protected=False, user_writable=True) -> None:
+    """Validate the exact native trust set, including the elevated read-only user ACE."""
+    if any(not isinstance(entry, tuple) or len(entry) != 4 for entry in entries):
+        raise RecoveryError('Private storage permissions did not read back correctly.')
+    user_sid, system_sid, admins_sid = expected_sids
+    base_flags = 0x03 if directory else 0
+    allowed_flags = {base_flags, base_flags | INHERITED_ACE}
+    expected = {
+        (user_sid, 0, flags, mask)
+        for flags in allowed_flags
+        for mask in ((FILE_ALL_ACCESS, FILE_GENERIC_READ_EXECUTE)
+                     if user_writable else (FILE_GENERIC_READ_EXECUTE,))
+    }
+    expected |= {
+        (sid, 0, flags, FILE_ALL_ACCESS)
+        for sid in (system_sid, admins_sid)
+        for flags in allowed_flags
+    }
+    user_masks = {entry[3] for entry in entries if entry[0] == user_sid}
+    if (len(entries) != 3 or len(set(entries)) != 3 or not set(entries) <= expected
+            or {entry[0] for entry in entries} != {user_sid, system_sid, admins_sid}
+            or (owner_sid is not None and owner_sid not in {user_sid, system_sid, admins_sid})
+            or (owner_sid == user_sid and FILE_GENERIC_READ_EXECUTE in user_masks
+                and FILE_ALL_ACCESS not in user_masks)
+            or (require_protected and protected is not True)
+            or (require_protected and any(entry[2] != base_flags for entry in entries))):
         raise RecoveryError('Private storage permissions did not read back correctly.')
 
 
@@ -69,9 +94,10 @@ def _relative(value: str) -> PurePosixPath:
     return path
 
 
-def _private_acl(path: Path) -> None:
+def _private_acl(path: Path, *, validate_only=False, require_protected=True) -> None:
     if os.name != 'nt':
-        os.chmod(path, 0o700 if path.is_dir() else 0o600)
+        if not validate_only:
+            os.chmod(path, 0o700 if path.is_dir() else 0o600)
         return
     from ctypes import wintypes
     advapi = ctypes.WinDLL('advapi32', use_last_error=True)
@@ -86,6 +112,7 @@ def _private_acl(path: Path) -> None:
     advapi.SetFileSecurityW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.LPVOID]
     advapi.GetFileSecurityW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
     advapi.GetSecurityDescriptorControl.argtypes = [wintypes.LPVOID, ctypes.POINTER(wintypes.WORD), ctypes.POINTER(wintypes.DWORD)]
+    advapi.GetSecurityDescriptorOwner.argtypes = [wintypes.LPVOID, ctypes.POINTER(wintypes.LPVOID), ctypes.POINTER(wintypes.BOOL)]
     advapi.GetSecurityDescriptorDacl.argtypes = [wintypes.LPVOID, ctypes.POINTER(wintypes.BOOL), ctypes.POINTER(wintypes.LPVOID), ctypes.POINTER(wintypes.BOOL)]
     advapi.GetAce.argtypes = [wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.LPVOID)]
     advapi.GetAce.restype = wintypes.BOOL
@@ -103,22 +130,35 @@ def _private_acl(path: Path) -> None:
         sid = ctypes.cast(data, ctypes.POINTER(wintypes.LPVOID))[0]
         if not advapi.ConvertSidToStringSidW(sid, ctypes.byref(sid_text)):
             raise RecoveryError('Could not obtain private storage identity.')
-        flags = 'OICI' if path.is_dir() else ''
-        sddl = 'D:P' + ''.join(f'(A;{flags};FA;;;{value})' for value in (sid_text.value, 'SY', 'BA'))
-        if not advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None):
-            raise RecoveryError('Could not prepare private storage permissions.')
-        if not advapi.SetFileSecurityW(str(path), 4 | 0x80000000, descriptor):
-            raise RecoveryError('Could not restrict private storage permissions.')
+        elevation = wintypes.DWORD()
+        if not advapi.GetTokenInformation(token, 20, ctypes.byref(elevation), ctypes.sizeof(elevation), ctypes.byref(needed)):
+            raise RecoveryError('Could not obtain private storage identity.')
+        if not validate_only:
+            flags = 'OICI' if path.is_dir() else ''
+            user_rights = '0x001200A9' if elevation.value else 'FA'
+            sddl = ('O:BA' if elevation.value else '') + 'D:P' + ''.join(
+                f'(A;{flags};{rights};;;{value})'
+                for value, rights in ((sid_text.value, user_rights), ('SY', 'FA'), ('BA', 'FA')))
+            if not advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None):
+                raise RecoveryError('Could not prepare private storage permissions.')
+            fields = 4 | 0x80000000 | (1 if elevation.value else 0)
+            if not advapi.SetFileSecurityW(str(path), fields, descriptor):
+                raise RecoveryError('Could not restrict private storage permissions.')
         required = wintypes.DWORD()
-        advapi.GetFileSecurityW(str(path), 4, None, 0, ctypes.byref(required))
+        security_info = 1 | 4
+        advapi.GetFileSecurityW(str(path), security_info, None, 0, ctypes.byref(required))
         readback = ctypes.create_string_buffer(required.value)
         control, revision = wintypes.WORD(), wintypes.DWORD()
         present, defaulted, acl = wintypes.BOOL(), wintypes.BOOL(), wintypes.LPVOID()
-        if (not advapi.GetFileSecurityW(str(path), 4, readback, len(readback), ctypes.byref(required))
+        owner, owner_defaulted = wintypes.LPVOID(), wintypes.BOOL()
+        if (not advapi.GetFileSecurityW(str(path), security_info, readback, len(readback), ctypes.byref(required))
                 or not advapi.GetSecurityDescriptorControl(readback, ctypes.byref(control), ctypes.byref(revision))
-                or not control.value & 0x1000
+                or not advapi.GetSecurityDescriptorOwner(readback, ctypes.byref(owner), ctypes.byref(owner_defaulted))
                 or not advapi.GetSecurityDescriptorDacl(readback, ctypes.byref(present), ctypes.byref(acl), ctypes.byref(defaulted))
                 or not present or not acl):
+            raise RecoveryError('Private storage permissions did not read back correctly.')
+        owner_text = wintypes.LPWSTR()
+        if not advapi.ConvertSidToStringSidW(owner, ctypes.byref(owner_text)):
             raise RecoveryError('Private storage permissions did not read back correctly.')
         ace_count = ctypes.c_ushort.from_address(acl.value + 4).value
         entries = []
@@ -139,13 +179,32 @@ def _private_acl(path: Path) -> None:
                 entries.append((ace_sid_text.value, ace_type, ace_flags, mask))
             finally:
                 kernel.LocalFree(ace_sid_text)
-        _validate_private_acl_entries(entries, (sid_text.value, 'S-1-5-18', 'S-1-5-32-544'), path.is_dir())
+        try:
+            if not validate_only and elevation.value and owner_text.value != 'S-1-5-32-544':
+                raise RecoveryError('Private storage owner did not read back correctly.')
+            _validate_private_acl_entries(
+                entries, (sid_text.value, 'S-1-5-18', 'S-1-5-32-544'), path.is_dir(),
+                owner_sid=owner_text.value, protected=bool(control.value & 0x1000),
+                require_protected=require_protected, user_writable=not bool(elevation.value))
+        finally:
+            kernel.LocalFree(owner_text)
     finally:
         kernel.CloseHandle(token)
         if sid_text:
             kernel.LocalFree(sid_text)
         if descriptor:
             kernel.LocalFree(descriptor)
+
+
+def _validate_private_tree(root: Path) -> None:
+    if os.name != 'nt':
+        return
+    _private_acl(root, validate_only=True, require_protected=True)
+    for directory, folders, files in os.walk(root, followlinks=False):
+        for name in folders + files:
+            path = Path(directory) / name
+            _reject_link(path)
+            _private_acl(path, validate_only=True, require_protected=False)
 
 
 def process_running(executable: Path) -> bool:
@@ -341,10 +400,15 @@ def _lock(root: Path, name: str):
     path = root / name
     _reject_link(path)
     try:
-        with path.open('a+b') as file:
-            if not path.stat().st_size:
-                file.write(b'0')
-                file.flush()
+        try:
+            file = path.open('r+b')
+        except PermissionError:
+            # Elevated native snapshots grant the ordinary caller read-only
+            # access to the lock file; LockFileEx accepts a read handle.
+            file = path.open('rb')
+        except FileNotFoundError:
+            file = path.open('a+b')
+        with file:
             file.seek(0)
             if os.name == 'nt':
                 import msvcrt
@@ -379,7 +443,8 @@ def _roots(work_dir, snapshot_root, executable):
 
 def _snapshot_root(root: Path) -> None:
     _reject_link(root / MARKER)
-    if root.exists():
+    existed = root.exists()
+    if existed:
         if not root.is_dir():
             raise RecoveryError('Snapshot root is not a directory.')
         entries = list(root.iterdir())
@@ -391,12 +456,18 @@ def _snapshot_root(root: Path) -> None:
         _reject_link(path)
         if path.name not in (MARKER, '.snapshot.lock') and not SNAPSHOT.fullmatch(path.name) and not re.fullmatch(r'\.partial-[a-f0-9]{32}', path.name):
             raise RecoveryError('Snapshot directory contains an unrelated entry.')
-    _private_acl(root)
+    if existed:
+        _validate_private_tree(root)
+    else:
+        _private_acl(root)
     if not (root / MARKER).exists():
-        (root / MARKER).write_bytes(b'FishGram snapshots v1\n')
+        marker = root / MARKER
+        marker.write_bytes(b'FishGram snapshots v1\n')
+        _private_acl(marker)
 
 
 def _read_snapshot(root: Path, name: str):
+    _validate_private_tree(root)
     if not isinstance(name, str) or not SNAPSHOT.fullmatch(name):
         raise RecoveryError('Invalid snapshot selection.')
     folder = _canonical(root / name)

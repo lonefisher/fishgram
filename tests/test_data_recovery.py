@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import ctypes
 import threading
@@ -125,11 +126,17 @@ class DataRecoveryTests(unittest.TestCase):
         expected = '.fishgram-snapshots-' + hashlib.sha256(
             str(work.resolve()).replace('\\', '/').encode('utf-8')).hexdigest()[:16]
         self.assertEqual(snapshot_root.name, expected)
+        recovery.restore_snapshot(work, snapshot_root, Path(generated['executable']),
+                                  generated['snapshotName'], confirm_restore=True,
+                                  process_probe=lambda path: False)
+        self.assertEqual((work / 'tdata' / relative).read_bytes(), b'native synthetic account data')
+        self.assertTrue((work / 'tdata' / 'empty-directory').is_dir())
 
     def test_private_acl_validation_checks_each_ace_field_and_rejects_extras(self):
         expected = ('S-1-5-21-100', 'S-1-5-18', 'S-1-5-32-544')
         valid = [(sid, 0, 0x03, recovery.FILE_ALL_ACCESS) for sid in expected]
-        recovery._validate_private_acl_entries(valid, expected, directory=True)
+        recovery._validate_private_acl_entries(valid, expected, directory=True,
+                                               owner_sid=expected[0], protected=True)
         for replacement in [
             ('S-1-5-21-999', 0, 0x03, recovery.FILE_ALL_ACCESS),
             (expected[0], 1, 0x03, recovery.FILE_ALL_ACCESS),
@@ -137,13 +144,201 @@ class DataRecoveryTests(unittest.TestCase):
             (expected[0], 0, 0, recovery.FILE_ALL_ACCESS),
         ]:
             with self.subTest(replacement=replacement), self.assertRaises(recovery.RecoveryError):
-                recovery._validate_private_acl_entries([replacement, *valid[1:]], expected, directory=True)
+                recovery._validate_private_acl_entries([replacement, *valid[1:]], expected, directory=True,
+                                                       owner_sid=expected[0], protected=True)
         with self.assertRaisesRegex(recovery.RecoveryError, 'permissions'):
-            recovery._validate_private_acl_entries([*valid, valid[0]], expected, directory=True)
+            recovery._validate_private_acl_entries([*valid, valid[0]], expected, directory=True,
+                                                   owner_sid=expected[0], protected=True)
         file_entries = [(sid, 0, 0, recovery.FILE_ALL_ACCESS) for sid in expected]
-        recovery._validate_private_acl_entries(file_entries, expected, directory=False)
+        recovery._validate_private_acl_entries(file_entries, expected, directory=False,
+                                               owner_sid=expected[0])
         with self.assertRaises(recovery.RecoveryError):
-            recovery._validate_private_acl_entries(valid, expected, directory=False)
+            recovery._validate_private_acl_entries(valid, expected, directory=False,
+                                                   owner_sid=expected[0])
+
+    def test_private_acl_accepts_native_elevated_read_only_user_and_trusted_owner(self):
+        user, system, admins = ('S-1-5-21-100', 'S-1-5-18', 'S-1-5-32-544')
+        native_elevated = [
+            (user, 0, 0x03, recovery.FILE_GENERIC_READ_EXECUTE),
+            (system, 0, 0x03, recovery.FILE_ALL_ACCESS),
+            (admins, 0, 0x03, recovery.FILE_ALL_ACCESS),
+        ]
+        recovery._validate_private_acl_entries(native_elevated, (user, system, admins),
+                                               directory=True, owner_sid=admins, protected=True,
+                                               user_writable=False)
+        inherited = [(sid, kind, flags | 0x10, mask) for sid, kind, flags, mask in native_elevated]
+        recovery._validate_private_acl_entries(inherited, (user, system, admins),
+                                               directory=True, owner_sid=system, protected=False,
+                                               user_writable=False)
+        file_entries = [(sid, 0, 0x10, mask) for sid, _, _, mask in native_elevated]
+        recovery._validate_private_acl_entries(file_entries, (user, system, admins),
+                                               directory=False, owner_sid=admins, protected=False,
+                                               user_writable=False)
+
+    def test_private_acl_rejects_untrusted_owner_writer_and_malformed_native_acl(self):
+        user, system, admins = ('S-1-5-21-100', 'S-1-5-18', 'S-1-5-32-544')
+        native_elevated = [
+            (user, 0, 0x03, recovery.FILE_GENERIC_READ_EXECUTE),
+            (system, 0, 0x03, recovery.FILE_ALL_ACCESS),
+            (admins, 0, 0x03, recovery.FILE_ALL_ACCESS),
+        ]
+        invalid = [
+            ([(user, 0, 0x03, recovery.FILE_ALL_ACCESS), *native_elevated[1:]], admins, True),
+            ([*native_elevated, ('S-1-1-0', 0, 0x03, recovery.FILE_ALL_ACCESS)], admins, True),
+            ([('S-1-1-0', 0, 0x03, recovery.FILE_ALL_ACCESS), *native_elevated[1:]], admins, True),
+            ([ (sid, 1, flags, mask) if sid == user else (sid, 0, flags, mask)
+               for sid, _, flags, mask in native_elevated], admins, True),
+            ([ (sid, 0, flags, mask | 0x2) if sid == user else (sid, 0, flags, mask)
+               for sid, _, flags, mask in native_elevated], admins, True),
+            (native_elevated, user, True),
+            (native_elevated, 'S-1-1-0', True),
+            (native_elevated, admins, False),
+        ]
+        for entries, owner, protected in invalid:
+            with self.subTest(owner=owner, protected=protected, entries=entries), \
+                    self.assertRaises(recovery.RecoveryError):
+                recovery._validate_private_acl_entries(entries, (user, system, admins),
+                                                       directory=True, owner_sid=owner,
+                                                       protected=protected, user_writable=False,
+                                                       require_protected=not protected)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows read-only lock handle semantics')
+    def test_empty_read_only_lock_file_locks_and_excludes_second_process(self):
+        from ctypes import wintypes
+        path = self.root / '.snapshot.lock'
+        path.touch()
+        advapi = ctypes.WinDLL('advapi32', use_last_error=True)
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.LocalFree.argtypes = [wintypes.HLOCAL]
+        advapi.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+        advapi.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        advapi.ConvertSidToStringSidW.argtypes = [wintypes.LPVOID, ctypes.POINTER(wintypes.LPWSTR)]
+        advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(wintypes.LPVOID), wintypes.LPVOID]
+        advapi.SetFileSecurityW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.LPVOID]
+        token = wintypes.HANDLE()
+        self.assertTrue(advapi.OpenProcessToken(kernel.GetCurrentProcess(), 8, ctypes.byref(token)))
+        try:
+            needed = wintypes.DWORD()
+            advapi.GetTokenInformation(token, 1, None, 0, ctypes.byref(needed))
+            data = ctypes.create_string_buffer(needed.value)
+            self.assertTrue(advapi.GetTokenInformation(token, 1, data, len(data), ctypes.byref(needed)))
+            sid = ctypes.cast(data, ctypes.POINTER(wintypes.LPVOID))[0]
+            sid_text = wintypes.LPWSTR()
+            self.assertTrue(advapi.ConvertSidToStringSidW(sid, ctypes.byref(sid_text)))
+            try:
+                descriptor = wintypes.LPVOID()
+                # Deny data writes even if this test process has an enabled
+                # admin group. This is a lock-access fixture, not a trusted snapshot.
+                sddl = (f'D:P(D;;0x00000002;;;{sid_text.value})'
+                        f'(A;;0x001200A9;;;{sid_text.value})(A;;FA;;;SY)(A;;FA;;;BA)')
+                self.assertTrue(advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    sddl, 1, ctypes.byref(descriptor), None))
+                try:
+                    self.assertTrue(advapi.SetFileSecurityW(
+                        str(path), 4 | 0x80000000, descriptor))
+                finally:
+                    kernel.LocalFree(descriptor)
+            finally:
+                kernel.LocalFree(sid_text)
+        finally:
+            kernel.CloseHandle(token)
+
+        self.addCleanup(recovery._private_acl, path)
+        with self.assertRaises(PermissionError):
+            with path.open('r+b'):
+                pass
+        with path.open('rb') as file:
+            self.assertFalse(file.writable())
+            self.assertEqual(file.read(), b'')
+        self.assertEqual(path.stat().st_size, 0)
+        helper = '''import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('dr', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+try:
+    with module._lock(Path(sys.argv[2]).parent, '.snapshot.lock'):
+        print('ACQUIRED')
+except module.RecoveryError:
+    print('BLOCKED')
+'''
+        command = [sys.executable, '-c', helper, str(Path(recovery.__file__)), str(path)]
+        native_helper = '''import ctypes, msvcrt, sys
+from ctypes import wintypes
+class Overlapped(ctypes.Structure):
+    _fields_ = [('Internal', ctypes.c_size_t), ('InternalHigh', ctypes.c_size_t),
+                ('Offset', wintypes.DWORD), ('OffsetHigh', wintypes.DWORD),
+                ('hEvent', wintypes.HANDLE)]
+kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+kernel.LockFileEx.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                             wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(Overlapped)]
+with open(sys.argv[1], 'rb') as file:
+    handle = msvcrt.get_osfhandle(file.fileno())
+    if kernel.LockFileEx(handle, 3, 0, 1, 0, ctypes.byref(Overlapped())):
+        print('ACQUIRED')
+    else:
+        print('BLOCKED:' + str(ctypes.get_last_error()))
+'''
+        native_command = [sys.executable, '-c', native_helper, str(path)]
+        with recovery._lock(self.root, path.name):
+            result = subprocess.run(command, capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), 'BLOCKED')
+            result = subprocess.run(native_command, capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), 'BLOCKED:33')
+        result = subprocess.run(command, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'ACQUIRED')
+        result = subprocess.run(native_command, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'ACQUIRED')
+        self.assertEqual(path.stat().st_size, 0)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows security descriptor generation')
+    def test_private_acl_elevated_descriptor_explicitly_requests_admin_owner(self):
+        from ctypes import wintypes
+        real_advapi = ctypes.WinDLL('advapi32', use_last_error=True)
+        real_kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        real_advapi.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID,
+                                                    wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        captured = []
+
+        def token_information(token, info, output, size, required):
+            if info == 20:
+                ctypes.cast(output, ctypes.POINTER(wintypes.DWORD))[0] = 1
+                ctypes.cast(required, ctypes.POINTER(wintypes.DWORD))[0] = ctypes.sizeof(wintypes.DWORD)
+                return True
+            return real_advapi.GetTokenInformation(token, info, output, size, required)
+
+        def set_security(path, fields, descriptor):
+            owner, defaulted = wintypes.LPVOID(), wintypes.BOOL()
+            self.assertTrue(real_advapi.GetSecurityDescriptorOwner(
+                descriptor, ctypes.byref(owner), ctypes.byref(defaulted)))
+            owner_text = wintypes.LPWSTR()
+            if owner.value:
+                self.assertTrue(real_advapi.ConvertSidToStringSidW(owner, ctypes.byref(owner_text)))
+            try:
+                captured.append((fields, owner_text.value))
+            finally:
+                if owner_text:
+                    real_kernel.LocalFree(owner_text)
+            return False  # Inspect the real descriptor without a privileged filesystem mutation.
+
+        class AdvapiProxy:
+            def __getattr__(self, name):
+                return getattr(real_advapi, name)
+        proxy = AdvapiProxy()
+        proxy.GetTokenInformation = token_information
+        proxy.SetFileSecurityW = set_security
+
+        with mock.patch.object(ctypes, 'WinDLL', side_effect=lambda name, **kwargs:
+                               proxy if name == 'advapi32' else real_kernel):
+            with self.assertRaisesRegex(recovery.RecoveryError, 'restrict'):
+                recovery._private_acl(self.root)
+        self.assertEqual(captured, [(1 | 4 | 0x80000000, 'S-1-5-32-544')])
 
     def test_oversized_manifest_does_not_publish_or_prune_snapshots(self):
         previous = self.snapshot()
