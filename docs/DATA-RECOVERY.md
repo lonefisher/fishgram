@@ -50,9 +50,9 @@ python tools/data_recovery.py recover --work-dir D:\FishGram\FishGramData --inst
 
 已用合成文件树验证两份保留、内容与空目录、实际 Windows 进程识别、复制期间重新启动、变化检测、空间不足、链接、重叠、篡改、路径穿越、显式恢复、替换失败和模拟中断恢复；ACL 用例覆盖普通完整权限、native 提升时用户只读、可信所有者、继承 ACE 与拒绝型/额外/错误权限/不可信所有者。新增真实文件测试用合成 ACL 阻止数据写入，即使测试令牌启用了管理员组也需以只读句柄打开；在空文件上取得 Python 锁后，另一进程的 Python 锁被阻止，直接 LockFileEx 返回 ERROR_LOCK_VIOLATION（33），释放后两者均能取得锁，文件仍为 0 字节。该 ACL 含测试专用 deny ACE，不是生产快照信任夹具。另以模拟 TokenElevation 加真实 Win32 安全描述符解析验证 Python 请求 Administrators owner，没有执行实际提升的 owner 修改。
 
-本轮限定 Python 套件运行 36 项，35 项通过，native 互操作用例因未指定重建后的测试程序而跳过。native 互操作测试会读回真实快照 DACL 并执行显式恢复；旧测试 exe 不能验证本轮夹具修改。Windows gate 测试还确认共享客户端 lease 会阻止数据工具，并且独占 lease 覆盖操作期间的进程检查。账户数据从未用于这些测试。当前自动化验证没有以真实提升令牌运行；提升快照与普通令牌实际恢复仍须在独立 Windows 验收中确认。未接入 gate 的旧客户端仍由重复进程检查保护，无法获得 gate-aware 客户端提供的启动互斥；Windows 11 实际账户迁移及自动更新完整验收仍待单独完成。
+子任务定向运行时，36 项数据测试中 native 互操作因未配置程序而跳过；主代理随后重新严格编译原生测试与 Updater，原生快照 DACL 读回、Python 显式恢复及全部 36 项数据测试通过，无 native 跳过。Windows gate 测试还确认共享客户端 lease 会阻止数据工具，并且独占 lease 覆盖操作期间的进程检查。账户数据从未用于这些测试。未接入 gate 的旧客户端仍由重复进程检查保护，无法获得 gate-aware 客户端提供的启动互斥。
 
-稳定修复后，主代理重新严格编译原生测试与 Updater，原生快照和 Python 恢复互操作及全部 36 项数据测试通过，无 native 跳过；只读空锁也用真实受限 ACL 和两个独立进程验证互斥。此前“native 测试程序未配置”的结果仅是子任务定向运行的边界。仍没有真实 UAC 或真实账户验收。
+[云端回归](https://github.com/lonefisher/tdesktop/actions/runs/37784975830)已实际读回 `elevated=1`，事务与 36 项 Python 数据测试通过，其中 native 互操作 1 项明确跳过。只读空锁也用真实受限 ACL 和两个独立进程验证互斥。此证据覆盖真实管理员 runner；仍没有真实 UAC 提示、提升快照与普通令牌跨权限恢复或真实账户验收。
 
 真实账户跨官方基线迁移、Windows 11 实机运行与恢复、独立程序回退工具及断电耐久性仍待验证。此工具不替代更新器的程序事务，也不承诺只换旧 exe 就能安全降级。
 

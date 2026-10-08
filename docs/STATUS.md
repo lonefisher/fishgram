@@ -20,4 +20,6 @@
 
 干净 runner 的缺目录、短路径夹具修复已获[父仓库检查成功](https://github.com/lonefisher/fishgram/actions/runs/37779473800)。源码事务夹具匹配提升权限策略后，[单独的云端 helper 检查](https://github.com/lonefisher/tdesktop/actions/runs/37784107745)成功，完整客户端编译明确跳过，不将其计为完整构建。后续本机独立检查为 Python 198/198 无跳过、原生快照与恢复 36/36、验签 60/63 和 Packer 11/11；真实 UAC 与账户仍待验。公开候选 `74e3281`/`6fed833` 已在全新目录完成递归克隆，40 个子模块指针均匹配。App、环境变量和 Pages 接续见[GitHub 配置](GITHUB-CONFIGURATION.md)。
 
+后续[云端 ACL 互操作回归](https://github.com/lonefisher/tdesktop/actions/runs/37784975830)成功，日志实际读回 `elevated=1`；事务、13 组搜索核心及 Python 数据测试通过，36 项数据测试中 1 项 native 互操作明确跳过。真实管理员 runner 证据不替代 UAC 提示、普通令牌跨权限恢复或真实账户验证。`upgrade-automation` 环境现已限制受保护分支，无人工 reviewer；`candidate`/`release` 的维护者审批仍保留。
+
 账户截图、查询、频道名称、原始日志与凭据均留在私有区。公开证据仅保存提交、版本、摘要、匿名测试结论和已知限制。完整目标及各自门槛见 Comet Spec、[更新开发验证](UPDATE-TESTING.md)、[发行指南](RELEASING.md)、[发布流程](PUBLISHING.md)和[数据恢复](DATA-RECOVERY.md)。
