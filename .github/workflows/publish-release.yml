@@ -1,0 +1,187 @@
+name: Publish FishGram release
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful product-candidate workflow run ID
+        required: true
+        type: string
+      signing_run_id:
+        description: Successful sign-release-candidate workflow run ID for that candidate
+        required: true
+        type: string
+      qa_file:
+        description: Reviewed QA JSON committed on main
+        required: true
+        type: string
+      index_channel:
+        description: Public update index to advance
+        required: true
+        type: choice
+        options: [stable, beta]
+      publish_externally:
+        description: Actually create the tags/release and update public Pages
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: fishgram-publication-${{ inputs.index_channel }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    environment: release
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Validate manual inputs and protected environment
+        id: preflight
+        shell: pwsh
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          SIGNING_RUN_ID: ${{ inputs.signing_run_id }}
+          QA_FILE: ${{ inputs.qa_file }}
+          ISSUER_KEY_ID: ${{ vars.ISSUER_KEY_ID }}
+          PUBLISH_EXTERNALLY: ${{ inputs.publish_externally }}
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/main' -or $env:GITHUB_EVENT_NAME -ne 'workflow_dispatch') { throw 'Publication requires manual dispatch on main.' }
+          if ($env:CANDIDATE_RUN_ID -notmatch '^\d+$' -or $env:SIGNING_RUN_ID -notmatch '^\d+$') { throw 'Run IDs must be numeric.' }
+          if ([IO.Path]::GetFileName($env:QA_FILE) -ne $env:QA_FILE -or $env:QA_FILE.Contains('..')) { throw 'QA file must be a safe committed basename.' }
+          if ($env:ISSUER_KEY_ID -notmatch '^[A-Za-z0-9._-]{1,64}$') { throw 'Production issuer ID is not configured.' }
+          git ls-files --error-unmatch -- "release/qa/$env:QA_FILE" *> $null
+          if ($LASTEXITCODE) { throw 'QA approval is not committed on reviewed main.' }
+          if ($env:PUBLISH_EXTERNALLY -eq 'true') { "approval_marker=1" >> $env:GITHUB_OUTPUT }
+      - name: Require configured GitHub App credentials before external writes
+        if: inputs.publish_externally
+        shell: pwsh
+        env:
+          RELEASE_APP_CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_APP_CLIENT_ID) -or [string]::IsNullOrWhiteSpace($env:RELEASE_APP_PRIVATE_KEY)) { throw 'External publication requires the configured GitHub App client ID and private key secret.' }
+      - name: Verify candidate run provenance
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'candidate-provenance'; New-Item -ItemType Directory -Force $dir | Out-Null
+          gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:CANDIDATE_RUN_ID" | Out-File -Encoding utf8 "$dir/run.json"
+          if ($LASTEXITCODE) { throw 'Candidate run API lookup failed.' }
+          gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:CANDIDATE_RUN_ID/jobs" | Out-File -Encoding utf8 "$dir/jobs.json"
+          if ($LASTEXITCODE) { throw 'Candidate jobs API lookup failed.' }
+          gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:CANDIDATE_RUN_ID/artifacts" | Out-File -Encoding utf8 "$dir/artifacts.json"
+          if ($LASTEXITCODE) { throw 'Candidate artifacts API lookup failed.' }
+          python tools/sign_candidate.py verify-run --run-json "$dir/run.json" --jobs-json "$dir/jobs.json" --artifacts-json "$dir/artifacts.json" --repository $env:GITHUB_REPOSITORY --run-id $env:CANDIDATE_RUN_ID
+          if ($LASTEXITCODE) { throw 'Candidate run/artifact provenance rejected.' }
+      - name: Download exact candidate run artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run_id }}
+          name: fishgram-product-candidate-${{ inputs.candidate_run_id }}
+          path: ${{ runner.temp }}/candidate
+      - name: Verify exact successful signing run and artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_RUN_ID: ${{ inputs.signing_run_id }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'signing-provenance'
+          gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SIGNING_RUN_ID" | Out-File -Encoding utf8 "$dir-run.json"
+          if ($LASTEXITCODE) { throw 'Signing run API lookup failed.' }
+          gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SIGNING_RUN_ID/jobs" | Out-File -Encoding utf8 "$dir-jobs.json"
+          if ($LASTEXITCODE) { throw 'Signing jobs API lookup failed.' }
+          gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SIGNING_RUN_ID/artifacts" | Out-File -Encoding utf8 "$dir-artifacts.json"
+          if ($LASTEXITCODE) { throw 'Signing artifacts API lookup failed.' }
+          $run = Get-Content -Raw "$dir-run.json" | ConvertFrom-Json
+          $candidate = Get-Content -Raw (Join-Path $env:RUNNER_TEMP 'candidate/candidate-record.json') | ConvertFrom-Json
+          python tools/publish_release.py verify-sign-run --run-json "$dir-run.json" --jobs-json "$dir-jobs.json" --artifacts-json "$dir-artifacts.json" --repository $env:GITHUB_REPOSITORY --run-id $env:SIGNING_RUN_ID --candidate-run-id $env:CANDIDATE_RUN_ID --expected-sha $candidate.parentCommit
+          if ($LASTEXITCODE) { throw 'Signing run/artifact provenance rejected.' }
+      - name: Download signed artifact from exact signing run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.signing_run_id }}
+          name: fishgram-signed-candidate-${{ inputs.candidate_run_id }}
+          path: ${{ runner.temp }}/signed
+      - name: Repeat QA, candidate, source, trust and production signature gates; prepare offline handoff
+        id: prep
+        shell: pwsh
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          QA_FILE: ${{ inputs.qa_file }}
+          ISSUER_KEY_ID: ${{ vars.ISSUER_KEY_ID }}
+          INDEX_CHANNEL: ${{ inputs.index_channel }}
+        run: |
+          $packageDir = Join-Path $env:RUNNER_TEMP 'candidate/package'
+          $candidateZip = @(Get-ChildItem -LiteralPath $packageDir -File -Filter '*-candidate.zip')
+          $signedPackages = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'signed') -File -Filter '*.tupdate')
+          if ($candidateZip.Count -ne 1 -or $signedPackages.Count -ne 1) { throw 'Exact candidate and signed artifact payloads are required.' }
+          $args = @('prepare', '--root', '.', '--commit', $env:GITHUB_SHA, '--index-channel', $env:INDEX_CHANNEL,
+            '--candidate-record', (Join-Path $env:RUNNER_TEMP 'candidate/candidate-record.json'),
+            '--candidate-zip', $candidateZip[0].FullName,
+            '--source-zip', (Join-Path $env:RUNNER_TEMP 'candidate/FishGram-corresponding-source.zip'),
+            '--qa', "release/qa/$env:QA_FILE", '--signing-record', (Join-Path $env:RUNNER_TEMP 'signed/signing-record.json'),
+            '--signed-package', $signedPackages[0].FullName, '--packer', (Join-Path $packageDir 'Packer.exe'),
+            '--issuer-id', $env:ISSUER_KEY_ID, '--output', (Join-Path $env:RUNNER_TEMP 'promotion'))
+          python tools/publish_release.py @args
+          if ($LASTEXITCODE) { throw 'Offline promotion gate rejected the candidate.' }
+      - name: Publish through separate repository-scoped GitHub App tokens
+        if: inputs.publish_externally
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: product-app
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: lonefisher
+          repositories: fishgram
+          permission-contents: write
+          permission-pages: read
+      - name: Create source repository scoped token
+        if: inputs.publish_externally
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: source-app
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: lonefisher
+          repositories: tdesktop
+          permission-contents: write
+      - name: Publish and verify all public read-backs
+        if: inputs.publish_externally
+        shell: pwsh
+        env:
+          PRODUCT_GITHUB_APP_TOKEN: ${{ steps.product-app.outputs.token }}
+          SOURCE_GITHUB_APP_TOKEN: ${{ steps.source-app.outputs.token }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_ENVIRONMENT: release
+          FISHGRAM_RELEASE_APPROVED: ${{ steps.preflight.outputs.approval_marker }}
+        run: |
+          python tools/publish_release.py publish --promotion (Join-Path $env:RUNNER_TEMP 'promotion') --enable-publication
+          if ($LASTEXITCODE) { throw 'Public publication/read-back failed closed.' }
+      - name: Upload offline promotion artifact (never described as published)
+        if: always() && steps.prep.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fishgram-promotion-${{ inputs.candidate_run_id }}
+          path: ${{ runner.temp }}/promotion/**
+          if-no-files-found: error
+          retention-days: 14

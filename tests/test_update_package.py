@@ -73,6 +73,17 @@ class UpdatePackageTests(unittest.TestCase):
     def test_new_baseline_accepts_lower_revision(self):
         self._verify(self._pack(base=7002010, revision=1))
 
+    def test_beta_client_accepts_new_stable_revision_from_beta_feed(self):
+        # Discovery uses the beta feed, but package authorization follows the
+        # stable envelope channel. A new revision on the same base is newer.
+        package = self._pack(base=7002009, revision=9, channel="stable")
+        self._verify(package, channel="beta")
+        self._verify(package, channel="stable", beta=True)
+        self._verify(package, success=False, channel="beta",
+                     running=(7002009 << 32) | 9)
+        self._verify(package, success=False, channel="beta",
+                     running=(7002009 << 32) | 10)
+
     def test_beta_requires_opt_in(self):
         package = self._pack(channel="beta")
         self._verify(package, success=False)

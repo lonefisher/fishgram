@@ -1,0 +1,107 @@
+name: Sign FishGram release candidate
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful protected product-candidate workflow run ID
+        required: true
+        type: string
+      qa_file:
+        description: Reviewed QA JSON generated from candidate-record.json and committed on main
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: fishgram-signing-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  sign-candidate:
+    if: github.ref == 'refs/heads/main'
+    environment: release
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Validate input names
+        shell: pwsh
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          QA_FILE: ${{ inputs.qa_file }}
+          ISSUER_KEY_ID: ${{ vars.ISSUER_KEY_ID }}
+        run: |
+          if ($env:CANDIDATE_RUN_ID -notmatch '^\d+$') { throw 'Candidate run ID must be numeric.' }
+          if ([IO.Path]::GetFileName($env:QA_FILE) -ne $env:QA_FILE -or $env:QA_FILE.Contains('..')) { throw 'QA file must be a safe committed basename.' }
+          if ($env:ISSUER_KEY_ID -notmatch '^[A-Za-z0-9._-]{1,64}$') { throw 'Protected release environment issuer ID is not configured.' }
+          git ls-files --error-unmatch -- "release/qa/$env:QA_FILE" *> $null
+          if ($LASTEXITCODE) { throw 'QA approval is not committed on protected main.' }
+      - name: Verify candidate workflow and artifact provenance before download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          $runId = $env:CANDIDATE_RUN_ID
+          $prefix = Join-Path $env:RUNNER_TEMP 'candidate-provenance'
+          gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$runId" | Out-File -Encoding utf8 "$prefix-run.json"
+          if ($LASTEXITCODE) { throw 'Candidate workflow lookup failed.' }
+          gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$runId/jobs" | Out-File -Encoding utf8 "$prefix-jobs.json"
+          if ($LASTEXITCODE) { throw 'Candidate job lookup failed.' }
+          gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$runId/artifacts" | Out-File -Encoding utf8 "$prefix-artifacts.json"
+          if ($LASTEXITCODE) { throw 'Candidate provenance API lookup failed.' }
+          python tools/sign_candidate.py verify-run --run-json "$prefix-run.json" --jobs-json "$prefix-jobs.json" --artifacts-json "$prefix-artifacts.json" --repository $env:GITHUB_REPOSITORY --run-id $runId
+          if ($LASTEXITCODE) { throw 'Candidate provenance was rejected.' }
+      - name: Download the artifact owned by the verified candidate run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run_id }}
+          name: fishgram-product-candidate-${{ inputs.candidate_run_id }}
+          path: ${{ runner.temp }}/candidate
+      - name: Verify external record, package, source, QA, pins and reviewed Packer
+        shell: pwsh
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          QA_FILE: ${{ inputs.qa_file }}
+          ISSUER_KEY_ID: ${{ vars.ISSUER_KEY_ID }}
+        run: |
+          $packageDir = Join-Path $env:RUNNER_TEMP 'candidate/package'
+          $archives = @(Get-ChildItem -LiteralPath $packageDir -File -Filter '*-candidate.zip')
+          if ($archives.Count -ne 1) { throw 'Candidate artifact must contain exactly one candidate ZIP.' }
+          $archive = $archives[0]
+          $prefix = Join-Path $env:RUNNER_TEMP 'candidate-provenance'
+          $args = @('--root', '.', '--commit', $env:GITHUB_SHA, '--manifest', (Join-Path $env:RUNNER_TEMP 'candidate/candidate-record.json'), '--package', $archive.FullName, '--source', (Join-Path $env:RUNNER_TEMP 'candidate/FishGram-corresponding-source.zip'), '--qa', "release/qa/$env:QA_FILE", '--packer', (Join-Path $packageDir 'Packer.exe'), '--trust', (Join-Path $env:GITHUB_WORKSPACE 'config/update-trust'), '--issuer-id', $env:ISSUER_KEY_ID, '--run-json', "$prefix-run.json", '--jobs-json', "$prefix-jobs.json", '--artifacts-json', "$prefix-artifacts.json", '--repository', $env:GITHUB_REPOSITORY, '--run-id', $env:CANDIDATE_RUN_ID, '--prepared-dir', (Join-Path $env:RUNNER_TEMP 'signing-prepared'), '--payload-dir', (Join-Path $env:RUNNER_TEMP 'signing-payload'), '--output-dir', (Join-Path $env:RUNNER_TEMP 'signed-candidate'), '--prepare-only')
+          python tools/sign_candidate.py @args
+          if ($LASTEXITCODE) { throw 'Candidate signing preflight failed.' }
+      - name: Sign and verify with the protected release issuer
+        shell: pwsh
+        env:
+          ISSUER_PRIVATE_KEY_ENCRYPTED: ${{ secrets.ISSUER_PRIVATE_KEY_ENCRYPTED }}
+          ISSUER_PASSPHRASE: ${{ secrets.ISSUER_PASSPHRASE }}
+          ISSUER_KEY_ID: ${{ vars.ISSUER_KEY_ID }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          QA_FILE: ${{ inputs.qa_file }}
+        run: |
+          $packageDir = Join-Path $env:RUNNER_TEMP 'candidate/package'
+          $archive = @(Get-ChildItem -LiteralPath $packageDir -File -Filter '*-candidate.zip')[0]
+          $prefix = Join-Path $env:RUNNER_TEMP 'candidate-provenance'
+          $args = @('--root', '.', '--commit', $env:GITHUB_SHA, '--manifest', (Join-Path $env:RUNNER_TEMP 'candidate/candidate-record.json'), '--package', $archive.FullName, '--source', (Join-Path $env:RUNNER_TEMP 'candidate/FishGram-corresponding-source.zip'), '--qa', "release/qa/$env:QA_FILE", '--packer', (Join-Path $packageDir 'Packer.exe'), '--trust', (Join-Path $env:GITHUB_WORKSPACE 'config/update-trust'), '--issuer-id', $env:ISSUER_KEY_ID, '--run-json', "$prefix-run.json", '--jobs-json', "$prefix-jobs.json", '--artifacts-json', "$prefix-artifacts.json", '--repository', $env:GITHUB_REPOSITORY, '--run-id', $env:CANDIDATE_RUN_ID, '--prepared-dir', (Join-Path $env:RUNNER_TEMP 'signing-prepared'), '--payload-dir', (Join-Path $env:RUNNER_TEMP 'signing-payload'), '--output-dir', (Join-Path $env:RUNNER_TEMP 'signed-candidate'), '--key-env', 'ISSUER_PRIVATE_KEY_ENCRYPTED', '--passphrase-env', 'ISSUER_PASSPHRASE')
+          python tools/sign_candidate.py @args
+          if ($LASTEXITCODE) { throw 'Signing or signed-package verification failed.' }
+          Remove-Item Env:ISSUER_PRIVATE_KEY_ENCRYPTED, Env:ISSUER_PASSPHRASE -ErrorAction SilentlyContinue
+      - name: Upload signed candidate and public signing record only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fishgram-signed-candidate-${{ inputs.candidate_run_id }}
+          path: ${{ runner.temp }}/signed-candidate/**
+          if-no-files-found: error
+          retention-days: 14

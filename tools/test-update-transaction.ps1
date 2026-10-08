@@ -9,7 +9,7 @@ $out=Join-Path $env:TEMP ('fishgram-update-transaction-' + [guid]::NewGuid().ToS
 New-Item -ItemType Directory -Path $out | Out-Null
 $exe=Join-Path $out 'transaction-tests.exe'
 $source=Join-Path $SourceRoot 'Telegram\Tests\fishgram_update\transaction_tests.cpp'
-& cl /nologo /std:c++20 /EHsc /W4 /WX /I (Join-Path $SourceRoot 'Telegram\SourceFiles') $source ("/Fe:$exe") ("/Fo:$out\transaction-tests.obj")
+& cl /nologo /std:c++20 /EHsc /W4 /WX /I (Join-Path $SourceRoot 'Telegram\SourceFiles') $source ("/Fe:$exe") ("/Fo:$out\transaction-tests.obj") /link advapi32.lib
 Assert-NativeSuccess 'Compile Windows update transaction tests'
 & $exe
 Assert-NativeSuccess 'Run Windows update transaction tests'

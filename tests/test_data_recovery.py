@@ -1,7 +1,11 @@
 import importlib.util
 import json
 import os
+import subprocess
 import tempfile
+import ctypes
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -9,6 +13,25 @@ from unittest import mock
 spec = importlib.util.spec_from_file_location('data_recovery', Path(__file__).resolve().parents[1] / 'tools/data_recovery.py')
 recovery = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(recovery)
+
+
+class DirectoryHold:
+    """Real OS no-share-delete handle; independent of the production gate."""
+    def __init__(self, path):
+        self.kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        self.kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong,
+                                            ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+        self.kernel.CreateFileW.restype = ctypes.c_void_p
+        self.kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        self.handle = self.kernel.CreateFileW(str(path), 0x1 | 0x80 | 0x20000,
+                                               0x1 | 0x2, None, 3, 0x02000000 | 0x00200000, None)
+        if self.handle == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def close(self):
+        if self.handle is not None:
+            self.kernel.CloseHandle(self.handle)
+            self.handle = None
 
 
 class DataRecoveryTests(unittest.TestCase):
@@ -44,6 +67,95 @@ class DataRecoveryTests(unittest.TestCase):
         self.assertEqual(len(manifest['files']['account/map0']['sha256']), 64)
         self.assertNotIn(str(self.work), json.dumps(manifest))
 
+    @unittest.skipUnless(os.name == 'nt', 'Production client-session gate is Windows-only')
+    def test_snapshot_restore_and_recovery_hold_exclusive_client_gate(self):
+        observed = []
+
+        def probe(executable):
+            try:
+                with recovery._client_session_gate(executable.parent, exclusive=False):
+                    observed.append(False)
+            except recovery.RecoveryError:
+                observed.append(True)
+            return False
+
+        name = recovery.snapshot(self.work, self.snapshots, self.exe, '7.2.9-r8', process_probe=probe)
+        self.assertEqual(observed, [True, True])
+        observed.clear()
+        recovery.restore_snapshot(self.work, self.snapshots, self.exe, name,
+                                  confirm_restore=True, process_probe=probe)
+        self.assertEqual(observed, [True, True])
+        observed.clear()
+        recovery.recover_restore(self.work, self.exe, confirm_restore=True, process_probe=probe)
+        self.assertEqual(observed, [True])
+
+    @unittest.skipUnless(os.name == 'nt', 'Production client-session gate is Windows-only')
+    def test_shared_client_lease_blocks_snapshot_before_account_reads_or_writes(self):
+        before = recovery._inventory(self.work / 'tdata')
+        with recovery._client_session_gate(self.exe.parent, exclusive=False):
+            with self.assertRaisesRegex(recovery.RecoveryError, 'busy|lease|客户端|gate'):
+                self.snapshot()
+        self.assertEqual(recovery._inventory(self.work / 'tdata'), before)
+        self.assertFalse(self.snapshots.exists())
+
+    @unittest.skipUnless(os.name == 'nt' and os.environ.get('FISHGRAM_NATIVE_SNAPSHOT_TEST'),
+                         'Native snapshot executable is configured by the focused Windows test runner')
+    def test_reads_native_snapshot_manifest_and_content(self):
+        executable = Path(os.environ['FISHGRAM_NATIVE_SNAPSHOT_TEST']).resolve()
+        fixture = subprocess.run(
+            [str(executable), '--emit-python-fixture', str(self.root)],
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(fixture.returncode, 0, fixture.stderr)
+        generated = json.loads(fixture.stdout)
+        work = Path(generated['workDir'])
+        snapshot_root = Path(generated['snapshotRoot'])
+        folder, manifest = recovery._read_snapshot(snapshot_root, generated['snapshotName'])
+        self.assertEqual(manifest['version'], '7.2.9-r9')
+        relative = 'account/map0'
+        self.assertIn(relative, manifest['files'])
+        self.assertEqual((folder / 'tdata' / relative).read_bytes(), b'native synthetic account data')
+        self.assertEqual(manifest['files'][relative]['size'], len(b'native synthetic account data'))
+        self.assertEqual(manifest['files']['account/empty']['size'], 0)
+        self.assertEqual(manifest['files']['account/empty']['sha256'], recovery.hashlib.sha256(b'').hexdigest())
+        self.assertEqual(manifest['files']['empty-directory'], {'directory': True})
+        self.assertTrue((folder / 'tdata' / 'empty-directory').is_dir())
+        self.assertFalse((work / recovery.JOURNAL).exists())
+        # Native root is a sibling of workDir and must match the documented path hash.
+        import hashlib
+        expected = '.fishgram-snapshots-' + hashlib.sha256(
+            str(work.resolve()).replace('\\', '/').encode('utf-8')).hexdigest()[:16]
+        self.assertEqual(snapshot_root.name, expected)
+
+    def test_private_acl_validation_checks_each_ace_field_and_rejects_extras(self):
+        expected = ('S-1-5-21-100', 'S-1-5-18', 'S-1-5-32-544')
+        valid = [(sid, 0, 0x03, recovery.FILE_ALL_ACCESS) for sid in expected]
+        recovery._validate_private_acl_entries(valid, expected, directory=True)
+        for replacement in [
+            ('S-1-5-21-999', 0, 0x03, recovery.FILE_ALL_ACCESS),
+            (expected[0], 1, 0x03, recovery.FILE_ALL_ACCESS),
+            (expected[0], 0, 0x03, 0x00120089),
+            (expected[0], 0, 0, recovery.FILE_ALL_ACCESS),
+        ]:
+            with self.subTest(replacement=replacement), self.assertRaises(recovery.RecoveryError):
+                recovery._validate_private_acl_entries([replacement, *valid[1:]], expected, directory=True)
+        with self.assertRaisesRegex(recovery.RecoveryError, 'permissions'):
+            recovery._validate_private_acl_entries([*valid, valid[0]], expected, directory=True)
+        file_entries = [(sid, 0, 0, recovery.FILE_ALL_ACCESS) for sid in expected]
+        recovery._validate_private_acl_entries(file_entries, expected, directory=False)
+        with self.assertRaises(recovery.RecoveryError):
+            recovery._validate_private_acl_entries(valid, expected, directory=False)
+
+    def test_oversized_manifest_does_not_publish_or_prune_snapshots(self):
+        previous = self.snapshot()
+        with mock.patch.object(recovery, 'MAX_MANIFEST', 128):
+            with self.assertRaisesRegex(recovery.RecoveryError, 'size limit'):
+                self.snapshot()
+        self.assertTrue((self.snapshots / previous / 'manifest.json').is_file())
+        published = [path.name for path in self.snapshots.iterdir()
+                     if recovery.SNAPSHOT.fullmatch(path.name)]
+        self.assertEqual(published, [previous])
+        self.assertFalse(any(path.name.startswith('.partial-') for path in self.snapshots.iterdir()))
+
     def test_running_process_rejected_before_writing(self):
         with self.assertRaisesRegex(recovery.RecoveryError, 'running'):
             recovery.snapshot(self.work, self.snapshots, self.exe, '7.2.9-r8', process_probe=lambda path: True)
@@ -62,6 +174,262 @@ class DataRecoveryTests(unittest.TestCase):
             with self.assertRaises(recovery.RecoveryError):
                 self.snapshot()
         self.assertTrue((self.snapshots / prior / 'manifest.json').is_file())
+
+    @unittest.skipUnless(os.name == 'nt', 'Real Windows directory sharing')
+    def test_snapshot_finalize_retries_real_directory_lock_until_thread_releases(self):
+        prior = self.snapshot()
+        failures = []
+        failed = threading.Event()
+        released = threading.Event()
+        holders = []
+        threads = []
+        real_write = recovery._write_json
+        real_replace, real_rename = os.replace, os.rename
+
+        def hold_after_manifest(path, value):
+            real_write(path, value)
+            holder = DirectoryHold(path.parent)
+            holders.append(holder)
+            def release_later():
+                if failed.wait(5):
+                    time.sleep(0.15)
+                holder.close()
+                released.set()
+            thread = threading.Thread(target=release_later)
+            threads.append(thread)
+            thread.start()
+
+        def observe(operation):
+            def rename(source, target):
+                try:
+                    return operation(source, target)
+                except OSError as error:
+                    if Path(source).name.startswith('.partial-'):
+                        failures.append(error.winerror)
+                        failed.set()
+                    raise
+            return rename
+
+        try:
+            with mock.patch.object(recovery, '_write_json', side_effect=hold_after_manifest) as manifest, \
+                    mock.patch.object(os, 'replace', side_effect=observe(real_replace)), \
+                    mock.patch.object(os, 'rename', side_effect=observe(real_rename)), \
+                    mock.patch.object(recovery, '_copy_tree', wraps=recovery._copy_tree) as copy:
+                name = self.snapshot()
+            self.assertTrue(released.wait(1))
+            self.assertTrue(failures)
+            self.assertTrue(all(code in (5, 32, 33) for code in failures), failures)
+            self.assertEqual(copy.call_count, 1)
+            self.assertEqual(manifest.call_count, 1)
+            self.assertEqual((self.snapshots / name / 'tdata/account/map0').read_bytes(),
+                             b'synthetic account state')
+            self.assertFalse(any(p.name.startswith('.partial-') for p in self.snapshots.iterdir()))
+        finally:
+            failed.set()
+            for thread in threads:
+                thread.join(6)
+                self.assertFalse(thread.is_alive())
+            for holder in holders:
+                holder.close()
+            self.assertTrue((self.snapshots / prior / 'manifest.json').is_file())
+
+    @unittest.skipUnless(os.name == 'nt', 'Real Windows directory sharing')
+    def test_snapshot_finalize_persistent_lock_preserves_primary_error_and_previous(self):
+        prior = self.snapshot()
+        holders = []
+        real_write = recovery._write_json
+        def hold(path, value):
+            real_write(path, value)
+            holders.append(DirectoryHold(path.parent))
+        started = time.monotonic()
+        try:
+            with mock.patch.object(recovery, '_write_json', side_effect=hold):
+                with self.assertRaises(recovery.RecoveryError) as caught:
+                    self.snapshot()
+            self.assertIn(caught.exception.__cause__.winerror, (5, 32, 33))
+            self.assertIn('publication', str(caught.exception).lower())
+            self.assertTrue(any('cleanup' in note.lower()
+                                for note in getattr(caught.exception, '__notes__', [])))
+            self.assertLess(time.monotonic() - started, 4)
+            self.assertEqual([p.name for p in self.snapshots.iterdir()
+                              if recovery.SNAPSHOT.fullmatch(p.name)], [prior])
+        finally:
+            for holder in holders:
+                holder.close()
+        for partial in self.snapshots.glob('.partial-*'):
+            recovery._remove_tree(partial, self.snapshots)
+        self.assertTrue((self.snapshots / prior / 'manifest.json').is_file())
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows no-clobber rename')
+    def test_snapshot_finalize_refuses_injected_target_between_attempts(self):
+        partial = self.root / ('.partial-' + 'a' * 32)
+        partial.mkdir()
+        (partial / 'payload').write_bytes(b'original')
+        target = self.root / ('snapshot-20261008T120000000000Z-' + 'b' * 32)
+        real_rename = os.rename
+        holder = DirectoryHold(partial)
+        calls = []
+        def inject(source, destination):
+            calls.append(source)
+            try:
+                return real_rename(source, destination)
+            except OSError:
+                target.mkdir()
+                (target / 'keep').write_bytes(b'injected')
+                holder.close()
+                raise
+        try:
+            with mock.patch.object(os, 'rename', side_effect=inject):
+                with self.assertRaisesRegex(recovery.RecoveryError, 'target|destination'):
+                    recovery._finalize_snapshot(partial, self.root, target.name)
+        finally:
+            holder.close()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual((target / 'keep').read_bytes(), b'injected')
+        self.assertEqual((partial / 'payload').read_bytes(), b'original')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows error codes')
+    def test_snapshot_finalize_does_not_retry_unrelated_errors(self):
+        partial = self.root / ('.partial-' + 'a' * 32)
+        partial.mkdir()
+        name = 'snapshot-20261008T120000000000Z-' + 'b' * 32
+        error = ctypes.WinError(112)  # ERROR_DISK_FULL
+        with mock.patch.object(os, 'rename', side_effect=error) as rename:
+            with self.assertRaises(OSError) as caught:
+                recovery._finalize_snapshot(partial, self.root, name)
+        self.assertIs(caught.exception, error)
+        self.assertEqual(rename.call_count, 1)
+        self.assertTrue(partial.is_dir())
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows error code classification')
+    def test_snapshot_finalize_retries_only_selected_windows_errors(self):
+        for code in (5, 33):  # 32 is exercised by real sharing-conflict handles above.
+            with self.subTest(code=code):
+                partial = self.root / ('.partial-' + 'a' * 32)
+                partial.mkdir()
+                name = 'snapshot-20261008T120000000000Z-' + 'b' * 32
+                real_rename = os.rename
+                attempts = []
+                def first_blocked(source, target):
+                    attempts.append(source)
+                    if len(attempts) == 1:
+                        raise ctypes.WinError(code)
+                    return real_rename(source, target)
+                with mock.patch.object(os, 'rename', side_effect=first_blocked):
+                    recovery._finalize_snapshot(partial, self.root, name)
+                self.assertEqual(len(attempts), 2)
+                self.assertTrue((self.root / name).is_dir())
+                (self.root / name).rmdir()
+
+    def test_snapshot_cli_reports_cleanup_failure_without_masking_primary(self):
+        import io
+        error = recovery.RecoveryError('Snapshot publication failed.')
+        error.add_note('Snapshot cleanup failed; private partial may remain.')
+        stderr = io.StringIO()
+        with mock.patch.object(recovery, 'snapshot', side_effect=error), \
+                mock.patch.object(recovery.sys, 'stderr', stderr):
+            result = recovery.main(['snapshot', '--work-dir', str(self.work),
+                                    '--snapshot-root', str(self.snapshots),
+                                    '--installed-executable', str(self.exe), '--version', '7.2.9-r8'])
+        self.assertEqual(result, 1)
+        self.assertIn('publication failed', stderr.getvalue())
+        self.assertIn('cleanup failed', stderr.getvalue())
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows atomic no-clobber rename')
+    def test_snapshot_finalize_racing_empty_target_is_not_overwritten(self):
+        partial = self.root / ('.partial-' + 'a' * 32)
+        partial.mkdir()
+        (partial / 'payload').write_bytes(b'original')
+        target = self.root / ('snapshot-20261008T120000000000Z-' + 'b' * 32)
+        real_rename = os.rename
+        def inject_before_rename(source, destination):
+            target.mkdir()  # After validation, before the OS call; it must not be replaced.
+            return real_rename(source, destination)
+        with mock.patch.object(os, 'rename', side_effect=inject_before_rename) as rename:
+            with self.assertRaises(OSError):
+                recovery._finalize_snapshot(partial, self.root, target.name)
+        self.assertEqual(rename.call_count, 1)
+        self.assertEqual(list(target.iterdir()), [])
+        self.assertEqual((partial / 'payload').read_bytes(), b'original')
+
+    @unittest.skipUnless(os.name == 'nt', 'Real Windows directory sharing')
+    def test_snapshot_finalize_retry_rejects_replaced_root_identity(self):
+        root = self.root / 'publication-root'
+        root.mkdir()
+        partial = root / ('.partial-' + 'a' * 32)
+        partial.mkdir()
+        name = 'snapshot-20261008T120000000000Z-' + 'b' * 32
+        holder = DirectoryHold(partial)
+        real_rename = os.rename
+        def swap_root(source, target):
+            try:
+                return real_rename(source, target)
+            except OSError:
+                holder.close()
+                real_rename(root, self.root / 'saved-root')
+                root.mkdir()
+                partial.mkdir()
+                raise
+        try:
+            with mock.patch.object(os, 'rename', side_effect=swap_root):
+                with self.assertRaisesRegex(recovery.RecoveryError, 'changed|identity'):
+                    recovery._finalize_snapshot(partial, root, name)
+        finally:
+            holder.close()
+        self.assertFalse((root / name).exists())
+        self.assertTrue((self.root / 'saved-root' / partial.name).is_dir())
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows symlink/reparse path validation')
+    def test_snapshot_finalize_retry_rejects_partial_reparse_substitution(self):
+        partial = self.root / ('.partial-' + 'a' * 32)
+        partial.mkdir()
+        outside = self.root / 'outside'
+        outside.mkdir()
+        name = 'snapshot-20261008T120000000000Z-' + 'b' * 32
+        holder = DirectoryHold(partial)
+        real_rename = os.rename
+        def substitute_link(source, target):
+            try:
+                return real_rename(source, target)
+            except OSError:
+                holder.close()
+                real_rename(partial, self.root / 'saved-partial')
+                try:
+                    partial.symlink_to(outside, target_is_directory=True)
+                except OSError:
+                    self.skipTest('This Windows token cannot create symlinks')
+                raise
+        try:
+            with mock.patch.object(os, 'rename', side_effect=substitute_link):
+                with self.assertRaisesRegex(recovery.RecoveryError, 'link|reparse'):
+                    recovery._finalize_snapshot(partial, self.root, name)
+        finally:
+            holder.close()
+        self.assertFalse((self.root / name).exists())
+        self.assertEqual(list(outside.iterdir()), [])
+
+    @unittest.skipUnless(os.name == 'nt', 'Real Windows directory sharing')
+    def test_snapshot_finalize_retry_rejects_replaced_partial_identity(self):
+        partial = self.root / ('.partial-' + 'a' * 32)
+        partial.mkdir()
+        name = 'snapshot-20261008T120000000000Z-' + 'b' * 32
+        holder = DirectoryHold(partial)
+        real_rename = os.rename
+        def swap(source, target):
+            try:
+                return real_rename(source, target)
+            except OSError:
+                holder.close()
+                real_rename(partial, self.root / 'saved-partial')
+                partial.mkdir()
+                raise
+        try:
+            with mock.patch.object(os, 'rename', side_effect=swap):
+                with self.assertRaisesRegex(recovery.RecoveryError, 'changed|identity'):
+                    recovery._finalize_snapshot(partial, self.root, name)
+        finally:
+            holder.close()
+        self.assertFalse((self.root / name).exists())
 
     def test_changed_source_is_not_a_consistent_snapshot(self):
         real_copy = recovery.shutil.copyfile

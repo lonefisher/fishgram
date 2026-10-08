@@ -20,8 +20,21 @@ Assert-NativeSuccess 'Generate disposable public trust fixture'
 Assert-NativeSuccess 'Configure production update tests'
 & $toolchain.cmake --build $out --parallel 2
 Assert-NativeSuccess 'Compile production update tests'
+& (Join-Path $out 'failure_tests.exe')
+Assert-NativeSuccess 'Run update failure classification tests'
+& (Join-Path $out 'identity_tests.exe')
+Assert-NativeSuccess 'Run FishGram Windows application identity tests'
 & (Join-Path $out 'restart_tests.exe')
 Assert-NativeSuccess 'Run updated-client restart privilege tests'
+& (Join-Path $out 'data_snapshot_tests.exe')
+Assert-NativeSuccess 'Run synthetic native account snapshot tests'
+$env:FISHGRAM_NATIVE_SNAPSHOT_TEST=Join-Path $out 'data_snapshot_tests.exe'
+try {
+    & $toolchain.python -m unittest discover -s (Join-Path $root 'tests') -p test_data_recovery.py -v
+    Assert-NativeSuccess 'Run native snapshot and Python recovery interoperability tests'
+} finally {
+    Remove-Item Env:FISHGRAM_NATIVE_SNAPSHOT_TEST
+}
 & (Join-Path $out 'feed_tests.exe')
 Assert-NativeSuccess 'Run production update feed tests'
 & (Join-Path $out 'payload_tests.exe')

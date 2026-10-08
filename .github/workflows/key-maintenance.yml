@@ -1,0 +1,24 @@
+name: Update trust maintenance
+on:
+  schedule:
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: fishgram-key-maintenance
+  cancel-in-progress: false
+jobs:
+  maintenance:
+    if: vars.UPDATE_TRUST_MAINTENANCE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify root authorization and deduplicate renewal reminder
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/key_maintenance.py --create-issue

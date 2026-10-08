@@ -7,7 +7,20 @@ add_executable(restart_tests "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/rest
 target_include_directories(restart_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles")
 target_compile_options(restart_tests PRIVATE /W4 /WX /UNDEBUG)
 target_link_libraries(restart_tests PRIVATE advapi32)
+add_executable(data_snapshot_tests
+    "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/data_snapshot_tests.cpp"
+    "${SOURCE_ROOT}/Telegram/SourceFiles/core/fishgram_data_snapshot.cpp")
+target_include_directories(data_snapshot_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles")
+target_link_libraries(data_snapshot_tests PRIVATE Qt5::Core advapi32)
+target_compile_options(data_snapshot_tests PRIVATE /W4 /WX /UNDEBUG)
 find_package(Qt5 REQUIRED COMPONENTS Core)
+add_executable(failure_tests
+    "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/failure_tests.cpp")
+target_include_directories(failure_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles")
+target_compile_options(failure_tests PRIVATE /W4 /WX /UNDEBUG)
+add_executable(identity_tests
+    "${SOURCE_ROOT}/Telegram/Tests/fishgram_identity/windows_identity_tests.cpp")
+target_compile_options(identity_tests PRIVATE /W4 /WX /UNDEBUG)
 add_executable(feed_tests
     "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/feed_tests.cpp"
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/fishgram_update_feed.cpp")
@@ -53,6 +66,7 @@ target_link_libraries(package_verify PRIVATE Qt5::Core "${OPENSSL_ROOT}/out/libc
 target_compile_options(package_verify PRIVATE /W4 /WX /UNDEBUG)
 add_executable(updater_compile WIN32
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/fishgram_update_payload.cpp"
+    "${SOURCE_ROOT}/Telegram/SourceFiles/core/fishgram_data_snapshot.cpp"
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/update_verify.cpp"
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/update_keys.cpp"
     "${SOURCE_ROOT}/Telegram/SourceFiles/_other/updater_win.cpp"
