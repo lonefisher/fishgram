@@ -553,8 +553,8 @@ def _cmd_init_manifest(args) -> None:
         _write_new(signature_path, signature)
         written.append(signature_path)
         if fixture_files:
-            fixture_files[Path(args.public_fixture_dir) / "manifest.min.json"] = data
-            fixture_files[Path(args.public_fixture_dir) / "manifest.sig"] = signature
+            fixture_files[fixture_dir / "manifest.min.json"] = data
+            fixture_files[fixture_dir / "manifest.sig"] = signature
             for path, contents in fixture_files.items():
                 _write_new(path, contents)
                 written.append(path)

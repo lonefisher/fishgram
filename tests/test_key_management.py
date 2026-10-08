@@ -281,6 +281,21 @@ class KeyManagementTests(unittest.TestCase):
         keys.generate_issuer(private, public, self.password)
         self.assertIn(b"ENCRYPTED PRIVATE KEY", (self.root / private.name).read_bytes()[:80])
         self.assertTrue((self.root / public.name).is_file())
+        fixture = short_parent / 'alias-public-fixture'
+        fixture.mkdir()
+        args = type('Args', (), {
+            'output': str(short_parent / 'alias-manifest.json'),
+            'signature_output': str(short_parent / 'alias-manifest.sig'),
+            'root_private': str(self.root_private), 'root_public': str(self.root_public),
+            'issuer_public': str(public), 'issuer_id': 'short-path-fixture',
+            'public_fixture_dir': str(fixture),
+        })()
+        with mock.patch.object(keys.getpass, 'getpass', return_value=self.password), contextlib.redirect_stdout(io.StringIO()):
+            keys._cmd_init_manifest(args)
+        self.assertEqual({path.name for path in fixture.iterdir()},
+                         {'root-public.pem', 'issuer-public.pem', 'manifest.min.json', 'manifest.sig'})
+        keys.verify_manifest((fixture / 'manifest.min.json').read_bytes(),
+                             (fixture / 'manifest.sig').read_bytes(), fixture / 'root-public.pem')
 
 
 if __name__ == "__main__":
