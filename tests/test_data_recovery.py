@@ -38,7 +38,7 @@ class DataRecoveryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='fishgram-data-test-')
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.work = self.root / 'FishGramData'
         (self.work / 'tdata' / 'account').mkdir(parents=True)
         (self.work / 'tdata' / 'account' / 'map0').write_bytes(b'synthetic account state')

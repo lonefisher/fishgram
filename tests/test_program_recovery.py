@@ -12,12 +12,12 @@ from program_recovery import RecoveryError, _ClientSessionLease, _InstallLock, _
 
 class ProgramRecoveryTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / "build-tests")
+        self.temp = tempfile.TemporaryDirectory(prefix="fishgram-program-test-")
         trusted_acl = program_recovery._trusted_acl
         self.acl_patch = patch("program_recovery._trusted_acl", lambda path, **kwargs:
                                trusted_acl(path, **kwargs) if path.name == "client-session.lock" else None)
         self.acl_patch.start()
-        self.install = Path(self.temp.name) / "install"
+        self.install = Path(self.temp.name).resolve() / "install"
         self.meta = self.install / ".fishgram-update"
         self.versions = self.meta / "versions"
         self.versions.mkdir(parents=True)

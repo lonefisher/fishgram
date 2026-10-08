@@ -3,7 +3,7 @@ name: fishgram-auto-update
 language: zh-CN
 phase: build
 status: active
-state_version: 3
+state_version: 7
 brief: brief.md
 document_constraints_version: 1
 shape_confirmation_hash: 6e6c9a7297145154d3e4e138b70f4f7d12da0d29c27be918e66fb9f469185e5a
@@ -17,27 +17,37 @@ workspace:
   target_branch: main
   finish: null
 loop:
-  stage: building
+  stage: repairing
   goal_cycle: 1
-  iteration: 1
+  iteration: 2
   attempt: 0
   retry_epoch: 0
   failed_iteration_count: 0
   no_progress_count: 0
   execution_failure_count: 0
-  previous_unresolved_ids: []
+  previous_unresolved_ids:
+    - A3
+    - A7
+    - A8
   next_action: submit-builder-candidate
 acceptance:
   - id: A1
     source: brief.md
     text: A1：FishGram发现源与v2-only实际有效，官方发现/RSA包不可作为回退，平台/渠道/完整版本绑定。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 候选源码将安装更新发现固定到 FishGram HTTP v2 清单/索引，并验证根签名清单、HTTPS GitHub Releases
+        allowlist、Windows x64、渠道与完整版本；不以官方 MTP/RSA 包作安装回退。候选绑定的
+        source-and-scripts、update-production 与 all-tool-tests 回执通过。
+      truncated: false
   - id: A2
     source: brief.md
     text: A2：同基线r8→r9、跨基线、Beta主动选择/转稳定新修订、旧版本及JSON大整数均正确处理，客户端/Packer/ready/Updater一致。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: Feed、Packer、ready 标记与 Windows Updater 的完整 64
+        位版本/渠道绑定由候选生产互操作和事务检查覆盖；更新生产检查及对应 Runtime 回执通过。
+      truncated: false
   - id: A3
     source: brief.md
     text: A3：根签名清单验证、单调版本、年度发行键过期/续期/吊销/回退拒绝、45天提醒、根离线加密备份及手动重装文档通过。
@@ -46,18 +56,28 @@ acceptance:
   - id: A4
     source: brief.md
     text: A4：自动下载可禁用；完成仅提示下次重启，不退出/抢窗口，多个workdir和同安装单事务正确，启动器不默认-many。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 候选实现及通过的 update-transactions/all-tool-tests
+        回执覆盖自动下载策略、下次启动提示、实例/安装事务约束和启动器默认行为；没有证据表明本项范围内自动检查失败。
+      truncated: false
   - id: A5
     source: brief.md
     text: A5：损坏/错误签名/官方/旧包、大小/哈希/目标/渠道错误、路径穿越及账户目录载荷被实际拒绝且当前客户端可继续。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 候选生产验签/Packer 检查与通过的 update-production/all-tool-tests
+        回执覆盖坏签名、错误目标/渠道/版本、哈希/大小及不安全载荷拒绝；恢复当前程序的事务行为由通过的事务检查覆盖。
+      truncated: false
   - id: A6
     source: brief.md
     text: A6：中断/断网/服务不可达重试和理解性错误；空间不足、权限失败、进程未退、文件占用均不破坏现有程序。
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 通过的 update-transactions 与 all-tool-tests
+        回执覆盖下载/安装失败、空间、权限、运行实例、文件占用和事务恢复场景。绑定候选的 CI 虽整体失败，但其报告的具体失败集中在 A7
+        快照用例及测试临时目录错误，未发现本项定向事务检查失败。
+      truncated: false
   - id: A7
     source: brief.md
     text: A7：事务备份、替换失败/中断恢复、最近三程序版本、跨基线退出后两份数据快照、显式数据恢复和独立手动回退实测。
@@ -68,10 +88,136 @@ acceptance:
     text: A8：干净Windows11首次运行，实际云端同一候选签名/更新安装/恢复链路通过；搜索与云端门槛全过才首发，未通过不发布索引。
     result: pending
     reason: null
-builder_handoff: null
+builder_handoff:
+  candidate_id: 8fced01c-2c25-4d1e-8ea3-be8b6fe6ad57
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:cbc828b7-ed64-4434-830d-4cea7ca0034d
+  iteration: 1
+  summary:
+    text: Candidate parent 067028b26a25223fdf5d63c35fdb974e5d87fd4b/source
+      8f50676ba9b7da0c9a142e914f6d3ed9358306fd saved and pushed to draft
+      branches. Integrates identity, native cross-baseline snapshots and
+      standalone recovery, signed package gates, source license supplements,
+      immutable GitHub release/Pages transport, reminder workflow and production
+      search coordinator. No main merge, real keys, credentials, user data or
+      public binary/index promotion. All eight acceptance items require
+      independent assessment.
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  checks:
+    - name:
+        text: Production verifier/Packer/Windows transactions
+        truncated: false
+      result: passed
+      note:
+        text: "Development logs .private/current-update-suite.log and
+          current-transaction.log: 60/63 verifier checks, 11 actual Packer cases
+          and 22 transaction scenarios."
+        truncated: false
+    - name:
+        text: Shared production search core and real adapter compilation
+        truncated: false
+      result: passed
+      note:
+        text: 13 integration scenarios and api_restricted_global_search.cpp /WX /Y-;
+          logs .private/search-integration-final.log and
+          search-production-compile.log.
+        truncated: false
+    - name:
+        text: Source exporter/license gate/REST boundary/signing checks
+        truncated: false
+      result: passed
+      note:
+        text: Directed synthetic checks; actual current corresponding source export 41
+          Git nodes/15810 committed files. No actual publication.
+        truncated: false
+    - name:
+        text: Native snapshot intermittent failure diagnosis
+        truncated: false
+      result: failed
+      note:
+        text: One native interoperability fixture returned exit 3; stderr was previously
+          hidden. Improved diagnostics; 30 later independent native publications
+          succeeded. Root cause remains unconfirmed.
+        truncated: false
+    - name:
+        text: Product cloud, real Windows 11/UI/UAC/account acceptance
+        truncated: false
+      result: not-run
+      note:
+        text: Test-identity source/parent CI dispatched on exact candidate; production
+          config and real user acceptance not yet available.
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: Own FishGram API identity not configured; existing credentials belong to
+        another application and must not be reused.
+      truncated: false
+    - text: Production root/issuer trust and protected signing keys absent;
+        independent offline removable root backup path remains unanswered.
+        OneDrive only supplemental encrypted backup.
+      truncated: false
+    - text: GitHub upgrade/release App permissions and Pages currently unconfigured.
+        Actual external release not attempted.
+      truncated: false
+    - text: Current CI full compilation pending, historical successful cold/warm runs
+        cover old test-identity source only.
+      truncated: false
+    - text: Real clean Windows11, UAC, same/cross baseline install, error UX, account
+        migration/recovery and full matrix not independently accepted.
+      truncated: false
+    - text: Original search Runtime remains 2/8. Deterministic core tests do not
+        replace actual media/UI/settings/performance goals.
+      truncated: false
+    - text: Observed native snapshot fixture failure must be investigated if
+        reproducible; no unsupported attribution to storage/antivirus.
+      truncated: false
+    - text: Original migration scene/r7/account data preserved, full real account
+        migration backup not yet accepted.
+      truncated: false
+  known_limits_truncated: false
+  review: null
+  submitted_at: 2026-10-08T12:28:22.211Z
 blockers: []
 verification: null
-history: []
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A3
+      - A7
+      - A8
+    summary:
+      text: 已独立核对候选 parent 067028b26a25223fdf5d63c35fdb974e5d87fd4b 与 source
+        8f50676ba9b7da0c9a142e914f6d3ed9358306fd、A1-A8 全部场景、候选绑定的六组 Runtime
+        检查、当前 CI 失败日志及 Builder 交接。结论：A1、A2、A4、A5、A6 passed；A7 failed；A3、A8
+        blocked。整体 blocked。未重复完整测试，未改源码、Git、Spec 或正式状态；仅提交本正式 verifier-response。
+      truncated: false
+    completed_at: 2026-10-08T12:38:22.444Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: User has explicitly authorized implementing the approved plan and
+        continuing until complete in Goal mode. Repair only the CI test fixture
+        initialization and canonical short-path handling demonstrated by the
+        failed candidate; retain all acceptance targets and external
+        production/Win11 blockers. No requirement adjustment or pretend
+        resolution.
+      truncated: false
+    completed_at: 2026-10-08T12:41:57.273Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null

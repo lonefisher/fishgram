@@ -40,6 +40,7 @@ keys._private_mode = _test_private_mode
 @unittest.skipUnless(os.environ.get("FISHGRAM_OPENSSL") or shutil.which("openssl"), "OpenSSL is required")
 class SigningEntryTests(unittest.TestCase):
     def setUp(self):
+        (ROOT / ".private").mkdir(exist_ok=True)
         tempfile.tempdir = str(ROOT / ".private")
         self.temp = tempfile.TemporaryDirectory(prefix="fishgram-sign-candidate-test-")
         self.root = Path(self.temp.name)
