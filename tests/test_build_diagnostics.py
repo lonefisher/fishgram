@@ -37,3 +37,23 @@ class BuildDiagnosticsTests(unittest.TestCase):
     def test_diagnostics_are_bounded(self):
         value = diagnostics.extract("\n".join(f"p{n}.cpp({n}): error C2065: x" for n in range(100)))
         self.assertEqual(len(value["compilerErrors"]), 32)
+
+    def test_cmake_missing_dependency_uses_fixed_vocabulary(self):
+        log = ('CMake Error at D:/private/FindPackageHandleStandardArgs.cmake:233 (message):\n'
+               '  Could NOT find OpenSSL (missing: OPENSSL_CRYPTO_LIBRARY\n'
+               '  OPENSSL_INCLUDE_DIR) (found version "private-secret")\n'
+               'Call Stack (most recent call first):\n'
+               '  D:/private/FindOpenSSL.cmake:691 (_FPHSA_FAILURE_MESSAGE)\n')
+        value = diagnostics.extract(log)
+        self.assertEqual(value["missingDependencies"], [{"package": "OpenSSL",
+                          "variables": ["OPENSSL_CRYPTO_LIBRARY", "OPENSSL_INCLUDE_DIR"]}])
+        for secret in ("private", "secret", "691"):
+            self.assertNotIn(secret, str(value))
+
+    def test_unknown_dependency_names_are_not_published(self):
+        value = diagnostics.extract('Could NOT find private-secret (missing: private-secret)')
+        self.assertEqual(value["missingDependencies"], [])
+
+    def test_root_cmake_filename_is_captured(self):
+        value = diagnostics.extract('CMake Error at CMakeLists.txt:38 (message):\nprivate-secret')
+        self.assertEqual(value["cmakeErrors"], [{"file": "CMakeLists.txt", "line": 38}])

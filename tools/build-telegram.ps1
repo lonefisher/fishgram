@@ -1,4 +1,6 @@
-param([int]$Parallel = 2, [switch]$TestIdentity)
+param([int]$Parallel = 2, [switch]$TestIdentity, [switch]$TestUpdateSystem)
+$ErrorActionPreference = 'Stop'
+if ($TestUpdateSystem -and -not $TestIdentity) { throw 'Disposable update trust is only permitted with the non-releasable test identity.' }
 . (Join-Path $PSScriptRoot 'common.ps1')
 $root = Split-Path -Parent $PSScriptRoot
 $recipe = Get-FishGramRecipe $root
@@ -31,8 +33,14 @@ $cache = Join-Path $private ('api-' + [guid]::NewGuid().ToString('N') + '.cmake'
 try {
     $contents = 'set(TDESKTOP_API_ID "' + $apiId + '" CACHE STRING "" FORCE)' + "`n" + 'set(TDESKTOP_API_HASH "' + $apiHash + '" CACHE STRING "" FORCE)' + "`n"
     Set-Content -LiteralPath $cache -Value $contents -Encoding ascii
-    $disabled = if ($recipe.autoUpdate) { 'OFF' } else { 'ON' }
+    $autoUpdate = [bool]($recipe.autoUpdate -or $TestUpdateSystem)
+    $disabled = if ($autoUpdate) { 'OFF' } else { 'ON' }
     $trust = Join-Path $root 'config/update-trust'
+    if ($TestUpdateSystem) {
+        $trust = Join-Path $private ('build-test-trust-' + [guid]::NewGuid().ToString('N'))
+        & $toolchain.python (Join-Path $root 'tests/create_update_trust_fixture.py') $trust
+        Assert-NativeSuccess 'Generate disposable public update trust for CI compilation'
+    }
     & $toolchain.cmake -S $source -B $build -G 'Ninja Multi-Config' -C $cache -D "DESKTOP_APP_DISABLE_AUTOUPDATE=$disabled" -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON -D "FISHGRAM_REVISION=$($recipe.revision)" -D "TDESKTOP_UPDATE_CHANNEL=$($recipe.channel)" -D "FISHGRAM_UPDATE_TRUST_DIRECTORY=$trust" -D CMAKE_CONFIGURATION_TYPES=Release *> (Join-Path $root 'logs\configure.log')
     $configureExit = $LASTEXITCODE
     if ($configureExit -ne 0 -and $TestIdentity) {
@@ -50,7 +58,16 @@ try {
     $global:LASTEXITCODE = $compileExit
     Assert-NativeSuccess 'Build; inspect private logs locally'
     $identity = if ($TestIdentity) { 'test' } else { 'product' }
-    $record = [ordered]@{ version = (Get-FishGramVersion $recipe); channel = $recipe.channel; identity = $identity; parentCommit = (& git -C $root rev-parse HEAD); sourceCommit = (& git -C $source rev-parse HEAD); toolchain = @{ msvc = $toolchain.msvc; sdk = $toolchain.sdk; qt = $recipe.qt }; autoUpdate = $recipe.autoUpdate }
+    $record = [ordered]@{ version = (Get-FishGramVersion $recipe); channel = $recipe.channel; identity = $identity; parentCommit = (& git -C $root rev-parse HEAD); sourceCommit = (& git -C $source rev-parse HEAD); toolchain = @{ msvc = $toolchain.msvc; sdk = $toolchain.sdk; qt = $recipe.qt }; autoUpdate = $autoUpdate; testUpdateTrust = [bool]$TestUpdateSystem }
+    # Bind packaging to bytes produced by this build, before any QA or signing.
+    $record.files = [ordered]@{}
+    foreach ($name in @($recipe.payloadFiles) + @($recipe.payloadDlls)) {
+        $file = Join-Path (Join-Path $build 'Release') $name
+        if (Test-Path -LiteralPath $file -PathType Leaf) {
+            $record.files[$name] = @{ size = (Get-Item -LiteralPath $file).Length; sha256 = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() }
+        }
+    }
+    if (-not $record.files.Contains('Telegram.exe')) { throw 'Build output is missing the client.' }
     $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $build 'build-record.json') -Encoding utf8
     Write-Output ('Built internal candidate ' + $record.version + ' (' + $identity + ' identity).')
 } finally {

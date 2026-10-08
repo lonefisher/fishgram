@@ -3,6 +3,10 @@ project(FishGramUpdateTests LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 string(REPLACE "/DNDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+add_executable(restart_tests "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/restart_tests.cpp")
+target_include_directories(restart_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles")
+target_compile_options(restart_tests PRIVATE /W4 /WX /UNDEBUG)
+target_link_libraries(restart_tests PRIVATE advapi32)
 find_package(Qt5 REQUIRED COMPONENTS Core)
 add_executable(feed_tests
     "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/feed_tests.cpp"
@@ -11,6 +15,17 @@ target_include_directories(feed_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFil
 target_link_libraries(feed_tests PRIVATE Qt5::Core)
 target_compile_options(feed_tests PRIVATE /W4 /WX /UNDEBUG)
 set(OPENSSL_ROOT "${DEPENDENCY_ROOT}/Libraries/win64/openssl3")
+add_executable(payload_tests
+    "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/payload_tests.cpp"
+    "${SOURCE_ROOT}/Telegram/SourceFiles/core/update_verify.cpp"
+    "${SOURCE_ROOT}/Telegram/SourceFiles/core/fishgram_update_payload.cpp")
+target_include_directories(payload_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles"
+    "${OPENSSL_ROOT}/include"
+    "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C")
+target_link_libraries(payload_tests PRIVATE Qt5::Core
+    "${OPENSSL_ROOT}/out/libcrypto.lib" crypt32 ws2_32
+    "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C/Util/LzmaLib/x64/Release/LzmaLib.lib")
+target_compile_options(payload_tests PRIVATE /W4 /WX /UNDEBUG)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/update_keys_data.h" "#pragma once\nnamespace Core::Updates::details {}\n")
 add_executable(verify_tests
     "${SOURCE_ROOT}/Telegram/SourceFiles/tests/test_update_verify.cpp"
@@ -29,6 +44,7 @@ target_link_libraries(packer_tests PRIVATE Qt5::Core "${OPENSSL_ROOT}/out/libcry
 target_compile_options(packer_tests PRIVATE /W4 /WX /wd4996 /wd4100 /wd4244 /wd4267)
 add_executable(package_verify
     "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/package_verify.cpp"
+    "${SOURCE_ROOT}/Telegram/SourceFiles/core/fishgram_update_payload.cpp"
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/update_verify.cpp")
 target_include_directories(package_verify PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles"
     "${OPENSSL_ROOT}/include" "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C")
@@ -36,14 +52,19 @@ target_link_libraries(package_verify PRIVATE Qt5::Core "${OPENSSL_ROOT}/out/libc
     "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C/Util/LzmaLib/x64/Release/LzmaLib.lib" crypt32 ws2_32)
 target_compile_options(package_verify PRIVATE /W4 /WX /UNDEBUG)
 add_executable(updater_compile WIN32
+    "${SOURCE_ROOT}/Telegram/SourceFiles/core/fishgram_update_payload.cpp"
+    "${SOURCE_ROOT}/Telegram/SourceFiles/core/update_verify.cpp"
+    "${SOURCE_ROOT}/Telegram/SourceFiles/core/update_keys.cpp"
     "${SOURCE_ROOT}/Telegram/SourceFiles/_other/updater_win.cpp"
     "${SOURCE_ROOT}/Telegram/lib_base/base/platform/win/base_windows_safe_library.cpp")
 target_include_directories(updater_compile PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles"
+    "${OPENSSL_ROOT}/include" "${CMAKE_CURRENT_BINARY_DIR}" "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C"
     "${SOURCE_ROOT}/Telegram/lib_base" "${SOURCE_ROOT}/Telegram/ThirdParty/GSL/include")
 target_compile_definitions(updater_compile PRIVATE FISHGRAM_BASE_VERSION=7002009 FISHGRAM_REVISION=9
     TDESKTOP_UPDATE_CHANNEL=0 NOMINMAX UNICODE _UNICODE)
 target_compile_options(updater_compile PRIVATE /W4 /WX /wd4100 /wd4244 /wd4267 /wd4996 /wd4456 /wd4505)
-target_link_libraries(updater_compile PRIVATE Qt5::Core dbghelp shlwapi shell32 ole32 advapi32 user32 uuid)
+target_link_libraries(updater_compile PRIVATE Qt5::Core dbghelp shlwapi shell32 ole32 advapi32 user32 uuid
+    "${OPENSSL_ROOT}/out/libcrypto.lib" "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C/Util/LzmaLib/x64/Release/LzmaLib.lib" crypt32 ws2_32)
 set_source_files_properties("${SOURCE_ROOT}/Telegram/lib_base/base/platform/win/base_windows_safe_library.cpp"
     PROPERTIES COMPILE_OPTIONS /wd4459)
 if(TEST_TRUST_DIRECTORY)

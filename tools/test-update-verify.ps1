@@ -7,6 +7,8 @@ $toolchain=Get-FishGramToolchain $recipe
 Enter-FishGramToolchain $recipe $toolchain
 if (-not $DependencyRoot) { $DependencyRoot=$root }
 if (-not $SourceRoot) { $SourceRoot=Join-Path $root 'tdesktop' }
+$DependencyRoot=(Resolve-Path -LiteralPath $DependencyRoot).ProviderPath
+$SourceRoot=(Resolve-Path -LiteralPath $SourceRoot).ProviderPath
 $SourceRoot=$SourceRoot.Replace('\','/')
 $DependencyRoot=$DependencyRoot.Replace('\','/')
 $qt=Join-Path $DependencyRoot ('Libraries/win64/Qt-'+$recipe.qt)
@@ -18,8 +20,12 @@ Assert-NativeSuccess 'Generate disposable public trust fixture'
 Assert-NativeSuccess 'Configure production update tests'
 & $toolchain.cmake --build $out --parallel 2
 Assert-NativeSuccess 'Compile production update tests'
+& (Join-Path $out 'restart_tests.exe')
+Assert-NativeSuccess 'Run updated-client restart privilege tests'
 & (Join-Path $out 'feed_tests.exe')
 Assert-NativeSuccess 'Run production update feed tests'
+& (Join-Path $out 'payload_tests.exe')
+Assert-NativeSuccess 'Run verified Windows payload tests'
 & (Join-Path $out 'verify_tests.exe')
 Assert-NativeSuccess 'Run production v2 signature tests'
 & (Join-Path $out 'verify_embedded.exe')
