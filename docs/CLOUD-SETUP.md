@@ -12,4 +12,4 @@ candidate与release环境要求人工批准，只有被审查固定提交的构�
 
 2026-10-08开发验证：无缓存固定提交编译已成功；缓存运行的配置失败已定位到Python虚拟环境保存旧runner绝对路径。`refresh-build-python.ps1`在缓存恢复后调用官方prepare的`python`阶段重建虚拟环境，不重做C++依赖。修复步骤实际成功，完整缓存编译仍待结束，参见[状态记录](STATUS.md)。
 
-更新源码草稿CI固定父工具提交9479d839eb12c9f002bc032b8da658069fd87d5c，绑定实际源码SHA后以`-TestIdentity -TestUpdateSystem`完整编译，覆盖Updater及客户端自动更新代码。临时测试信任不得用于发行，脚本在读取凭据前拒绝与生产身份混用；公开只上传脱敏诊断，主分支合并及真实产品候选仍需完整门槛。
+更新源码草稿CI固定父工具提交aaff63ed3b7a1339b3a9b0f12740d2468f67a7e8，绑定实际源码SHA后以`-TestIdentity -TestUpdateSystem`完整编译，覆盖Updater及客户端自动更新代码。临时测试信任不得用于发行，脚本在读取凭据前拒绝与生产身份混用；公开只上传脱敏诊断，主分支合并及真实产品候选仍需完整门槛。
