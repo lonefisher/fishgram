@@ -6,8 +6,10 @@ $options = @(Get-FishGramReleaseCmakeOptions $recipe)
 if ($options.Count -ne 1 -or $options[0] -ne '-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=') { throw 'Release recipe must explicitly disable debug information.' }
 $toolchain = Get-FishGramToolchain $recipe
 Enter-FishGramToolchain $recipe $toolchain
-$probe = Join-Path $root ('.private/debug-policy-' + [guid]::NewGuid().ToString('N'))
+$probeRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+$probe = Join-Path $probeRoot ('fishgram-debug-policy-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $probe -Force | Out-Null
+try {
 $cmakeSource = @'
 cmake_minimum_required(VERSION 3.25)
 project(FishGramDebugPolicy LANGUAGES CXX)
@@ -41,3 +43,11 @@ foreach ($mode in @('Embedded', 'None')) {
     Assert-NativeSuccess "Run $mode native probe"
 }
 Write-Output 'PASS: upstream Embedded and FishGram None flags verified by actual MSVC compile/link/run.'
+} finally {
+    $resolvedProbe = [IO.Path]::GetFullPath($probe)
+    if ([IO.Path]::GetDirectoryName($resolvedProbe) -ne $probeRoot.TrimEnd('\') -or
+        [IO.Path]::GetFileName($resolvedProbe) -notmatch '^fishgram-debug-policy-[0-9a-f]{32}$') {
+        throw 'Probe cleanup path validation failed.'
+    }
+    Remove-Item -LiteralPath $resolvedProbe -Recurse -Force
+}
