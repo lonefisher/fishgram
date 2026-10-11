@@ -1,4 +1,6 @@
 import importlib.util
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -9,6 +11,34 @@ spec.loader.exec_module(bot)
 
 
 class UpgradePolicyTests(unittest.TestCase):
+    def test_parent_checkout_is_isolated_and_based_on_public_main(self):
+        actual_run = subprocess.run
+        with tempfile.TemporaryDirectory(prefix='fishgram-upgrade-clone-') as directory:
+            temporary = Path(directory)
+            origin = temporary / 'origin'
+            origin.mkdir()
+            def git(*args):
+                return actual_run(['git', '-C', str(origin), *args], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+            git('init', '--initial-branch=main')
+            git('config', 'user.name', 'FishGram fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            (origin / 'fishgram.json').write_text('{"revision":8}')
+            git('add', 'fishgram.json')
+            git('commit', '-m', 'Public main fixture')
+            git('switch', '-c', 'local-development')
+            (origin / 'fishgram.json').write_text('{"revision":999}')
+            def local_clone(arguments, **kwargs):
+                arguments = list(arguments)
+                index = arguments.index('https://github.com/lonefisher/fishgram.git')
+                arguments[index] = str(origin)
+                return actual_run(arguments, capture_output=True, **kwargs)
+            with mock.patch.object(bot.subprocess, 'run', side_effect=local_clone):
+                parent = bot.clone_parent_candidate(temporary)
+            self.assertEqual((parent / 'fishgram.json').read_text(), '{"revision":8}')
+            self.assertEqual(git('branch', '--show-current'), 'local-development')
+            self.assertEqual((origin / 'fishgram.json').read_text(), '{"revision":999}')
+
     def test_stable_release_only(self):
         self.assertEqual(bot.stable_tag({'tag_name': 'v7.3.0', 'draft': False, 'prerelease': False}), 'v7.3.0')
         for release in [{'tag_name': 'v7.3.0', 'prerelease': True}, {'tag_name': 'v7.3.0', 'draft': True}, {'tag_name': 'v7.3.0-beta'}, {'tag_name': '../main'}]:

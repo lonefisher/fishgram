@@ -22,6 +22,8 @@
 
 升级 App 以 `config/github-app-manifest.json` 为权限清单，在自己的 GitHub 账户注册，只安装到 `lonefisher/fishgram` 和 `lonefisher/tdesktop`。当前 workflow 请求 contents/issues/pull requests/workflows 写权限、checks 读权限；它只运行候选脚本。首次、重复、冲突和 CI 失败均实测后，再开启 `UPGRADE_APP_ENABLED`。`upgrade-automation` 只允许受保护分支，以便日常候选自动执行；它不保存发行签名密钥或发布 App 私钥。
 
+两个仓库均须启用 Issues；源码 fork 默认可能关闭此功能，导致冲突记录的 POST 被拒绝。首次检查读回 `has_issues`，关闭时先启用并读回。机器人从公开父 `main` 的配方及独立临时克隆创建升级父分支，不切换开发工作区；配方在查询与克隆之间变化时停止并重试。
+
 发布 App 单独注册并生成私钥，只安装到这两个仓库。当前发布 workflow 请求父仓 contents 写和 Pages 读权限、源码仓 contents 写权限；分别生成只针对一个仓库的 token。它的 Client ID 与私钥放在 `release` environment，不复用升级 App。设置 App 不代表允许发布；只有完整 QA、固定候选、签名和人工审批门槛满足后才执行外部写入。
 
 私钥通过本机安全输入或 GitHub 的 secret 配置入口保存，不在命令参数或输出中打印。换机器时重新确认 App 安装范围、环境审批、分支限制和变量名称；旧私钥失效时先轮换，再撤销旧钥。

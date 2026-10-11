@@ -1,4 +1,5 @@
 """Create review candidates only. No merge, release, signing or feed promotion."""
+import base64
 import json
 import os
 import re
@@ -105,13 +106,23 @@ def create_pr(repo, branch, base, title, body):
     return api(f'repos/{repo}/pulls', 'POST', {'head': branch, 'base': base, 'title': title, 'body': body, 'draft': True})
 
 
+def clone_parent_candidate(temporary):
+    parent = Path(temporary) / 'parent'
+    subprocess.run(['git', '-c', 'core.longpaths=true', 'clone', '--filter=blob:none',
+                    '--no-tags', '--branch', 'main', f'https://github.com/{PRODUCT}.git',
+                    str(parent)], check=True)
+    return parent
+
+
 def main():
     # /installation/repositories is specific to installation tokens, not a PAT.
     installed = api('installation/repositories')
     if {item['full_name'] for item in installed['repositories']} != {PRODUCT, SOURCE}:
         raise RuntimeError('Upgrade App must be scoped to exactly the two FishGram repositories.')
-    root = Path(__file__).resolve().parents[1]
-    recipe = json.loads((root / 'fishgram.json').read_text(encoding='utf-8-sig'))
+    public_recipe = api(f'repos/{PRODUCT}/contents/fishgram.json?ref=main')
+    if public_recipe.get('encoding') != 'base64':
+        raise RuntimeError('Public main recipe encoding is unsupported.')
+    recipe = json.loads(base64.b64decode(public_recipe['content']).decode('utf-8-sig'))
     tag = stable_tag(api(f'repos/{UPSTREAM}/releases/latest'))
     if not newer(tag, recipe['upstreamTag']):
         print('No new official stable release.')
@@ -124,6 +135,10 @@ def main():
         print('Existing linked candidates retained.')
         return
     with tempfile.TemporaryDirectory(prefix='fishgram-upgrade-') as temporary:
+        root = clone_parent_candidate(temporary)
+        cloned_recipe = json.loads((root / 'fishgram.json').read_text(encoding='utf-8-sig'))
+        if cloned_recipe != recipe:
+            raise RuntimeError('Public main recipe changed during candidate setup; retry without promotion.')
         source = Path(temporary) / 'source'
         subprocess.run(['git', 'clone', '--filter=blob:none', '--no-tags', '--branch', 'custom/main', f'https://github.com/{SOURCE}.git', str(source)], check=True)
         git(source, 'config', 'user.name', 'FishGram upgrade candidate')
