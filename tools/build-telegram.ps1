@@ -7,6 +7,7 @@ if ($ProductCandidate -and (-not $env:FISHGRAM_API_ID -or -not $env:FISHGRAM_API
 . (Join-Path $PSScriptRoot 'memory-diagnostics.ps1')
 $root = Split-Path -Parent $PSScriptRoot
 $recipe = Get-FishGramRecipe $root
+$releaseCmakeOptions = @(Get-FishGramReleaseCmakeOptions $recipe)
 $toolchain = Get-FishGramToolchain $recipe
 Enter-FishGramToolchain $recipe $toolchain
 $linker = (Get-Command link.exe -ErrorAction Stop).Source
@@ -53,7 +54,7 @@ try {
         & $toolchain.python (Join-Path $root 'tests/create_update_trust_fixture.py') $trust
         Assert-NativeSuccess 'Generate disposable public update trust for CI compilation'
     }
-    & $toolchain.cmake -S $source -B $build -G 'Ninja Multi-Config' -C $cache -D "DESKTOP_APP_DISABLE_AUTOUPDATE=$disabled" -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON -D "FISHGRAM_REVISION=$($recipe.revision)" -D "TDESKTOP_UPDATE_CHANNEL=$($recipe.channel)" -D "FISHGRAM_UPDATE_TRUST_DIRECTORY=$trust" -D CMAKE_CONFIGURATION_TYPES=Release *> (Join-Path $root 'logs\configure.log')
+    & $toolchain.cmake -S $source -B $build -G 'Ninja Multi-Config' -C $cache @releaseCmakeOptions -D "DESKTOP_APP_DISABLE_AUTOUPDATE=$disabled" -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON -D "FISHGRAM_REVISION=$($recipe.revision)" -D "TDESKTOP_UPDATE_CHANNEL=$($recipe.channel)" -D "FISHGRAM_UPDATE_TRUST_DIRECTORY=$trust" -D CMAKE_CONFIGURATION_TYPES=Release *> (Join-Path $root 'logs\configure.log')
     $configureExit = $LASTEXITCODE
     if ($configureExit -ne 0 -and $TestIdentity) {
         & $toolchain.python (Join-Path $PSScriptRoot 'build_diagnostics.py') (Join-Path $root 'logs/configure.log') (Join-Path $root 'reports/configure-diagnostics.json')
@@ -77,6 +78,7 @@ try {
     $identity = if ($TestIdentity) { 'test' } else { 'product' }
     $record = [ordered]@{ version = (Get-FishGramVersion $recipe); channel = $recipe.channel; identity = $identity; productCandidate = [bool]$ProductCandidate; recipeAutoUpdate = [bool]$recipe.autoUpdate; parentCommit = (& git -C $root rev-parse HEAD); sourceCommit = (& git -C $source rev-parse HEAD); toolchain = @{ msvc = $toolchain.msvc; sdk = $toolchain.sdk; qt = $recipe.qt }; autoUpdate = $autoUpdate; testUpdateTrust = [bool]$TestUpdateSystem }
     # Bind packaging to bytes produced by this build, before any QA or signing.
+    $record.toolchain.releaseDebugInformation = $recipe.releaseDebugInformation
     $record.files = [ordered]@{}
     foreach ($name in @($recipe.payloadFiles) + @($recipe.payloadDlls)) {
         $file = Join-Path (Join-Path $build 'Release') $name

@@ -53,3 +53,6 @@ jobs:
         run: |
           ./tools/test-restricted-search.ps1
           ./tools/test-restricted-search-integration.ps1
+      - name: Native Release debug policy comparison
+        shell: pwsh
+        run: ./tools/test-release-debug-policy.ps1

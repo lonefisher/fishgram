@@ -58,6 +58,8 @@ git -C tdesktop submodule update --init --recursive
 
 PR 编译使用显式 `-TestIdentity`，绝不能发行该产物。产品身份只在受保护候选构建中开放。所有可能含 API 配置的编译目录、缓存和日志均为私有；CI 不上传它们。
 
+Windows Release 配方固定 `releaseDebugInformation=None`，客户端编译显式设置空的 `CMAKE_MSVC_DEBUG_INFORMATION_FORMAT`，避免上游默认 Embedded 的调试信息及 PDB 链接开销。构建清单记录该策略；不改变 MSVC、SDK、Qt 或 Release 优化。`tools/test-release-debug-policy.ps1` 用同一份上游 CMake 规则实际编译、链接和运行 Embedded/None 对照；它验证参数传播，不能替代完整客户端云端构建。云端运行 37821646662 的 x64 链接失败时系统峰值提交内存约 34.7 GiB，与失败后提交上限接近；系统峰值是开机以来的峰值，并非链接进程独立峰值；新策略的实际资源效果须由新运行测量确认。
+
 更新系统的生产验签、Packer往返与Windows事务测试见[更新开发验证](UPDATE-TESTING.md)；完整密钥维护见[密钥指南](KEY-MANAGEMENT.md)，FishGram应用身份配置见[应用身份](APPLICATION-IDENTITY.md)。局部测试不替代正式安装和账户恢复验收。
 
 换机器、App 权限、受保护环境、secret 名称与 Pages 接续见 [GitHub 配置](GITHUB-CONFIGURATION.md)。先配置并读回，再启用每日候选；正式发布仍须完整验收。
@@ -82,6 +84,6 @@ PR 编译使用显式 `-TestIdentity`，绝不能发行该产物。产品身份�
 
 ## 密钥与紧急撤回
 
-根密钥离线加密备份。发行密钥只在受保护环境，按一年有效期维护，提前45天提醒。续期/吊销由根签名的递增清单授权，客户端拒绝回退清单及吊销键。密钥不可公开、打印或进入 Git。根密钥丢失/受损使用手动重新安装恢复，不声称在线能安全更换信任根。
+根密钥使用 KeePass 加密附件和 OneDrive 数据库备份保存，不强制离线副本。发行密钥只在受保护环境，按一年有效期维护，提前45天提醒。续期/吊销由根签名的递增清单授权，客户端拒绝回退清单及吊销键。密钥不可公开、打印或进入 Git。根密钥丢失/受损使用手动重新安装恢复，不声称在线能安全更换信任根。
 
 撤回先停止索引推广，保留附件及调查记录；必要时递增清单吊销发行键。恢复发布以更大的完整版本进行。日常支持只索取版本、系统、错误类型及脱敏日志，不请求登录数据、API 凭据或私钥。

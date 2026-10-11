@@ -16,7 +16,7 @@
 | repository | variable `UPGRADE_APP_ENABLED=true` | 验证升级 App 后才开启每日候选 |
 | repository | variable `UPDATE_TRUST_MAINTENANCE_ENABLED=true` | 验证生产公钥信任包后才开启到期维护 |
 
-根私钥和根口令保持离线，不作为 Actions secret。应用身份与密钥建立分别见[应用身份](APPLICATION-IDENTITY.md)和[密钥维护](KEY-MANAGEMENT.md)。不要把旧应用身份或一次性测试根当成生产配置。
+根私钥和根口令由维护者通过 KeePass 管理，不作为 Actions secret。应用身份与密钥建立分别见[应用身份](APPLICATION-IDENTITY.md)和[密钥维护](KEY-MANAGEMENT.md)。不要把旧应用身份或一次性测试根当成生产配置。
 
 ## 两个独立 App
 
@@ -36,4 +36,4 @@
 
 读回仅核对 secret 的名称是否存在，不能输出值。核对两个环境的审批与受保护分支、App 安装的精确仓库集合、各工作流的实际权限、Pages URL，以及 PR 无发行身份。随后验证升级候选与产品候选各自的真实运行。保存版本、提交、匿名结论；完整输出留私有区。
 
-当前尚缺生产应用身份、独立离线根备份和真实 App 安装；本文是配置入口，不是这些外部条件已完成的证明。
+当前配置与实际验收结论分别记录在 [状态](STATUS.md)；secret 存在或 App 安装完成不等于候选构建、升级机器人或发行链路通过。

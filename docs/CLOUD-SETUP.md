@@ -4,7 +4,7 @@
 
 `config/github-app-manifest.json`是升级App注册输入。注册后只安装到fishgram和tdesktop，将App ID保存为upgrade-automation环境变量`UPGRADE_APP_ID`，私钥作为环境secret `UPGRADE_APP_PRIVATE_KEY`，不写入Git。工作流每日运行，获取仅两仓库的短期安装token。脚本对写入endpoint和候选分支做白名单限制，不调用merge、Releases、Pages或更新索引。GitHub的contents写权限本身也涵盖release相关API；因此不能把脚本禁止发布误称为GitHub权限完全不具备发布能力。保护主分支和渠道分支、限制发行标签，并隔离人工发布环境仍是必要约束。
 
-candidate与release环境要求人工批准，只有被审查固定提交的构建/签名任务可使用FishGram API及发行键。单维护者允许本人批准自己的执行；不允许机器人绕过批准。产品API身份、根/发行密钥及离线介质未完成前不标记受保护发行可用。
+candidate与release环境要求人工批准，只有被审查固定提交的构建/签名任务可使用FishGram API及发行键。单维护者允许本人批准自己的执行；不允许机器人绕过批准。产品API身份、根/发行密钥及加密备份未完成前不标记受保护发行可用。
 
 源码fork的继承工作流已替换为自有源码检查，Actions已启用。`e222737` 的完整源码测试身份 CI 已成功，当前父候选 `7ba2169` 的完整 CI 返回 `LNK1102`，两次结果分别记录。受保护分支要求对应CI通过；不能以禁用CI来绕过检查。产品候选尚未实测，详见[状态记录](STATUS.md)、[源码编译](CLOUD-SOURCE-BUILD.md)与[父仓库构建](CLOUD-PARENT-BUILD.md)。
 

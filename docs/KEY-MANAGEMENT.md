@@ -1,22 +1,22 @@
 # FishGram 签名密钥维护
 
-本工具只管理 FishGram 自己的 v2 更新信任链，不能使用 Telegram 官方清单、根公钥或密钥。它使用系统 OpenSSL 命令行和 Python 标准库；不依赖 `cryptography`。执行前应在独立的离线维护环境中确认 `openssl version`，建议使用 OpenSSL 3 或更新版本。可通过 `PATH` 或 `FISHGRAM_OPENSSL` 选择 OpenSSL，不要把私钥、口令或生产密钥放入命令行参数、环境变量、日志或 Git。
+本工具只管理 FishGram 自己的 v2 更新信任链，不能使用 Telegram 官方清单、根公钥或密钥。它使用系统 OpenSSL 命令行和 Python 标准库；不依赖 `cryptography`。执行前应在维护者控制的环境中确认 `openssl version`，建议使用 OpenSSL 3 或更新版本。可通过 `PATH` 或 `FISHGRAM_OPENSSL` 选择 OpenSSL，不要把私钥、口令或生产密钥放入命令行参数、环境变量、日志或 Git。
 
 口令通过 `getpass` 隐藏输入，再经标准输入传给 OpenSSL；拒绝 CR、LF 和 NUL。所有输出父目录必须预先存在，并拒绝符号链接或 Windows reparse point 父目录。Windows 私钥 ACL 设置失败会中止操作并删除残留私钥；新文件不会覆盖已有文件。
 
 ## 初次建立根密钥
 
-先人工准备并确认根密钥目录和离线介质已经存在。工具不会创建用户指定的外部备份目录，也不会覆盖已存在文件。
+先人工准备并确认被 Git 忽略的本机密钥暂存目录已经存在。工具不会创建用户指定的外部备份目录，也不会覆盖已存在文件。
 
 ```powershell
 python tools/key_management.py init-root `
-  --private D:\FishGram-Offline\root-private.pem `
-  --public D:\FishGram-Offline\root-public.pem
+  --private .private\production-keys\root-private.pem `
+  --public .private\production-keys\root-public.pem
 ```
 
 工具通过隐藏输入提示两次输入至少 12 字符的口令。根私钥以 OpenSSL 加密 PKCS#8 PEM 写入；不会落盘明文根私钥。根公钥 PEM 可公开，并应与 FishGram 客户端固定的 FishGram 专属根公钥进行独立比对。可用 `--backup` 同时复制一份加密根私钥到已存在目录。
 
-必须保有至少一份与联网电脑分离的离线加密根私钥副本。可再将同一加密副本放入 `<云端加密备份目录>`，但云端副本不能取代离线副本。口令应保存在单独管理的密码库中，不能和密文一起同步；注意云盘删除/同步传播风险，确认保留策略并定期检查离线副本可读。工具不会自动创建这个目录或写入正式密钥。
+按维护者 2026-10-11 的明确决定，不要求离线副本。将加密根私钥作为 KeePass 附件保存，以 OneDrive 备份加密数据库；使用强主密码，不把数据库解锁材料一并放入同一云端目录。定期从备份恢复附件并验证公钥和签名，确认备份版本可用。生成目录只是私有暂存区，导入数据库和恢复验证未完成前不得声称生产密钥保管已验收。根私钥和口令不进入 Git 或 Actions。
 
 ## 发行密钥
 
@@ -34,8 +34,8 @@ python tools/key_management.py new-issuer --id release-2026a `
 
 ```powershell
 python tools/key_management.py init-manifest `
-  --root-private D:\FishGram-Offline\root-private.pem `
-  --root-public D:\FishGram-Offline\root-public.pem `
+  --root-private .private\production-keys\root-private.pem `
+  --root-public .private\production-keys\root-public.pem `
   --issuer-public D:\FishGram-Protected\release-2026a-public.pem `
   --issuer-id release-2026a `
   --output .\keys\manifest.min.json `
@@ -54,8 +54,8 @@ python tools/key_management.py init-manifest `
 ```powershell
 python tools/key_management.py update-manifest `
   --previous .\manifest.min.json --previous-signature .\manifest.sig `
-  --root-public D:\FishGram-Offline\root-public.pem `
-  --root-private D:\FishGram-Offline\root-private.pem --version 3 `
+  --root-public .private\production-keys\root-public.pem `
+  --root-private .private\production-keys\root-private.pem --version 3 `
   --add-key release-2027a=D:\FishGram-Protected\release-2027a-public.pem `
   --channel-group stable=release-2026a,release-2027a `
   --channel-group beta=release-2026a,release-2027a `
@@ -72,7 +72,7 @@ python tools/key_management.py update-manifest `
 ```powershell
 python tools/key_management.py check `
   --manifest .\manifest.min.json --signature .\manifest.sig `
-  --root-public D:\FishGram-Offline\root-public.pem
+  --root-public .private\production-keys\root-public.pem
 ```
 
 工具先验证所给根签名，再列出 45 天内到期及已过期的发行密钥 ID 和剩余整天数，不读取或输出私钥。到期前完成新发行密钥、递增根签名清单以及发行系统切换验证。工具不会上传密钥或修改云端索引。

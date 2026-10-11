@@ -15,6 +15,14 @@ function Get-FishGramVersion {
     return ($Recipe.upstreamVersion + '-r' + $Recipe.revision)
 }
 
+function Get-FishGramReleaseCmakeOptions {
+    param($Recipe)
+    # An empty cache value suppresses both /Z7 and the toolkit's /DEBUG.
+    # Pin this choice in the recipe for PR and protected product builds alike.
+    if ($Recipe.releaseDebugInformation -ne 'None') { throw 'Unsupported release debug information policy.' }
+    return '-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT='
+}
+
 function Assert-NativeSuccess {
     param([string]$Action)
     if ($LASTEXITCODE -ne 0) { throw ($Action + ' failed (exit ' + $LASTEXITCODE + ').') }
