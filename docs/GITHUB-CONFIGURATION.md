@@ -4,7 +4,7 @@
 
 ## 受保护环境
 
-`candidate` 和 `release` 仅允许父仓库受保护的 `main`，保留维护者人工审批。分支检查也适用于管理员；App 不加入绕过名单。PR workflow 不绑定这些环境。
+`candidate`、`release` 和 `upgrade-automation` 均使用 Selected branches and tags，仅添加 branch `main`，不添加 tag。`candidate` 和 `release` 保留维护者人工审批；三个环境均禁止管理员绕过。新增其他受保护分支不会因此得到这些环境凭据。分支检查也适用于管理员；App 不加入主分支绕过名单。PR workflow 不绑定这些环境。
 
 | 所在位置 | 类型与名称 | 用途 |
 | --- | --- | --- |
@@ -20,7 +20,7 @@
 
 ## 两个独立 App
 
-升级 App 以 `config/github-app-manifest.json` 为权限清单，在自己的 GitHub 账户注册，只安装到 `lonefisher/fishgram` 和 `lonefisher/tdesktop`。当前 workflow 请求 contents/issues/pull requests/workflows 写权限、checks 读权限；它只运行候选脚本。首次、重复、冲突和 CI 失败均实测后，再开启 `UPGRADE_APP_ENABLED`。`upgrade-automation` 只允许受保护分支，以便日常候选自动执行；它不保存发行签名密钥或发布 App 私钥。
+升级 App 以 `config/github-app-manifest.json` 为权限清单，在自己的 GitHub 账户注册，只安装到 `lonefisher/fishgram` 和 `lonefisher/tdesktop`。当前 workflow 请求 contents/issues/pull requests/workflows 写权限、checks 读权限；它只运行候选脚本。首次、重复、冲突和 CI 失败均实测后，再开启 `UPGRADE_APP_ENABLED`。`upgrade-automation` 仅允许 `main`，无人工审批，以便日常候选自动执行；它不保存发行签名密钥或发布 App 私钥。
 
 两个仓库均须启用 Issues；源码 fork 默认可能关闭此功能，导致冲突记录的 POST 被拒绝。首次检查读回 `has_issues`，关闭时先启用并读回。机器人从公开父 `main` 的配方及独立临时克隆创建升级父分支，不切换开发工作区；配方在查询与克隆之间变化时停止并重试。
 
