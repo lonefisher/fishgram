@@ -14,7 +14,7 @@
 
 发布 gate 除复用 signer pins 外，还单独要求受保护 main 中提交发布脚本、GitHub REST transport、许可 inventory/config、发布测试、发布文档、workflow 及所选 QA 文件；这样发布专用输入也绑定到候选批准的精确父仓 commit。
 
-环境配置读回：`candidate` 与 `release` 两个 environment 的 `required_reviewers` 均为 `lonefisher`，`protected_branches=true`。本轮真实 Pages API 读回为 HTTP 404、尚未配置，因此 workflow 的外部写入路径会在任何 tag/release/Pages 写入前停止。GitHub Contents API 接受变更不证明 Pages 部署完成；只以公开 URL 的逐文件 HTTP 200 和 SHA256 读回为成功。索引 write 成功但读回失败会报告失败，不能据此宣称客户端已收到新索引。真实产品 App 安装和 permissions、真实候选/签名 workflow provenance 及端到端发布外部验收本轮均未执行。
+2026-10-11 配置读回：`candidate` 与 `release` 均保留维护者人工审批，Selected branches and tags 只允许 branch `main`，禁止管理员绕过。Pages API 为公开 `https://lonefisher.github.io/fishgram/`，来源 `gh-pages` 根目录；独立开发说明页已有公开读回证据，更新索引尚未推广。两个 App 已安装、认证及权限读回，发布 App 仅在受保护 release 环境使用。配置接续及 refs 保护见 [GitHub 配置](GITHUB-CONFIGURATION.md)。GitHub Contents API 接受变更不证明 Pages 部署完成；只以公开 URL 的逐文件 HTTP 200 和 SHA256 读回为成功。索引 write 成功但读回失败会报告失败，不能据此宣称客户端已收到新索引。真实生产候选/签名 workflow provenance 及端到端公开发布仍未验收。
 
 发布附件至少包括签名更新包、候选 ZIP、对应源码 ZIP、candidate record、QA approval 和 signing record。公开包不包含密钥、原始日志、账户数据或构建缓存。上传中断可能留下 tag、draft/已发布 release 或部分附件；不自动删除/重试覆盖，需人工检查并用新版本继续。索引始终是最后的公开推广点。
 
@@ -22,4 +22,4 @@
 
 - `python -m unittest discover -s tests -p test_publish_release.py -v` 验证 offline manifest、split-channel、版本单调性、来源候选及门控。
 - `python -m unittest discover -s tests -p test_github_release_transport.py -v` 使用内存 HTTP stub 检查具体 REST method/host/path/body/auth、draft 上传地址、双仓权限分离、Pages 404 fail-closed、公开无 token 下载以及 attachment → keys → index 最后读回的请求顺序。测试不访问 GitHub，不签真实密钥、不公开产物。
-- 尚未完成：当前 GitHub Pages 曾读回 404；生产 `config/update-trust` 和真实已批准候选/签名 artifact 需在人工 workflow 中验证；两个 repository-scoped App 安装和 permissions 尚未做真实 API 验收；未执行真实 release/tag/附件/Pages 写入。workflow 配置、环境保护和 API stub 均不替代上述验收，也不表示此次已发行。
+- 尚未完成：生产 `config/update-trust` 已在候选分支由客户端代码验签，但仍须随受审查固定提交进入实际人工 workflow；真实已批准候选/签名 artifact、分仓发布 token、release/tag/附件及更新索引推广均待端到端验收。已完成的 App 认证、配置、环境保护和 API stub 不替代这些验收，也不表示已发行。
