@@ -668,6 +668,41 @@ with open(sys.argv[1], 'rb') as file:
         self.assertEqual((self.work / backup / 'account' / 'map0').read_bytes(), b'newer state')
         self.assertFalse((self.work / '.fishgram-data-restore.json').exists())
 
+    @unittest.skipUnless(os.name == 'nt', 'Actual Windows journal sharing violation')
+    def test_locked_restore_journal_preserves_data_and_explicit_recovery(self):
+        name = self.snapshot()
+        current = self.work / 'tdata' / 'account' / 'map0'
+        current.write_bytes(b'newer state')
+        real_write = recovery._write_json
+        held = []
+        errors = []
+
+        def hold_prepared_journal(path, value):
+            try:
+                real_write(path, value)
+            except OSError as error:
+                errors.append(getattr(error, 'winerror', None))
+                raise
+            if Path(path).name == recovery.JOURNAL and value['state'] == 'prepared':
+                held.append(DirectoryHold(path))
+
+        try:
+            with mock.patch.object(recovery, '_write_json', side_effect=hold_prepared_journal):
+                with self.assertRaisesRegex(recovery.RecoveryError, 'explicit recovery'):
+                    self.restore(name)
+            self.assertTrue(errors and errors[0] in (5, 32))
+            self.assertEqual(current.read_bytes(), b'newer state')
+            self.assertTrue((self.work / recovery.JOURNAL).is_file())
+            self.assertFalse(list(self.work.glob(recovery.JOURNAL + '-*.tmp')))
+        finally:
+            for handle in held:
+                handle.close()
+        recovery.recover_restore(self.work, self.exe, confirm_restore=True,
+                                 process_probe=lambda path: False)
+        self.assertEqual(current.read_bytes(), b'newer state')
+        self.assertFalse((self.work / recovery.JOURNAL).exists())
+        self.assertFalse(list(self.work.glob('.fishgram-data-stage-*')))
+
     def test_tampered_and_extra_snapshot_files_are_rejected(self):
         name = self.snapshot()
         saved = self.snapshots / name / 'tdata' / 'account' / 'map0'

@@ -28,6 +28,10 @@
 
 ## Pages 与发行
 
+两仓库使用 `FishGram release tag creation` 规则匹配 `refs/tags/v*-r*`，只有发布 App 可创建；独立 `FishGram immutable release tags` 无绕过者，禁止这些标签更新或删除。父仓 `FishGram channel publisher` 只允许发布 App 更新 `gh-pages`；独立 `FishGram channel retention` 无绕过者，禁止删除及非快进更新。升级 App 不在任何上述绕过名单；它也不能绕过主分支检查。不要将发布 App 加入主分支绕过名单。
+
+这些规则于 2026-10-11 经 REST 逐项创建和读回 active。规则保护 Git refs，不能称为 GitHub Releases 附件的服务器不可变保护；现有发布器拒绝覆盖已存在标签和附件，公开发行时仍须核对实际发行行为。规则配置读回尚不代替 App 越权拒绝的实际验收。
+
 发布器要求公开地址为 `https://lonefisher.github.io/fishgram/`，使用分支目录发布，目录为 `/` 或 `/docs`。先配置一个独立 Pages 分支并验证公开地址；不要在未验收时写入 stable/beta 更新索引。发布器会在任何 tag/release 写入前读回 Pages，缺失或地址不匹配即停止。
 
 顺序为保护候选构建、下载同一包验收、提交匿名 QA、人工签名、离线准备推广文件、人工批准发布、公开附件读回、密钥清单读回、最后写入并读回渠道索引。具体命令和失败后接续见[发行指南](RELEASING.md)、[公开发布](PUBLISHING.md)。默认 `publish_externally=false` 只生成可审查产物。

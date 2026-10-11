@@ -49,7 +49,8 @@ def issue_body(due, version):
     # Use exact expiry, not changing day counts, to avoid daily notification churn.
     lines += ['- ' + item['id'] + ': expires at UTC epoch ' + str(item['expires']) for item in due]
     lines += ['', 'Follow [key maintenance](https://github.com/lonefisher/fishgram/blob/main/docs/KEY-MANAGEMENT.md).',
-              'Root authorization must increase monotonically. Keep the root private key offline.']
+              'Root authorization must increase monotonically. Keep the encrypted root private key in KeePass, '
+              'verify its backup recovery, and never upload it to Actions.']
     return '\n'.join(lines)
 
 

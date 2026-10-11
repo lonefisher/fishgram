@@ -21,6 +21,8 @@ python -m unittest discover -s tests -v
 
 账户快照/恢复的合成测试见[数据恢复](DATA-RECOVERY.md)，程序恢复见[程序恢复](PROGRAM-RECOVERY.md)。出现间歇失败须保存精确错误和当前候选，不以重跑成功替代原因调查；本机曾出现一次原生快照 fixture 失败，目前原因未确认。
 
+`test_locked_restore_journal_preserves_data_and_explicit_recovery` 用真实 Windows 无共享删除句柄占用恢复日志，在 prepared→moving-old 阶段使原子替换失败，核对旧账户数据未变、日志保留、临时文件清理；释放句柄后必须显式恢复，核对日志和暂存目录清除。该场景已本机通过，但未解释之前全套回归中一次 WinError 5 的占用来源，不能将它描述为该间歇问题已修复。
+
 云端开发候选使用 `build-telegram.ps1 -TestIdentity -TestUpdateSystem`；该开关只为测试身份构建生成一次性根信任，不能与生产身份组合。正式产品仅走受保护候选 workflow，需自有 API 身份、生产根授权信任和实际云端验收。
 
 Comet 仍处于实现阶段。完整更新矩阵、干净 Windows 11、真实 UAC/账户迁移、全部搜索验收及正式签名/公开下载链路尚未完成，r7 不发布。

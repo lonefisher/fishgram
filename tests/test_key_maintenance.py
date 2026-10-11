@@ -54,6 +54,11 @@ class MaintenanceTests(unittest.TestCase):
             maintenance.remind([], 4)
         api.assert_not_called()
 
+    def test_reminder_follows_keepass_custody_policy(self):
+        body = maintenance.issue_body(maintenance.due_items(self.manifest(), now=1000), 4)
+        self.assertIn('KeePass', body)
+        self.assertNotIn('Keep the root private key offline', body)
+
     def test_missing_trust_is_a_visible_blocker(self):
         with self.assertRaises(maintenance.MaintenanceError):
             maintenance.load_trust(Path('missing-fishgram-public-trust'))
