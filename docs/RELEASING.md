@@ -10,7 +10,9 @@ The workflow restores only the existing exact Windows dependency cache (`Librari
 
 The product workflow uses `release_gate.py package-candidate`; `package-telegram.ps1` is an internal development helper. Product packaging rejects test identity, disposable trust, mismatched recipe flags or changed program bytes before creating output. Payload files, Packer, and their build-directory ancestors must be ordinary paths inside the checkout; symbolic links and Windows reparse points are rejected even when their target hashes match. Temporary Git repositories and synthetic binaries exercise this exact packaging entry, ZIP/hash/license read-back, and those negative cases; this evidence does not replace a real cloud product candidate or Windows 11 acceptance.
 
-The current checkout has no `config/update-trust` production public bundle. The workflow must fail before reading API credentials until the reviewed FishGram root public key, issuer public key, root-signed manifest, and detached signature are committed at that path. Test fixtures and private keys are never accepted there.
+The candidate branch includes a production public trust bundle under `config/update-trust`, verified both by Python and the compiled client verifier. The protected-main workflow must still fail before reading API credentials if that reviewed bundle is absent from its own fixed checkout. Test fixtures and private keys are never accepted there. Candidate existence on a draft branch does not mean protected-main product construction has completed.
+
+The Windows recipe pins `releaseDebugInformation: None`; the build record and the candidate ZIP's internal and external manifests carry the same policy. The release gate rejects a missing or mismatched policy whenever the reviewed recipe specifies it. This keeps PR and product Release builds consistent; the native compiler/linker probe verifies the actual flags, while the full cloud run must independently establish resource usage and completion.
 
 ## Signing preparation
 

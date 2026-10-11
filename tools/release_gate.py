@@ -145,6 +145,10 @@ def validate_manifest(manifest, recipe=None):
         if (not isinstance(msvc, str) or not msvc.startswith(str(recipe["msvc"]) + ".")
                 or toolchain.get("sdk") != recipe["windowsSdk"] or toolchain.get("qt") != recipe["qt"]):
             raise GateError("Manifest toolchain differs from the pinned recipe.")
+        if "releaseDebugInformation" in recipe and (
+                recipe["releaseDebugInformation"] != "None"
+                or toolchain.get("releaseDebugInformation") != recipe["releaseDebugInformation"]):
+            raise GateError("Manifest release debug information differs from the pinned recipe.")
         payload = set(recipe["payloadFiles"]) | set(recipe["payloadDlls"])
         files = manifest.get("files")
         if not isinstance(files, dict) or set(files) != payload:

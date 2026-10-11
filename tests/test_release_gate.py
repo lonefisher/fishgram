@@ -111,6 +111,18 @@ class ManifestTests(unittest.TestCase):
             with self.subTest(override=override), self.assertRaises(gate.GateError):
                 gate.validate_manifest(manifest(**override), RECIPE)
 
+    def test_release_debug_policy_must_match_pinned_recipe(self):
+        recipe = dict(RECIPE, releaseDebugInformation='None')
+        for policy in (None, 'Embedded', 'ProgramDatabase'):
+            record = manifest()
+            if policy is not None:
+                record['toolchain']['releaseDebugInformation'] = policy
+            with self.subTest(policy=policy), self.assertRaises(gate.GateError):
+                gate.validate_manifest(record, recipe)
+        record = manifest()
+        record['toolchain']['releaseDebugInformation'] = 'None'
+        gate.validate_manifest(record, recipe)
+
     def test_valid_product_manifest(self):
         info = gate.validate_manifest(manifest(), RECIPE)
         self.assertEqual(info['versionBase'], 7002009)

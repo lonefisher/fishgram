@@ -94,6 +94,21 @@ class CandidatePackagingTests(unittest.TestCase):
             self.assertEqual(bundle.read('LEGAL'), b'OpenSSL exception fixture')
             self.assertNotIn(b'-many', bundle.read('Start-FishGram.cmd'))
 
+    def test_release_debug_policy_survives_actual_zip_and_rejects_mismatch(self):
+        self.recipe['releaseDebugInformation'] = 'None'
+        (self.root / 'fishgram.json').write_text(json.dumps(self.recipe), encoding='utf-8')
+        self.commit(self.root)
+        self.record['parentCommit'] = self.git(self.root, 'rev-parse', 'HEAD')
+        with self.assertRaises(gate.GateError):
+            self.package()
+        self.assertFalse(self.output.exists())
+        self.record['toolchain']['releaseDebugInformation'] = 'None'
+        manifest = self.package()
+        self.assertEqual(manifest['toolchain']['releaseDebugInformation'], 'None')
+        with zipfile.ZipFile(self.output / manifest['archive']['name']) as bundle:
+            embedded = json.loads(bundle.read('build-manifest.json'))
+            self.assertEqual(embedded['toolchain']['releaseDebugInformation'], 'None')
+
     def test_test_identity_or_disposable_trust_never_creates_product_output(self):
         original = dict(self.record)
         for override in ({'identity': 'test'}, {'productCandidate': False},
