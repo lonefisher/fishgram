@@ -66,6 +66,9 @@ class UpgradePolicyTests(unittest.TestCase):
             subprocess.run(['git', 'clone', '--branch', 'custom/main', str(origin), str(checkout)],
                            check=True, capture_output=True)
             self.assertEqual(bot.resume_source_candidate(checkout, 'upgrade/v7.3.0', target), candidate)
+            self.assertEqual(bot.resume_source_candidate(checkout, 'upgrade/v7.3.0', target, candidate), candidate)
+            with self.assertRaises(RuntimeError):
+                bot.resume_source_candidate(checkout, 'upgrade/v7.3.0', target, base)
             self.assertEqual(bot.git(checkout, 'branch', '--show-current').stdout.strip(), 'custom/main')
             self.assertEqual(bot.resume_source_candidate(checkout, 'upgrade/v7.4.0', target), None)
             with self.assertRaises(RuntimeError):
@@ -208,6 +211,16 @@ class UpgradePolicyTests(unittest.TestCase):
         with mock.patch.object(bot, 'api', return_value={'check_runs': []}), mock.patch.object(bot, 'issue_once') as issue:
             bot.record_candidate_failures('v7.3.0', source, parent)
         issue.assert_not_called()
+
+    def test_stale_candidate_check_is_recorded_for_manual_review(self):
+        source = {'head': {'sha': 'a' * 40}, 'html_url': 'source'}
+        parent = {'head': {'sha': 'b' * 40}, 'html_url': 'parent'}
+        with mock.patch.object(bot, 'api', side_effect=[
+                {'check_runs': [{'name': 'expired compile', 'conclusion': 'stale'}]},
+                {'check_runs': []}]), mock.patch.object(bot, 'issue_once') as issue:
+            bot.record_candidate_failures('v7.3.0', source, parent)
+        issue.assert_called_once()
+        self.assertIn('expired compile', issue.call_args.args[2])
 
     def test_issue_deduplication_reads_subsequent_pages(self):
         first = [{'title': 'unrelated', 'html_url': 'ignored'} for _ in range(100)]

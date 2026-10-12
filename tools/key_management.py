@@ -520,7 +520,7 @@ def _cmd_issuer(args) -> None:
 
 def _cmd_backup(args) -> None:
     backup_encrypted_root(Path(args.source), Path(args.destination))
-    print("Encrypted root backup copied; store one copy offline.")
+    print("Encrypted root backup copied; store as a KeePass attachment and back up the encrypted database. An offline copy is optional.")
 
 
 def _cmd_init_manifest(args) -> None:
@@ -608,7 +608,7 @@ def _cmd_check(args) -> None:
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="command", required=True)
-    root = commands.add_parser("init-root", help="Create encrypted offline Ed25519 root key")
+    root = commands.add_parser("init-root", help="Create encrypted Ed25519 root key for KeePass storage")
     root.add_argument("--private", required=True, help="New encrypted PKCS8 PEM path")
     root.add_argument("--public", required=True, help="New root public PEM path")
     root.add_argument("--backup", help="Optional encrypted backup path in an existing directory")

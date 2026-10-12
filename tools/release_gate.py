@@ -478,8 +478,13 @@ def verify_source_archive(manifest, source_archive):
             raise GateError("Corresponding-source repository identity is missing or duplicated.")
         if module_map.get("tdesktop") != manifest["sourceCommit"]:
             raise GateError("Corresponding-source archive has a different pinned source commit.")
-        expected_modules = sorted(re.findall(r"^ ([a-f0-9]{40}) ", line)[0] for line in manifest["submodules"])
-        actual_modules = sorted(value for path, value in module_map.items() if path not in (".", "tdesktop"))
+        expected_modules = {}
+        for line in manifest["submodules"]:
+            match = re.fullmatch(r" ([a-f0-9]{40}) (\S+)(?: .+)?", line)
+            if not match or match[2] in expected_modules:
+                raise GateError("Corresponding-source recursive dependencies are malformed or duplicated.")
+            expected_modules[match[2]] = match[1]
+        actual_modules = {path: value for path, value in module_map.items() if path not in (".", "tdesktop")}
         if actual_modules != expected_modules:
             raise GateError("Corresponding-source recursive dependencies differ from the candidate.")
         expected_names = set(files) | {"source-manifest.json"}

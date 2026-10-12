@@ -262,6 +262,15 @@ class PackageTests(unittest.TestCase):
                     bundle.writestr(name, data)
                 bundle.writestr('source-manifest.json', json.dumps(source_manifest))
             gate.verify_source_archive(record, archive)
+            source_manifest['repositories'][2]['commit'] = SUB2
+            source_manifest['repositories'][3]['commit'] = SUB1
+            with zipfile.ZipFile(archive, 'w') as bundle:
+                for name, data in source_files.items():
+                    bundle.writestr(name, data)
+                bundle.writestr('source-manifest.json', json.dumps(source_manifest))
+            with self.assertRaisesRegex(gate.GateError, 'recursive dependencies'):
+                gate.verify_source_archive(record, archive)
+            source_manifest['repositories'][3]['commit'] = SUB2
             source_manifest['repositories'][2]['commit'] = 'f' * 40
             with zipfile.ZipFile(archive, 'w') as bundle:
                 for name, data in source_files.items():

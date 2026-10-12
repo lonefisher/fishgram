@@ -81,7 +81,7 @@ def record_candidate_failures(tag, source_pr, parent_pr):
             checks = api(f'repos/{repo}/commits/{candidate["head"]["sha"]}/check-runs?per_page=100&page={page}')
             entries = checks['check_runs']
             failed += [repo + ': ' + item['name'] for item in entries
-                       if item.get('conclusion') in ('failure', 'timed_out', 'cancelled', 'action_required')]
+                       if item.get('conclusion') in ('failure', 'timed_out', 'cancelled', 'action_required', 'stale')]
             if len(entries) < 100:
                 break
         else:
@@ -132,8 +132,10 @@ def remote_candidate(root, branch):
     return git(root, 'rev-parse', 'FETCH_HEAD^{commit}').stdout.strip()
 
 
-def resume_source_candidate(root, branch, target):
+def resume_source_candidate(root, branch, target, expected_head=None):
     candidate = remote_candidate(root, branch)
+    if expected_head is not None and candidate != expected_head:
+        raise RuntimeError('Existing source PR head changed; manual review required.')
     if candidate:
         for ancestor in (target, 'origin/custom/main'):
             if git(root, 'merge-base', '--is-ancestor', ancestor, candidate, check=False).returncode:
@@ -192,7 +194,7 @@ def main():
         git(source, 'fetch', '--filter=blob:none', 'upstream', f'refs/tags/{tag}')
         target = git(source, 'rev-parse', 'FETCH_HEAD^{commit}').stdout.strip()
         if source_pr:
-            candidate = source_pr['head']['sha']
+            candidate = resume_source_candidate(source, branch, target, source_pr['head']['sha'])
         else:
             candidate = resume_source_candidate(source, branch, target)
             if not candidate:
