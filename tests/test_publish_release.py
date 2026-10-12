@@ -339,6 +339,20 @@ class PublishReleaseTests(unittest.TestCase):
                          [('atomic_pages', tuple(item.path for item in plan().page_files))])
         self.assertFalse(any(event[0] == 'page' and event[1].startswith('keys/') for event in api.events))
 
+    def test_transport_without_atomic_trust_capability_stops_before_writes(self):
+        api = FakeApi()
+        api.put_pages_atomic = None
+        with self.assertRaisesRegex(publish.PublishError, 'atomically'):
+            publish_plan(api)
+        self.assertFalse(any(event[0] in ('source_tag', 'create_release', 'upload', 'page') for event in api.events))
+
+    def test_unchanged_trust_bundle_skips_commit_and_promotes_only_index(self):
+        api = FakeApi()
+        api.pages = {item.path: item.data for item in plan().page_files}
+        publish_plan(api)
+        self.assertFalse(any(event[0] == 'atomic_pages' for event in api.events))
+        self.assertEqual([event for event in api.events if event[0] == 'page'], [('page', 'stable.json')])
+
 
     def test_existing_release_is_never_overwritten(self):
         for tags in ((), {"v7.2.9-r1"}):

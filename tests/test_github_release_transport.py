@@ -282,6 +282,32 @@ class GithubReleaseTransportTests(unittest.TestCase):
                 self.transport(stub).put_pages_atomic(files)
             self.assertEqual(stub.calls, [])
 
+    def test_atomic_trust_blob_failure_never_advances_pages_ref(self):
+        from test_publish_release import plan
+        stub = Stub()
+        def request(method, url, headers, body, timeout):
+            if method == 'POST' and url.endswith('/git/blobs'):
+                return 500, {}, b'private API details'
+            return stub(method, url, headers, body, timeout)
+        api = transport_module.GitHubReleaseTransport(product_token='product-app-token',
+            source_token='source-app-token', request=request)
+        with self.assertRaisesRegex(transport_module.TransportError, 'HTTP 500'):
+            api.put_pages_atomic({item.path: item.data for item in plan().page_files})
+        self.assertEqual(stub.files, {})
+        self.assertFalse(any(call[0] == 'PATCH' for call in stub.calls))
+
+    def test_atomic_trust_preserves_pages_docs_prefix_and_existing_tree(self):
+        from test_publish_release import plan
+        stub = Stub()
+        api = self.transport(stub)
+        api._pages = {'source': {'branch': 'gh-pages', 'path': '/docs'}}
+        files = {item.path: item.data for item in plan().page_files}
+        api.put_pages_atomic(files)
+        self.assertEqual(stub.files, {'docs/' + path: data for path, data in files.items()})
+        mutations = [call for call in stub.calls if call[0] in ('POST', 'PATCH')]
+        self.assertEqual(len([call for call in mutations if call[0] == 'PATCH']), 1)
+        self.assertTrue(all(call[2]['Authorization'] == 'Bearer parent-secret-token' for call in mutations))
+
     def test_full_transport_refuses_existing_tag_before_any_write(self):
         from test_publish_release import allowed_context, plan
         stub = Stub()
