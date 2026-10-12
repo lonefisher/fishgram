@@ -61,7 +61,8 @@ try {
     }
     $global:LASTEXITCODE = $configureExit
     Assert-NativeSuccess 'Configure; inspect private logs locally'
-    $targets = @('Telegram', 'Updater')
+    $targets = @('Telegram')
+    if ($autoUpdate) { $targets += 'Updater' }
     if ($ProductCandidate) { $targets += 'Packer' }
     & $toolchain.cmake --build $build --config Release --target $targets --parallel $Parallel *> (Join-Path $root 'logs\build.log')
     $compileExit = $LASTEXITCODE
