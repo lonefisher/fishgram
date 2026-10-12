@@ -34,6 +34,9 @@ class Stub:
         self.corrupt_public = set()
         self.fail_upload = fail_upload
         self.corrupt_asset = corrupt_asset
+        self.blobs = {}
+        self.pending_tree = None
+        self.fail_atomic_ref = False
 
     def __call__(self, method, url, headers, body, timeout):
         self.calls.append((method, url, dict(headers), body))
@@ -64,6 +67,31 @@ class Stub:
                 return 404, {}, b""
             return 200, {}, json.dumps({"public": True, "html_url": "https://lonefisher.github.io/fishgram",
                                         "source": {"branch": "gh-pages", "path": "/"}}).encode()
+        if path.endswith('/git/ref/heads/gh-pages') and method == 'GET':
+            return 200, {}, json.dumps({'object': {'type': 'commit', 'sha': 'a' * 40}}).encode()
+        if path.endswith('/git/commits/' + 'a' * 40) and method == 'GET':
+            return 200, {}, json.dumps({'tree': {'sha': 'b' * 40}}).encode()
+        if path.endswith('/git/blobs') and method == 'POST':
+            payload = json.loads(body)
+            data = base64.b64decode(payload['content'])
+            sha = hashlib.sha1(data).hexdigest()
+            self.blobs[sha] = data
+            return 201, {}, json.dumps({'sha': sha}).encode()
+        if path.endswith('/git/trees') and method == 'POST':
+            payload = json.loads(body)
+            assert payload['base_tree'] == 'b' * 40
+            self.pending_tree = payload['tree']
+            return 201, {}, json.dumps({'sha': 'c' * 40}).encode()
+        if path.endswith('/git/commits') and method == 'POST':
+            payload = json.loads(body)
+            assert payload['parents'] == ['a' * 40] and payload['tree'] == 'c' * 40
+            return 201, {}, json.dumps({'sha': 'e' * 40}).encode()
+        if path.endswith('/git/refs/heads/gh-pages') and method == 'PATCH':
+            assert json.loads(body) == {'sha': 'e' * 40, 'force': False}
+            if self.fail_atomic_ref:
+                return 422, {}, b'branch advanced'
+            self.files.update({item['path']: self.blobs[item['sha']] for item in self.pending_tree})
+            return 200, {}, json.dumps({'object': {'sha': 'e' * 40}}).encode()
         if path.endswith("/git/ref/tags/v7.2.9-r1") and method == "GET":
             tag_set = self.tags if repo == transport_module.PRODUCT_REPOSITORY else getattr(self, "source_tags", set())
             exists = "v7.2.9-r1" in tag_set
@@ -215,7 +243,7 @@ class GithubReleaseTransportTests(unittest.TestCase):
         public_downloads = [i for i, item in enumerate(methods)
                             if item[0] == "GET" and item[1] == "github.com" and "/releases/download/" in item[2]]
         key_puts = [i for i, item in enumerate(methods)
-                    if item[0] == "PUT" and "/contents/keys/" in item[2]]
+                    if item[0] == "PATCH" and item[2].endswith('/git/refs/heads/gh-pages')]
         index_put = next(i for i, item in enumerate(methods)
                          if item[0] == "PUT" and "/contents/stable.json" in item[2])
         index_public_get = max(i for i, item in enumerate(methods)
@@ -233,6 +261,26 @@ class GithubReleaseTransportTests(unittest.TestCase):
         self.assertEqual(source_tag_body["object"], "c" * 40)
         self.assertEqual(source_tag_body["type"], "commit")
         self.assertEqual(source_tag_body["tag"], "v7.2.9-r1")
+
+    def test_atomic_trust_bundle_conflict_preserves_old_files_and_stops_index(self):
+        from test_publish_release import allowed_context, plan, publish
+        stub = Stub()
+        stub.source_tags = set()
+        stub.files = {item.path: b'old-' + item.data for item in plan().page_files}
+        old = dict(stub.files)
+        stub.fail_atomic_ref = True
+        with self.assertRaisesRegex(publish.PublishError, 'atomic promotion'):
+            publish.promote(plan(), self.transport(stub), enabled=True, context=allowed_context())
+        self.assertEqual(stub.files, old)
+        self.assertFalse(any(call[0] == 'PUT' for call in stub.calls))
+
+    def test_atomic_trust_bundle_rejects_partial_or_arbitrary_paths_before_requests(self):
+        for files in ({'keys/manifest.min.json': b'new'},
+                      {'../stable.json': b'new'}, {'stable.json': b'new'}):
+            stub = Stub()
+            with self.assertRaises(transport_module.TransportError):
+                self.transport(stub).put_pages_atomic(files)
+            self.assertEqual(stub.calls, [])
 
     def test_full_transport_refuses_existing_tag_before_any_write(self):
         from test_publish_release import allowed_context, plan

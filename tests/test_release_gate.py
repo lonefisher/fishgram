@@ -46,7 +46,7 @@ def manifest(files=None, **overrides):
         'toolchain': {'msvc': '14.44.35207', 'sdk': '10.0.26100.0', 'qt': '5.15.19'},
         'files': files if files is not None else {
             name: {'size': len(data), 'sha256': digest(data)} for name, data in PAYLOAD.items()},
-        'submodules': [' ' + SUB1 + ' tdesktop/ThirdParty/one (v1.0)', ' ' + SUB2 + ' tdesktop/lib_x'],
+        'submodules': [' ' + SUB1 + ' ThirdParty/one (v1.0)', ' ' + SUB2 + ' lib_x'],
         'tools': {'Packer.exe': {'size': 7, 'sha256': PACKER}},
     }
     record['archive'] = {'name': 'FishGram-7.2.9-r8-windows-x64-candidate.zip',

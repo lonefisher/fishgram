@@ -86,6 +86,10 @@ class FakeApi:
         self.events.append(("page", path))
         self.pages[path] = bytes(data)
 
+    def put_pages_atomic(self, files):
+        self.events.append(("atomic_pages", tuple(files)))
+        self.pages.update(files)
+
     def get_page(self, path):
         self.events.append(("get_page", path))
         return self.pages.get(path)
@@ -331,6 +335,9 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertEqual(downloaded, expected_assets)
         self.assertEqual(api.events[-2:], [("page", "stable.json"), ("get_page", "stable.json")])
         self.assertEqual(api.pages["stable.json"], plan().index_bytes)
+        self.assertEqual([event for event in api.events if event[0] == 'atomic_pages'],
+                         [('atomic_pages', tuple(item.path for item in plan().page_files))])
+        self.assertFalse(any(event[0] == 'page' and event[1].startswith('keys/') for event in api.events))
 
 
     def test_existing_release_is_never_overwritten(self):

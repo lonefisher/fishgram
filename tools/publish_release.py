@@ -187,6 +187,7 @@ class ReleaseTransport(Protocol):
     def download_asset(self, tag: str, name: str) -> bytes: ...
     def get_page(self, path: str) -> bytes | None: ...
     def put_page(self, path: str, data: bytes) -> None: ...
+    def put_pages_atomic(self, files: dict[str, bytes]) -> None: ...
     def pages_config(self) -> dict: ...
     def create_source_tag(self, tag: str, target: str) -> None: ...
     def publish_release(self, tag: str) -> None: ...
@@ -378,6 +379,8 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
         existing_assets = api.asset_names(plan.tag) if release_exists else set()
         if existing_assets:
             raise PublishError("Existing release contains assets; publication will not append or replace them.")
+    if not callable(getattr(api, 'put_pages_atomic', None)):
+        raise PublishError('Transport cannot publish the trust bundle atomically; stopped before writes.')
     if not plan.reuse_release and not source_tag_exists:
         api.create_source_tag(plan.tag, source_commit)
     if not plan.reuse_release:
@@ -402,14 +405,13 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
             raise PublishError("Public release asset download failed: " + asset.name) from error
         if hashlib.sha256(public_bytes).hexdigest() != asset.sha256:
             raise PublishError("Public release asset SHA256 mismatch: " + asset.name)
-    for item in plan.page_files:
-        try:
-            current = read_public_page(api, item.path)
-            if current != item.data:
-                api.put_page(item.path, item.data)
+    try:
+        if any(read_public_page(api, item.path) != item.data for item in plan.page_files):
+            api.put_pages_atomic({item.path: item.data for item in plan.page_files})
+        for item in plan.page_files:
             wait_public_page(api, item.path, item.data)
-        except Exception as error:
-            raise PublishError("Pages trust-file promotion or read-back failed: " + item.path) from error
+    except Exception as error:
+        raise PublishError("Pages trust-bundle atomic promotion or read-back failed.") from error
     try:
         api.put_page(plan.index_path, plan.index_bytes)
     except Exception as error:

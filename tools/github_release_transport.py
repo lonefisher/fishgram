@@ -290,6 +290,52 @@ class GitHubReleaseTransport:
         self._api("PUT", get_path + "?" + query, repository=PRODUCT_REPOSITORY,
                   payload=payload, expected=(201, 200))
 
+    def put_pages_atomic(self, files: dict[str, bytes]) -> None:
+        """Publish the entire public trust bundle with one non-forced branch update."""
+        allowed = {"keys/root-public.pem", "keys/issuer-public.pem",
+                   "keys/manifest.min.json", "keys/manifest.sig"}
+        if not isinstance(files, dict) or set(files) != allowed:
+            raise TransportError("Atomic Pages publication requires the complete trust bundle.")
+        for path, data in files.items():
+            self._safe_page_path(path)
+            if not isinstance(data, bytes):
+                raise TransportError("Pages content must be bytes.")
+        if self._pages is None:
+            self.pages_config()
+        branch = quote(self._pages['source']['branch'], safe='')
+        prefix = 'docs/' if self._pages['source']['path'] == '/docs' else ''
+        base = f'/repos/{PRODUCT_REPOSITORY}/git'
+        def request(method, suffix, payload=None, expected=(200,)):
+            response = self._api(method, base + suffix, repository=PRODUCT_REPOSITORY,
+                                 payload=payload, expected=expected)
+            return self._json(response[2], 'Pages Git operation')
+        def sha(value):
+            if not isinstance(value, str) or not re.fullmatch('[a-f0-9]{40}', value):
+                raise TransportError('Pages Git operation omitted a valid object SHA.')
+            return value
+        ref = request('GET', '/ref/heads/' + branch)
+        obj = ref.get('object', {})
+        if not isinstance(obj, dict) or obj.get('type') != 'commit':
+            raise TransportError('Pages branch does not reference a commit.')
+        parent = sha(obj.get('sha'))
+        commit = request('GET', '/commits/' + parent)
+        tree = commit.get('tree', {})
+        if not isinstance(tree, dict):
+            raise TransportError('Pages commit omitted its tree.')
+        base_tree = sha(tree.get('sha'))
+        entries = []
+        for path, data in files.items():
+            blob = request('POST', '/blobs', {'content': base64.b64encode(data).decode('ascii'),
+                                            'encoding': 'base64'}, (201,))
+            entries.append({'path': prefix + path, 'mode': '100644', 'type': 'blob',
+                            'sha': sha(blob.get('sha'))})
+        new_tree = request('POST', '/trees', {'base_tree': base_tree, 'tree': entries}, (201,))
+        new_commit = request('POST', '/commits', {
+            'message': 'Publish verified FishGram trust bundle atomically',
+            'tree': sha(new_tree.get('sha')), 'parents': [parent]}, (201,))
+        request('PATCH', '/refs/heads/' + branch,
+                {'sha': sha(new_commit.get('sha')), 'force': False})
+
     def create_source_tag(self, tag: str, target: str) -> None:
         if self.source_tag_exists(tag):
             raise TransportError("Source repository tag already exists; source refs are immutable.")

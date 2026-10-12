@@ -483,7 +483,7 @@ def verify_source_archive(manifest, source_archive):
             match = re.fullmatch(r" ([a-f0-9]{40}) (\S+)(?: .+)?", line)
             if not match or match[2] in expected_modules:
                 raise GateError("Corresponding-source recursive dependencies are malformed or duplicated.")
-            expected_modules[match[2]] = match[1]
+            expected_modules['tdesktop/' + match[2]] = match[1]
         actual_modules = {path: value for path, value in module_map.items() if path not in (".", "tdesktop")}
         if actual_modules != expected_modules:
             raise GateError("Corresponding-source recursive dependencies differ from the candidate.")
