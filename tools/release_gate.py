@@ -14,6 +14,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import stat
@@ -46,7 +47,7 @@ PACKER_TARGETS = {"windows-x64": "win64"}
 def git(root, *args):
     result = subprocess.run(
         ["git", "-c", "core.longpaths=true", "-C", str(root), *args],
-        capture_output=True, text=True)
+        capture_output=True, text=True, env={**os.environ, "GIT_NO_LAZY_FETCH": "1"})
     if result.returncode:
         raise GateError("Required Git metadata is unavailable: " + " ".join(args))
     return result.stdout.rstrip("\r\n")
@@ -55,7 +56,7 @@ def git(root, *args):
 def git_ok(root, *args):
     result = subprocess.run(
         ["git", "-c", "core.longpaths=true", "-C", str(root), *args],
-        capture_output=True, text=True)
+        capture_output=True, text=True, env={**os.environ, "GIT_NO_LAZY_FETCH": "1"})
     return result.returncode == 0
 
 
@@ -251,6 +252,38 @@ def _plain_build_path(root, path):
         current = current.parent
 
 
+def _check_upstream_ancestry(root, upstream_commit, source_commit):
+    """Prove the recorded source contains its baseline using local history only.
+
+    Use explicit recorded objects, not HEAD or a movable upstream ref. A shallow
+    repository can prove ancestry within its available history, but a negative
+    result cannot distinguish a missing history segment from an unrelated base.
+    Both cases fail closed; provisioning history belongs to the caller.
+    """
+    upstream_commit = _sha(upstream_commit, "Official baseline commit")
+    source_commit = _sha(source_commit, "Recorded source commit")
+    source = Path(root) / "tdesktop"
+    if git(source, "rev-parse", "--show-prefix"):
+        raise GateError("Source Git repository is unavailable at the pinned source path.")
+    shallow = git(source, "rev-parse", "--is-shallow-repository")
+    if shallow not in ("true", "false"):
+        raise GateError("Source history availability cannot be determined.")
+    for commit, label in ((upstream_commit, "Official baseline"),
+                          (source_commit, "Recorded source")):
+        try:
+            kind = git(source, "cat-file", "-t", commit)
+        except GateError as error:
+            raise GateError(label + " commit is unavailable in local source history; "
+                            "provide the pinned history before retrying.") from error
+        if kind != "commit":
+            raise GateError(label + " object must be a Git commit.")
+    if not git_ok(source, "merge-base", "--is-ancestor", upstream_commit, source_commit):
+        if shallow == "true":
+            raise GateError("Source history is shallow and cannot prove the official baseline "
+                            "is an ancestor of the recorded source commit; provide the pinned history.")
+        raise GateError("Official baseline is not a proven ancestor of the recorded source commit.")
+
+
 def package_candidate(root, record_path, output):
     """Create the internal ZIP from the explicitly recorded product build."""
     import shutil
@@ -286,6 +319,7 @@ def package_candidate(root, record_path, output):
         "archive": {"name": f"FishGram-{record['version']}-{recipe['platform']}-candidate.zip",
                     "sha256": "0" * 64, "size": 1},
     }, recipe)
+    _check_upstream_ancestry(root, recipe["upstreamCommit"], record["sourceCommit"])
     build = root / "build-modified" / "Release"
     for name in payload_names:
         _safe_base(name, "Payload name")
@@ -358,6 +392,7 @@ def check_pins(root, commit, manifest, tracked=()):
         raise GateError("Recorded source commit does not match the pinned gitlink.")
     recipe = _recipe_at(root, parent)
     validate_manifest(manifest, recipe)
+    _check_upstream_ancestry(root, manifest["upstreamCommit"], manifest["sourceCommit"])
 
 
 def verify_package(manifest, package):

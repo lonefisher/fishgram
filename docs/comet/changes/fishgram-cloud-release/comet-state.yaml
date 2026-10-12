@@ -3,7 +3,7 @@ name: fishgram-cloud-release
 language: zh-CN
 phase: build
 status: active
-state_version: 18
+state_version: 22
 brief: brief.md
 document_constraints_version: 1
 shape_confirmation_hash: 5a8f359331a601d5770341733413ed4749514880755bea90494bea35e585b112
@@ -19,7 +19,7 @@ workspace:
 loop:
   stage: repairing
   goal_cycle: 1
-  iteration: 4
+  iteration: 5
   attempt: 0
   retry_epoch: 1
   failed_iteration_count: 0
@@ -39,45 +39,35 @@ acceptance:
     text: A1：产品名称、独立图标、应用ID、默认数据目录统一FishGram，自己的API身份，非官方说明、基本功能与广告保留，无新增遥测/官方崩溃上报。
     result: passed
     reason:
-      text: "FishGram identity verified in frozen source e222737 working tree:
-        kProductName FishGram with AppUserModelId FishGram.Desktop and own toast
-        COM UUID B6CB0D96-E271-4D11-8356-447586ED944B
-        (windows_app_user_model_identity.h), FishGram shell strings in
-        autorun/send-to and startup/update dialogs, own icon set (fishgram.ico,
-        logo/tray/mark), version string -r8 suffix via version.h.in, default
-        runtime dir FishGramData in fishgram.json, own Ed25519 update trust
-        embedded via CMakeLists with FATAL refusal of official Telegram root,
-        autoUpdate false. Own Telegram API identity provisioned as
-        FISHGRAM_API_ID/FISHGRAM_API_HASH secrets in the protected candidate
-        environment per handoff, STATUS.md, environment screenshots and user
-        confirmation; secret values unreadable by design so only name-level
-        existence is claimed. Non-official positioning documented in
-        APPLICATION-IDENTITY.md; basic features preserved on the official base
-        and no new telemetry module exists. Residual: API values and in-product
-        identity never exercised in a built binary; that belongs to the missing
-        product build under A3/A5, not an A1 counter-evidence."
+      text: 当前父 cfacb8cef84d53338170c4faf8536216ef9df3a7 / 源
+        e222737896c041be450eaac251208d5e1eb76f8e 的身份实现核验通过：FishGram
+        名称、FishGram.Desktop AUMID、独立通知 COM UUID、Windows 资源及独立图标、FishGramData
+        默认便携目录均已接入；README 和 CMake 明确非官方身份。官方广告组件与官方 AGENTS 的 Git blob
+        差异为零；源码变化未引入遥测模块，构建显式关闭官方崩溃报告。自有 API 和 Apps 已配置，依据用户明确指令及当前交接接受此事实，未读取
+        secret 值。产品 API 仅供受保护候选构建，公开 CI
+        使用不可发行测试身份。此通过限于身份与源码保持性，尚未在真实生产二进制中验证登录、基本功能和身份；实机缺口保留于
+        A5，不冒称产品实测。证据：fishgram.json、tools/build-telegram.ps1、源码 version.h /
+        launcher.cpp / windows_app_user_model_identity.h / winrc /
+        CMakeLists.txt、.private/cloud-verifier-cfacb8c-evidence.json。
       truncated: false
   - id: A2
     source: brief.md
     text: A2：源码和子模块一致性、五组生产helper、脚本及测试身份编译对全部PR运行；外部PR无法访问发行API或签名密钥。
     result: passed
     reason:
-      text: Source e222737 full CI passed on the recorded PR run 37785578154 (workflow
-        FishGram source checks). Push run 37784975830 passed the ACL interop
-        helpers with the source compile explicitly skipped and is not counted as
-        a full build. Job names Production helper tests and Source test identity
-        compile match the required-status-check contexts in branch protection;
-        parent checks.yml runs recipe/submodule/script/unittest plus
-        restricted-search helpers; PR jobs run with contents read-only token and
-        persist-credentials false and never bind the
-        candidate/release/upgrade-automation environments, so external PRs
-        cannot reach API or signing material. Bound Runtime check
-        cloud-fixed-source-scripts passed with 39 clean recursive pins, clean
-        AGENTS.md diff and parsed build scripts; 228 Python tests with real
-        Packer/verify/native fixtures and the manifest-packaging Runtime suite
-        passed with zero skips (review-retry-native-regression.log; the retained
-        default-TEMP failure is environmental WinError 5/32, reproduced and
-        documented).
+      text: 当前 Git HEAD、源 HEAD 和父 gitlink 精确匹配 cfacb8c/e222737；39 个源码递归依赖无 '-'/'+'/'U'
+        偏差，源码无未提交改动，官方 AGENTS 保留。父 checks.yml / cloud-build.yml 和源
+        fishgram-checks.yml 对所有 pull_request 配置一致性、生产 helper、脚本及测试身份编译，token 为
+        contents:read、checkout persist-credentials:false；PR 不绑定
+        candidate/release/upgrade-automation 环境、不调用发行 secrets、不上传程序/API
+        编译目录。相同源码 e222737 的完整 PR CI37785578154 已成功，实际 checkout18046022 与 e222737
+        的树均为5341be2c0e458863ce3abd8a0cf2881c622fb50c，已通过提交 API
+        独立复核，故仅复用其源码编译证据。当前父 Repository checks38236614047
+        成功，日志为235项中222通过、13跳过，五组生产 helper 与13组核心场景通过；跳过项不计通过。当前候选绑定的 Runtime
+        cloud-publication-review-regression 收据
+        passed/exit0，日志70项无跳过，复用且未重跑。A2通过是 PR 检查覆盖与凭据隔离结论；当前父完整编译仍未完成，保留在
+        A3。证据：上述 workflow、Git 只读状态、.private/checks-cfacb8c.log、当前 Runtime checks
+        日志及 .private/cloud-verifier-cfacb8c-evidence.json。
       truncated: false
   - id: A3
     source: brief.md
@@ -111,84 +101,72 @@ acceptance:
     result: pending
     reason: null
 builder_handoff:
-  candidate_id: 14420907-ed42-49a6-be17-e971d2c9e4f9
+  candidate_id: 674d692f-54a2-4a6e-b8b2-398a7488c807
   identity_provider: skill-coordinated
-  builder_execution_ref: skill-coordinated:builder:5c3b6759-d76c-4c2b-a7a7-eda0e271f795
-  iteration: 3
+  builder_execution_ref: skill-coordinated:builder:a225b09a-9d25-401b-bb04-5d0862d64ddc
+  iteration: 4
   summary:
-    text: "Local candidate cd2d1f3330c3fa85983f041e009533a1b174f694/source e222737:
-      own API and production public trust configured; two narrowly scoped GitHub
-      Apps installed, exact secrets uploaded with consent; six tag/channel rules
-      and main-only environments read back. Debug policy None actual MSVC probe
-      pass, recipe gate bound. Upgrade actual conflict/repeat Issue2 tested;
-      source/parent pushed-ref recovery and PR linking repaired, independent
-      review limited pass. 228 Python tests with native Packer/verify/snapshot
-      fixtures PASS zero skips. No public product build, signing, main merge or
-      channel promotion. Remote CI38145620283 still live at older825a33f."
+    text: Frozen parent cfacb8cef84d53338170c4faf8536216ef9df3a7/source
+      e222737896c041be450eaac251208d5e1eb76f8e pushed. Five publication review
+      findings fixed and independently rechecked. Repository CI38236614047
+      success (222 passed,13 skipped); required full CI38236613947 still live.
+      Source archive41 repos15825 files93license paths unresolved0 verified. No
+      product build, main merge, signing or release; original search and
+      cleanWin11 remain incomplete.
     truncated: false
   addressed_acceptance_ids:
-    - A1
     - A2
     - A3
-    - A4
     - A5
-    - A6
     - A7
     - A8
   checks:
     - name:
-        text: Full native fixture Python regression
+        text: Publication review fixes
         truncated: false
       result: passed
       note:
-        text: 228/228 zero skips .private/review-retry-native-regression.log; first
-          default TEMP run failed7/skip13 retained; export12 directed
-          workspaceTEMP passed
+        text: 25 publication+15 transport+30 gate+7 actual Git packaging+5 safety tests
+          pass zero skips; incremental reviewer01a12fa2 confirmed residual503
+          issue fixed
         truncated: false
     - name:
-        text: Upgrade recovery and limited independent review
+        text: Exact committed source archive
         truncated: false
       result: passed
       note:
-        text: 13 tests including real source/parent Git fixtures; reviewer01a12b60
-          limited pass; public conflict/repeat Issue2 actual App validated,
-          successful linked public PR path remains unverified
+        text: Private cloud-source-audit.json binds
+          cfacb8c/sourcee222737,41repos15825files,93licenses unresolved0;
+          SHA25676753c334ef62dd87594df7ea1d901dcc49e2f52a796992de700b7278a63c1de
         truncated: false
     - name:
-        text: Real MSVC debug policy probe
-        truncated: false
-      result: passed
-      note:
-        text: Embedded vs None actual compile/link/run; cleanup verified; full cloud
-          linker benefit not yet proven
-        truncated: false
-    - name:
-        text: Current cloud and public product acceptance
+        text: Full current cloud/product/install acceptance
         truncated: false
       result: not-run
       note:
-        text: 38145620283 older825a33f in_progress preparation; current local cd2d1f3
-          unpushed. No product candidate/clean Win11/real account/search
-          complete/release evidence
+        text: CI38236613947/job114769469244 live preparation; no production artifact or
+          QA authorization
         truncated: false
   checks_truncated: false
   known_limits:
-    - text: Current local parent has not been pushed to avoid canceling active older
-        CI. Current source full CI e222737 passed previously; do not bind older
-        parent CI to current commit.
+    - text: "Current full cloud run live: do not restart or treat observation timeout
+        as failure; previous d8bad41 build cannot count as cfacb8c success."
       truncated: false
-    - text: Own API/issuer/App environment names exist, root and issuer encrypted
-        KeePass attachment restores verified; OneDrive database recovery not
-        verified, user waived offline requirement. Root private material never
-        uploaded.
+    - text: Product protected main build requires source/parent integration and
+        maintainer candidate approval. Sandbox not detected, enable confirmation
+        pending. Original search2/8 and real install/recovery matrix incomplete.
       truncated: false
-    - text: Original search2/8; clean Win11 product, actual cross-baseline account
-        migration, successful paired upgrade PR/CI failure external flow and
-        first signed public release remain unverified. No acceptance relaxation.
+    - text: Actual successful linked upstream PR and CI-failure flow remain
+        unverified; daily upgrade bot disabled. Independent incremental review
+        and local tests do not replace end-to-end release.
+      truncated: false
+    - text: Root/issuer KeePass attachment restore verified; OneDrive full database
+        restoration not verified; user waived offline backup. No credentials in
+        handoff.
       truncated: false
   known_limits_truncated: false
   review: null
-  submitted_at: 2026-10-11T15:13:10.730Z
+  submitted_at: 2026-10-12T10:54:43.569Z
 blockers: []
 verification: null
 history:
@@ -322,6 +300,33 @@ history:
       text: 发现父PR五项具体发布审查阻塞；继续按已批准方案修正发布提交绑定、Pages异步读回、复用交接、目标平台及暂存清理，不更改验收标准。
       truncated: false
     completed_at: 2026-10-12T10:17:23.476Z
+  - goal_cycle: 1
+    iteration: 4
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: 独立Verifier已先通过同一当前Comet
+        CLI提交verifier-started并读回confirmed，再对精确父cfacb8c/源e222737的brief/spec
+        A1-A8各核验一次。A1/A2 passed，A3-A8
+        blocked，整体blocked；当前云端38236613947仍live准备依赖，不是失败也未完成。复用本候选1组Runtime70项无跳过收据及未失效源码证据；当前仓库CI成功但13跳过，当前对应源码/93项许可哈希匹配，不能替代生产云端和实机。所有缺证据、风险和配置读取限制如实保留；无委派、源码/Git修改、GUI、secret值读取、merge/push/公开写入或外发消息。只写.private检查/结果JSON，最终verifier-response留给主代理提交，未自行向Runtime提交final-result。
+      truncated: false
+    completed_at: 2026-10-12T11:07:30.337Z
+  - goal_cycle: 1
+    iteration: 4
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 按已批准完整方案继续修复当前提交新增审查问题：发行标签固定候选构建提交、所有渠道串行发布、受保护复用入口及官方基线祖先验证。当前cfacb8c无缓存云端成功，保留原证据，不放宽实机与发行验收。
+      truncated: false
+    completed_at: 2026-10-12T14:57:18.326Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null

@@ -79,3 +79,11 @@
 结束时 `Libraries` 为 17,676,594,900 bytes，`ThirdParty` 为 1,237,512,805 bytes，`build-modified` 为 17,773,239,863 bytes。构建开始及完成的诊断均确认链接器宿主 `x64`；另一次资源诊断未提供架构，不能将其 `null` 当作架构变化。峰值属于整个系统启动以来的提交量，不是客户端或链接进程的内存峰值，也不能由这两个采样推定分页文件的具体调整原因。
 
 REST 附件列表仅有 [compile-measurements](https://github.com/lonefisher/fishgram/actions/runs/38156803064/artifacts/11714497255)（1,929 bytes）。日志确认上传五份数值资源/内存诊断 JSON，与本机测量文件吻合；未上传程序或原始编译日志。本次使用公共测试 API 身份及一次性更新信任，构建成功仅证明固定输入的测试身份云端构建和上述 helper 检查通过，**不是产品候选**。没有本次程序下载与 SHA256、受保护自有 API 构建、Windows 11 实机验证、正式签名或发行批准。
+
+## 2026-10-12 当前 PR 输入的无缓存结果
+
+[run 38236613947](https://github.com/lonefisher/fishgram/actions/runs/38236613947) 已成功。PR head 为 `cfacb8cef84d53338170c4faf8536216ef9df3a7`，实际 checkout 为合并提交 `45a035f276668c8d244bfc30502a512aca32c8f8`；GitHub commit API 验证两者 tree 均为 `2c45be3db07b0c7388e0f987fdfaaa0850193ab1`。源码仍固定 `e222737896c041be450eaac251208d5e1eb76f8e`。
+
+精确依赖缓存未命中。实际准备 10:32:49–12:26:40 UTC，测试身份编译 12:26:45–14:16:25 UTC。生产 helper 步骤成功：数据恢复 37 项、Packer 包往返 11 项无跳过；Windows payload 验证通过，原生验签与一次性信任分别 60/60、63/63。结束采样可用磁盘 113,366,028,288 bytes，系统启动以来峰值提交内存 21,784,821,760 bytes；链接器宿主 x64。资源 artifact 只包含数值 JSON。
+
+这些证据仅属于上述固定树和不可发行测试身份。之后的发布审查修复、受保护产品候选、程序哈希、真实账号及 Windows Sandbox 验收均不由此证明。

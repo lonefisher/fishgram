@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -161,6 +162,30 @@ class GitHubReleaseTransport:
             self._release_by_tag[tag] = release
             return True
         return False
+
+    def tag_commit(self, repository: str, tag: str) -> str:
+        """Resolve a lightweight or annotated tag to a commit without trusting URLs."""
+        repository = self._repository(repository)
+        if not tag or "/" in tag or ".." in tag:
+            raise TransportError("Tag name is malformed.")
+        _, _, body = self._api("GET", f"/repos/{repository}/git/ref/tags/{quote(tag, safe='')}",
+                               repository=repository, expected=(200,))
+        value = self._json(body, "Tag ref")
+        seen = set()
+        for _ in range(16):
+            obj = value.get("object")
+            if (not isinstance(obj, dict) or not isinstance(obj.get("sha"), str)
+                    or not re.fullmatch(r"[0-9a-f]{40}", obj["sha"])):
+                raise TransportError("Tag target is malformed.")
+            if obj.get("type") == "commit":
+                return obj["sha"]
+            if obj.get("type") != "tag" or obj["sha"] in seen:
+                raise TransportError("Tag does not resolve to a commit.")
+            seen.add(obj["sha"])
+            _, _, body = self._api("GET", f"/repos/{repository}/git/tags/{obj['sha']}",
+                                   repository=repository, expected=(200,))
+            value = self._json(body, "Annotated tag")
+        raise TransportError("Annotated tag chain exceeds the supported bound.")
 
     def asset_names(self, tag: str) -> set[str]:
         release = self._release_by_tag.get(tag)

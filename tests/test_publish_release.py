@@ -33,6 +33,9 @@ class FakeApi:
         self.events.append(("tag_exists", repository, tag))
         return tag in self.tags
 
+    def tag_commit(self, repository, tag):
+        return "b" * 40 if repository == publish.PRODUCT_REPOSITORY else "c" * 40
+
     def source_tag_exists(self, tag):
         self.events.append(("source_tag_exists", tag))
         return tag in self.source_tags
@@ -117,7 +120,7 @@ def plan(*, index_channel="stable", package_channel="stable", reuse_release=Fals
     index = json.dumps({"schema": 1, "channel": index_channel, "platform": "windows-x64",
                         "update": entry}, sort_keys=True, separators=(",", ":")).encode()
     return publish.PromotionPlan(
-        tag="v7.2.9-r1", target_commit="a" * 40, index_channel=index_channel,
+        tag="v7.2.9-r1", target_commit="b" * 40, index_channel=index_channel,
         package_channel=package_channel,
         version="30073399661297665", assets=assets, page_files=pages,
         index_path=f"{index_channel}.json", index_bytes=index, reuse_release=reuse_release,
@@ -135,6 +138,71 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_reused_tags_must_match_both_candidate_commits_before_pages_writes(self):
+        candidate = plan(reuse_release=True)
+        for repository in (publish.PRODUCT_REPOSITORY, publish.SOURCE_REPOSITORY):
+            api = FakeApi(tags={candidate.tag}, releases={candidate.tag})
+            api.source_tags.add(candidate.tag)
+            api.tag_commit = lambda repo, tag: "d" * 40 if repo == repository else (
+                "b" * 40 if repo == publish.PRODUCT_REPOSITORY else "c" * 40)
+            with self.subTest(repository=repository), self.assertRaisesRegex(publish.PublishError, "tag"):
+                publish_plan(api, candidate)
+            self.assertFalse(any(event[0] == "page" for event in api.events))
+
+    def test_candidate_tag_and_review_commit_survive_offline_publication(self):
+        from dataclasses import replace
+        candidate = replace(plan(), reviewed_commit="c" * 40)
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "promotion"
+            publish.write_promotion(candidate, output)
+            metadata = json.loads((output / "promotion.json").read_text())
+            self.assertEqual(metadata["targetCommit"], "b" * 40)
+            self.assertEqual(metadata["repositoryInputs"][publish.PRODUCT_REPOSITORY]["reviewedCommit"], "c" * 40)
+            api = FakeApi()
+            api.create_release = mock.Mock(wraps=api.create_release)
+            with mock.patch.dict(sys.modules, {"github_release_transport": SimpleNamespace(
+                    GitHubReleaseTransport=SimpleNamespace(from_environment=lambda: api))}):
+                self.assertEqual(publish.main(["publish", "--promotion", str(output),
+                    "--enable-publication", "--event", "workflow_dispatch", "--ref", "refs/heads/main",
+                    "--environment", "release", "--approval-marker", "1"]), 0)
+            self.assertEqual(api.create_release.call_args.args[1], "b" * 40)
+
+    def test_offline_promotion_rejects_tag_pointing_at_later_review_commit(self):
+        from dataclasses import replace
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(publish.PublishError, "candidate"):
+                publish.write_promotion(replace(plan(), target_commit="c" * 40), Path(temp) / "promotion")
+
+    def test_publication_rejects_tampered_tag_before_requesting_tokens(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "promotion"
+            publish.write_promotion(plan(), output)
+            record = output / "promotion.json"
+            metadata = json.loads(record.read_text())
+            metadata["targetCommit"] = "d" * 40
+            record.write_text(json.dumps(metadata))
+            factory = mock.Mock(side_effect=AssertionError("Token access must not occur"))
+            with mock.patch.dict(sys.modules, {"github_release_transport": SimpleNamespace(
+                    GitHubReleaseTransport=SimpleNamespace(from_environment=factory))}):
+                self.assertEqual(publish.main(["publish", "--promotion", str(output),
+                    "--enable-publication", "--event", "workflow_dispatch", "--ref", "refs/heads/main",
+                    "--environment", "release", "--approval-marker", "1"]), 1)
+            factory.assert_not_called()
+
+    def test_release_workflow_serializes_channels_and_exposes_reuse(self):
+        workflow = (MODULE.parent.parent / ".github/workflows/publish-release.yml").read_text()
+        group = next(line.strip() for line in workflow.splitlines() if line.strip().startswith("group:"))
+        self.assertEqual(group, "group: fishgram-publication")
+        self.assertIn("      reuse_release:", workflow)
+        self.assertIn("REUSE_RELEASE: ${{ inputs.reuse_release }}", workflow)
+        self.assertIn("$args += '--reuse-release'", workflow)
+
+    def test_candidate_and_signer_have_history_for_baseline_and_review_gates(self):
+        for name in ("product-candidate.yml", "sign-release-candidate.yml", "publish-release.yml"):
+            with self.subTest(workflow=name):
+                workflow = (MODULE.parent.parent / ".github/workflows" / name).read_text()
+                self.assertIn("fetch-depth: 0", workflow)
+
     def test_first_trust_read_recovers_before_promoting_index(self):
         api = FakeApi()
         original_get = api.get_page

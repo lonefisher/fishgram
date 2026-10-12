@@ -111,6 +111,32 @@ class Stub:
 
 
 class GithubReleaseTransportTests(unittest.TestCase):
+    def test_tag_commit_resolves_lightweight_and_annotated_tags(self):
+        for annotated in (False, True):
+            stub = Stub()
+            original = stub.__call__
+            def request(method, url, headers, body, timeout):
+                if '/git/ref/tags/' in url:
+                    obj = {"type": "tag" if annotated else "commit", "sha": "a" * 40}
+                    return 200, {}, json.dumps({"object": obj}).encode()
+                if '/git/tags/' in url:
+                    return 200, {}, json.dumps({"object": {"type": "commit", "sha": "b" * 40}}).encode()
+                return original(method, url, headers, body, timeout)
+            api = transport_module.GitHubReleaseTransport(product_token='fixture',
+                source_token='source-fixture', request=request)
+            with self.subTest(annotated=annotated):
+                self.assertEqual(api.tag_commit(transport_module.PRODUCT_REPOSITORY, 'v1'),
+                                 ("b" if annotated else "a") * 40)
+
+    def test_tag_commit_rejects_cycles_noncommits_and_malformed_hashes(self):
+        for obj in ({"type": "tag", "sha": "a" * 40},
+                    {"type": "blob", "sha": "a" * 40},
+                    {"type": "commit", "sha": "invalid"}):
+            api = transport_module.GitHubReleaseTransport(product_token='fixture', source_token='source-fixture',
+                request=lambda *args: (200, {}, json.dumps({"object": obj}).encode()))
+            with self.subTest(obj=obj), self.assertRaises(transport_module.TransportError):
+                api.tag_commit(transport_module.SOURCE_REPOSITORY, 'v1')
+
     def transport(self, stub, **kwargs):
         stub.source_tags = set()
         return transport_module.GitHubReleaseTransport(

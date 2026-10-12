@@ -22,8 +22,12 @@
 
 签名提交可晚于候选提交：发布器验证 candidate → signer → 当前受保护 main 的祖先关系，以及 signer 和当前 main 中 QA 文件的 Git blob 一致。签名 run 的来源仍要求 main、人工触发、成功 job 与唯一候选 artifact；候选本身继续绑定原构建提交。
 
+产品发行标签固定到候选记录的 `parentCommit`，不指向后续 QA 或发布审核提交；后者单独保存在 promotion 的 `repositoryInputs` 中 `lonefisher/fishgram` 项的 `reviewedCommit`。stable 与 beta 共用一个发布并发组，串行写入共享 Pages 信任文件。受保护 workflow 的 `reuse_release` 默认关闭，只有显式开启时传递复用选项；仅支持既有稳定包进入 stable 索引，并仍校验已有标签、附件及哈希，不覆盖附件。
+
 Pages 每次写入后按公开字节进行有界轮询，轮询预算为 180 秒，每 5 秒读回一次，单次 HTTP 请求还受 transport 的 30 秒超时约束；旧内容、404 和临时 HTTP 错误均继续等待，超时明确失败，不把 Contents API 写入成功当成公开推广成功。离线 promotion 显式保存并校验布尔 `reuseRelease`，只允许稳定签名包进入稳定索引，且仍逐件核对已有不可变附件。准备成功会清理暂存副本。
 
 - `python -m unittest discover -s tests -p test_publish_release.py -v` 验证 offline manifest、split-channel、版本单调性、来源候选及门控。
 - `python -m unittest discover -s tests -p test_github_release_transport.py -v` 使用内存 HTTP stub 检查具体 REST method/host/path/body/auth、draft 上传地址、双仓权限分离、Pages 404 fail-closed、公开无 token 下载以及 attachment → keys → index 最后读回的请求顺序。测试不访问 GitHub，不签真实密钥、不公开产物。
 - 尚未完成：生产 `config/update-trust` 已在候选分支由客户端代码验签，但仍须随受审查固定提交进入实际人工 workflow；真实已批准候选/签名 artifact、分仓发布 token、release/tag/附件及更新索引推广均待端到端验收。已完成的 App 认证、配置、环境保护和 API stub 不替代这些验收，也不表示已发行。
+
+复用既有发行前，发布器解析两个仓库的实际标签目标（普通标签或附注标签），逐一核对候选 parentCommit/sourceCommit；错误目标、非提交对象、循环或过长标签链会拒绝。标签存在和附件匹配不能代替源码目标一致。该核验在任何 Pages 写入前完成。

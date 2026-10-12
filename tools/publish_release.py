@@ -163,6 +163,7 @@ class PromotionPlan:
     index_path: str
     index_bytes: bytes
     reuse_release: bool = False
+    reviewed_commit: str | None = None
 
 
 @dataclass(frozen=True)
@@ -175,6 +176,7 @@ class PublishContext:
 
 class ReleaseTransport(Protocol):
     def tag_exists(self, repository: str, tag: str) -> bool: ...
+    def tag_commit(self, repository: str, tag: str) -> str: ...
     def release_exists(self, tag: str) -> bool: ...
     def source_tag_exists(self, tag: str) -> bool: ...
     def asset_names(self, tag: str) -> set[str]: ...
@@ -322,6 +324,14 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
             raise PublishError("Existing-release promotion requires a stable package entering stable index.")
         if not tag_exists or not source_tag_exists or not release_exists:
             raise PublishError("Index-only promotion requires both immutable repository tags and the release.")
+        try:
+            record = json.loads(next(asset.data for asset in plan.assets
+                                     if asset.name == "candidate-record.json"))
+            if (api.tag_commit(PRODUCT_REPOSITORY, plan.tag) != record["parentCommit"]
+                    or api.tag_commit(SOURCE_REPOSITORY, plan.tag) != record["sourceCommit"]):
+                raise PublishError("Existing repository tags differ from the exact candidate commits.")
+        except (StopIteration, KeyError, TypeError, ValueError) as error:
+            raise PublishError("Existing tags require a valid candidate record.") from error
     elif tag_exists or source_tag_exists or release_exists:
         raise PublishError("Product/source tag or release already exists; published objects are immutable.")
     old = _parse_current_index(api.get_index(plan.index_path), plan.index_channel)
@@ -515,9 +525,9 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
     )
     page_files = tuple(PageFile("keys/" + name, (trust / name).read_bytes())
                        for name in ("root-public.pem", "issuer-public.pem", "manifest.min.json", "manifest.sig"))
-    return PromotionPlan(release_tag, commit, index_channel, manifest["channel"], version,
+    return PromotionPlan(release_tag, manifest["parentCommit"], index_channel, manifest["channel"], version,
                          assets, page_files, index_channel + ".json", update_index,
-                         reuse_release=reuse_release)
+                         reuse_release=reuse_release, reviewed_commit=commit)
 
 
 def write_promotion(plan: PromotionPlan, output: Path) -> None:
@@ -535,6 +545,11 @@ def write_promotion(plan: PromotionPlan, output: Path) -> None:
         raise PublishError("Promotion requires the verified external candidate record and both repository pins.") from error
     if not COMMIT.fullmatch(parent_candidate) or not COMMIT.fullmatch(source_commit):
         raise PublishError("Candidate record has invalid pinned parent/source commits.")
+    if plan.target_commit != parent_candidate:
+        raise PublishError("Release tag must point to the exact candidate build commit.")
+    reviewed_commit = plan.reviewed_commit or plan.target_commit
+    if not COMMIT.fullmatch(reviewed_commit):
+        raise PublishError("Reviewed publication commit is invalid.")
     staging = Path(tempfile.mkdtemp(prefix=".fishgram-promotion-", dir=output.parent))
     output_created = False
     try:
@@ -551,7 +566,7 @@ def write_promotion(plan: PromotionPlan, output: Path) -> None:
             "schema": 1, "kind": "fishgram-offline-promotion", "repository": PRODUCT_REPOSITORY,
             "sourceRepository": SOURCE_REPOSITORY,
             "repositoryInputs": {
-                PRODUCT_REPOSITORY: {"ref": "refs/heads/main", "reviewedCommit": plan.target_commit,
+                PRODUCT_REPOSITORY: {"ref": "refs/heads/main", "reviewedCommit": reviewed_commit,
                                      "candidateCommit": parent_candidate},
                 SOURCE_REPOSITORY: {"ref": "refs/heads/custom/main", "pinnedCommit": source_commit},
             },
@@ -656,7 +671,7 @@ def main(argv: list[str] | None = None) -> int:
                 if (not isinstance(repository_inputs, dict)
                         or set(repository_inputs) != {PRODUCT_REPOSITORY, SOURCE_REPOSITORY}
                         or repository_inputs[PRODUCT_REPOSITORY].get("ref") != "refs/heads/main"
-                        or repository_inputs[PRODUCT_REPOSITORY].get("reviewedCommit") != metadata.get("targetCommit")
+                        or not COMMIT.fullmatch(repository_inputs[PRODUCT_REPOSITORY].get("reviewedCommit") or "")
                         or repository_inputs[SOURCE_REPOSITORY].get("ref") != "refs/heads/custom/main"):
                     raise PublishError("Promotion manifest does not bind the fixed reviewed repository refs.")
                 assets, pages = [], []
@@ -703,12 +718,14 @@ def main(argv: list[str] | None = None) -> int:
                 except (StopIteration, UnicodeDecodeError, json.JSONDecodeError) as error:
                     raise PublishError("Promotion candidate record is missing or invalid.") from error
                 if (repository_inputs[SOURCE_REPOSITORY].get("pinnedCommit") != candidate_record.get("sourceCommit")
-                        or repository_inputs[PRODUCT_REPOSITORY].get("candidateCommit") != candidate_record.get("parentCommit")):
+                        or repository_inputs[PRODUCT_REPOSITORY].get("candidateCommit") != candidate_record.get("parentCommit")
+                        or metadata.get("targetCommit") != candidate_record.get("parentCommit")):
                     raise PublishError("Promotion repository pins differ from the exact candidate record.")
                 plan = PromotionPlan(metadata["tag"], metadata["targetCommit"],
                                      metadata["indexChannel"], metadata["packageChannel"],
                                      metadata["updateVersion"], tuple(assets), tuple(pages),
-                                     index_meta["path"], index_bytes, metadata["reuseRelease"])
+                                     index_meta["path"], index_bytes, metadata["reuseRelease"],
+                                     repository_inputs[PRODUCT_REPOSITORY]["reviewedCommit"])
             except (OSError, KeyError, TypeError, ValueError) as error:
                 if isinstance(error, PublishError):
                     raise

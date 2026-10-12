@@ -31,16 +31,22 @@ class CandidatePackagingTests(unittest.TestCase):
         (source / 'LEGAL').write_text('OpenSSL exception fixture', encoding='utf-8')
         self.git(source, 'submodule', 'add', '--quiet', str(dependency), 'deps/example')
         self.commit(source)
+        upstream = self.git(source, 'rev-parse', 'HEAD')
+        (source / 'custom.txt').write_text('FishGram customization', encoding='utf-8')
+        self.commit(source)
         self.recipe = {
             'product': 'FishGram', 'platform': 'windows-x64', 'upstreamVersion': '7.2.9',
-            'upstreamTag': 'v7.2.9', 'upstreamCommit': self.git(source, 'rev-parse', 'HEAD'),
+            'upstreamTag': 'v7.2.9', 'upstreamCommit': upstream,
             'revision': 8, 'channel': 'stable', 'msvc': '14.44', 'windowsSdk': '10.0.26100.0',
             'qt': '5.15.19', 'autoUpdate': False, 'releaseReady': False,
             'payloadFiles': ['Telegram.exe', 'Updater.exe'], 'payloadDlls': [],
         }
+        (self.root / '.gitignore').write_text('build-modified/\n', encoding='utf-8')
         (self.root / 'fishgram.json').write_text(json.dumps(self.recipe), encoding='utf-8')
         self.git(self.root, 'submodule', 'add', '--quiet', str(source), 'tdesktop')
         self.git(self.root, 'submodule', 'update', '--init', '--recursive', '--quiet')
+        self.git(self.root / 'tdesktop', 'config', 'user.name', 'FishGram fixture')
+        self.git(self.root / 'tdesktop', 'config', 'user.email', 'fixture@example.invalid')
         self.commit(self.root)
         self.build = self.root / 'build-modified/Release'
         self.build.mkdir(parents=True)
@@ -73,6 +79,94 @@ class CandidatePackagingTests(unittest.TestCase):
     def package(self):
         self.record_path.write_text(json.dumps(self.record), encoding='utf-8')
         return gate.package_candidate(self.root, self.record_path, self.output)
+
+    def pin_baseline(self, upstream):
+        self.recipe['upstreamCommit'] = upstream
+        (self.root / 'fishgram.json').write_text(json.dumps(self.recipe), encoding='utf-8')
+        self.commit(self.root)
+        self.record['parentCommit'] = self.git(self.root, 'rev-parse', 'HEAD')
+
+    def source_commit(self, *parents):
+        source = self.root / 'tdesktop'
+        args = ['commit-tree', self.git(source, 'rev-parse', 'HEAD^{tree}'),
+                '-m', 'Synthetic baseline history']
+        for parent in parents:
+            args.extend(['-p', parent])
+        return self.git(source, *args)
+
+    def assert_rejected_by_packaging_and_signing(self, upstream, pattern):
+        candidate = self.package()
+        self.pin_baseline(upstream)
+        candidate.update(upstreamCommit=upstream, parentCommit=self.record['parentCommit'])
+        self.output = self.base / 'rejected-candidate'
+        with self.subTest(gate='packaging'):
+            with self.assertRaisesRegex(gate.GateError, pattern):
+                self.package()
+            self.assertFalse(self.output.exists())
+        with self.subTest(gate='signature revalidation'):
+            with self.assertRaisesRegex(gate.GateError, pattern):
+                gate.check_pins(self.root, self.record['parentCommit'], candidate)
+
+    def test_unrelated_official_baseline_rejected_in_packaging_and_signature_revalidation(self):
+        # Both objects exist, but the claimed official commit has an unrelated root.
+        self.assert_rejected_by_packaging_and_signing(self.source_commit(), 'ancestor')
+
+    def test_sibling_official_baseline_rejected_in_packaging_and_signature_revalidation(self):
+        self.assert_rejected_by_packaging_and_signing(
+            self.source_commit(self.recipe['upstreamCommit']), 'ancestor')
+
+    def test_descendant_official_baseline_rejected_in_packaging_and_signature_revalidation(self):
+        self.assert_rejected_by_packaging_and_signing(
+            self.source_commit(self.record['sourceCommit']), 'ancestor')
+
+    def test_missing_official_commit_rejected_in_packaging_and_signature_revalidation(self):
+        self.assert_rejected_by_packaging_and_signing('f' * 40, 'unavailable|unknown')
+
+    def test_noncommit_official_object_rejected_in_packaging_and_signature_revalidation(self):
+        blob = self.git(self.root / 'tdesktop', 'rev-parse', 'HEAD:LICENSE')
+        self.assert_rejected_by_packaging_and_signing(blob, 'commit')
+
+    def test_shallow_source_without_provable_ancestry_rejected_at_both_gates(self):
+        candidate = self.package()
+        source = self.root / 'tdesktop'
+        shallow = Path(self.git(source, 'rev-parse', '--absolute-git-dir')) / 'shallow'
+        shallow.write_text(self.record['sourceCommit'] + '\n', encoding='ascii')
+        self.assertEqual(self.git(source, 'rev-parse', '--is-shallow-repository'), 'true')
+        self.output = self.base / 'rejected-shallow-candidate'
+        with self.subTest(gate='packaging'):
+            with self.assertRaisesRegex(gate.GateError, 'shallow|history'):
+                self.package()
+            self.assertFalse(self.output.exists())
+        with self.subTest(gate='signature revalidation'):
+            with self.assertRaisesRegex(gate.GateError, 'shallow|history'):
+                gate.check_pins(self.root, self.record['parentCommit'], candidate)
+
+    def test_shallow_source_with_baseline_boundary_proves_ancestry_at_both_gates(self):
+        source = self.root / 'tdesktop'
+        shallow = Path(self.git(source, 'rev-parse', '--absolute-git-dir')) / 'shallow'
+        shallow.write_text(self.recipe['upstreamCommit'] + '\n', encoding='ascii')
+        self.assertEqual(self.git(source, 'rev-parse', '--is-shallow-repository'), 'true')
+        candidate = self.package()
+        gate.check_pins(self.root, self.record['parentCommit'], candidate)
+
+    def test_official_commit_need_not_have_local_tag_or_branch_ref(self):
+        source = self.root / 'tdesktop'
+        self.assertEqual(self.git(source, 'for-each-ref', '--points-at',
+                                  self.recipe['upstreamCommit']), '')
+        candidate = self.package()
+        gate.check_pins(self.root, self.record['parentCommit'], candidate)
+
+    def test_signing_checks_recorded_source_instead_of_newer_checkout_head(self):
+        candidate = self.package()
+        newer = self.source_commit(self.record['sourceCommit'])
+        self.pin_baseline(newer)
+        candidate.update(upstreamCommit=newer, parentCommit=self.record['parentCommit'])
+        source = self.root / 'tdesktop'
+        self.git(source, 'checkout', '--quiet', '--detach', newer)
+        self.commit(self.root)
+        approved = self.git(self.root, 'rev-parse', 'HEAD')
+        with self.assertRaisesRegex(gate.GateError, 'ancestor'):
+            gate.check_pins(self.root, approved, candidate)
 
     def test_protected_candidate_keeps_recipe_flag_and_binds_actual_zip(self):
         manifest = self.package()

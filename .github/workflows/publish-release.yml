@@ -25,13 +25,18 @@ on:
         required: true
         default: false
         type: boolean
+      reuse_release:
+        description: Promote an existing verified stable package into stable index
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: fishgram-publication-${{ inputs.index_channel }}
+  group: fishgram-publication
   cancel-in-progress: false
 
 jobs:
@@ -131,6 +136,7 @@ jobs:
           QA_FILE: ${{ inputs.qa_file }}
           ISSUER_KEY_ID: ${{ vars.ISSUER_KEY_ID }}
           INDEX_CHANNEL: ${{ inputs.index_channel }}
+          REUSE_RELEASE: ${{ inputs.reuse_release }}
         run: |
           $packageDir = Join-Path $env:RUNNER_TEMP 'candidate/package'
           $candidateZip = @(Get-ChildItem -LiteralPath $packageDir -File -Filter '*-candidate.zip')
@@ -143,6 +149,7 @@ jobs:
             '--qa', "release/qa/$env:QA_FILE", '--signing-record', (Join-Path $env:RUNNER_TEMP 'signed/signing-record.json'),
             '--signed-package', $signedPackages[0].FullName, '--packer', (Join-Path $packageDir 'Packer.exe'),
             '--issuer-id', $env:ISSUER_KEY_ID, '--output', (Join-Path $env:RUNNER_TEMP 'promotion'))
+          if ($env:REUSE_RELEASE -eq 'true') { $args += '--reuse-release' }
           python tools/publish_release.py @args
           if ($LASTEXITCODE) { throw 'Offline promotion gate rejected the candidate.' }
       - name: Publish through separate repository-scoped GitHub App tokens

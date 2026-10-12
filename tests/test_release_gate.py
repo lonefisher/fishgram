@@ -394,6 +394,10 @@ def fake_git_factory(parent_overrides=None, source_overrides=None):
     }
     source_data = {
         ('rev-parse', 'HEAD'): SOURCE,
+        ('rev-parse', '--show-prefix'): '',
+        ('rev-parse', '--is-shallow-repository'): 'false',
+        ('cat-file', '-t', RECIPE['upstreamCommit']): 'commit',
+        ('cat-file', '-t', SOURCE): 'commit',
         ('status', '--porcelain', '--untracked-files=no'): '',
         ('submodule', 'status', '--recursive'): ' ' + SUB1 + ' tdesktop/one (v1.0)\n ' + SUB2 + ' tdesktop/two',
     }
@@ -455,6 +459,7 @@ class CheckoutTests(unittest.TestCase):
         gate.git_ok = fake_git_ok_factory({
             ('cat-file', '-e', PARENT + '^{commit}'): True,
             ('merge-base', '--is-ancestor', PARENT, 'HEAD'): True,
+            ('merge-base', '--is-ancestor', RECIPE['upstreamCommit'], SOURCE): True,
             ('ls-files', '--error-unmatch', '--', 'release/qa/7.2.9-r8.json'): True,
         })
         gate.check_pins('/repo', 'f' * 40, manifest(), ['release/qa/7.2.9-r8.json'])
