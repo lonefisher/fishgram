@@ -16,6 +16,8 @@
 | 生产配置 | 自有 API 身份、生产根签名信任、发行环境 secrets 及两个限定仓库的 App 已配置；KeePass 根/发行附件恢复通过，OneDrive 数据库整体恢复未验；用户不要求离线副本 |
 | 首次发行 | 阻止：搜索完整验收、实际产品云端候选及安装/恢复链路尚未通过；r7 只保留为本机历史 |
 
+欢迎页和 About 的非官方说明在本地源码 `fe18211` 中改为固定英文，暂不随界面语言翻译。独立增量复审确认原官方声明不再由这两处生产路径使用，Telegram API 链接和许可保留；对象编译成功只属于开发证据，不替代完整 UI 验收。该源码提交尚未推送，不能套用 PR3 旧输入的云端结果。
+
 旧固定提交的[冷缓存云端构建](https://github.com/lonefisher/fishgram/actions/runs/37031108321)和[修复后的热缓存构建](https://github.com/lonefisher/fishgram/actions/runs/37743424883)均完整成功，客户端编译约 113–114 分钟，编译后可用空间约 176 GB。两次使用公共测试身份，更新功能关闭，不能计为新增产品候选的实测。新候选构建结果按实际运行另行记录。此前候选的六组 Comet Runtime 检查通过，包括生产 fixture 下 Python 194/194 及固定源码许可证库存 41 节点、未解决 0；这些记录保持原提交绑定。
 
 干净 runner 的缺目录、短路径夹具修复已获[父仓库检查成功](https://github.com/lonefisher/fishgram/actions/runs/37779473800)。源码事务夹具匹配提升权限策略后，[单独的云端 helper 检查](https://github.com/lonefisher/tdesktop/actions/runs/37784107745)成功，完整客户端编译明确跳过，不将其计为完整构建。后续本机独立检查为 Python 198/198 无跳过、原生快照与恢复 36/36、验签 60/63 和 Packer 11/11；真实 UAC 与账户仍待验。公开候选 `74e3281`/`6fed833` 已在全新目录完成递归克隆，40 个子模块指针均匹配。App、环境变量和 Pages 接续见[GitHub 配置](GITHUB-CONFIGURATION.md)。
