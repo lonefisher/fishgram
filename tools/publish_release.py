@@ -15,8 +15,10 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+import time
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -29,6 +31,34 @@ DECIMAL = re.compile(r"^(0|[1-9][0-9]*)$")
 TAG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 RELEASE_TAG = re.compile(r"^v\d+\.\d+\.\d+-r\d+$")
 MAX_UPDATE_SIZE = 256 * 1024 * 1024
+
+
+def wait_public_page(api, path: str, expected: bytes, *, timeout: float = 180,
+                     interval: float = 5, clock=time.monotonic, sleep=time.sleep) -> None:
+    """Pages commits deploy asynchronously; require the exact public bytes."""
+    deadline = clock() + timeout
+    while True:
+        try:
+            if api.get_page(path) == expected:
+                return
+        except Exception:
+            pass  # transient HTTP failures are retried within the same deadline
+        if clock() >= deadline:
+            raise PublishError("Public Pages deployment did not match before timeout: " + path)
+        sleep(min(interval, max(0, deadline - clock())))
+
+
+def read_public_page(api, path: str, *, timeout: float = 180, interval: float = 5,
+                     clock=time.monotonic, sleep=time.sleep) -> bytes | None:
+    """Retry a transient read failure before deciding whether a write is needed."""
+    deadline = clock() + timeout
+    while True:
+        try:
+            return api.get_page(path)  # None is a confirmed 404, not a failed read
+        except Exception:
+            if clock() >= deadline:
+                raise PublishError("Public Pages read failed before timeout: " + path) from None
+            sleep(min(interval, max(0, deadline - clock())))
 
 # Publication has its own review-pin set in addition to the signer gate. Keep
 # the publisher, its REST transport, and the source-license inventory inputs
@@ -48,6 +78,30 @@ PUBLISH_TRACKED = (
 
 class PublishError(ValueError):
     """An input or promotion condition is unsafe or incomplete."""
+
+
+def verify_signing_history(root: Path, signing_sha: str, candidate_sha: str,
+                           reviewed_sha: str, qa_path: str) -> None:
+    """Bind the signer to reviewed main history and the exact committed QA."""
+    if (any(not isinstance(value, str) or not COMMIT.fullmatch(value)
+            for value in (signing_sha, candidate_sha, reviewed_sha))
+            or not re.fullmatch(r"release/qa/[A-Za-z0-9._-]+\.json", qa_path)):
+        raise PublishError("Signing history inputs are malformed.")
+    def git(*args):
+        result = subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+        if result.returncode:
+            raise PublishError("Signing commit is outside reviewed history or committed QA is missing.")
+        return result.stdout.strip()
+    git("merge-base", "--is-ancestor", candidate_sha, signing_sha)
+    git("merge-base", "--is-ancestor", signing_sha, reviewed_sha)
+    if git("rev-parse", f"{signing_sha}:{qa_path}") != git("rev-parse", f"{reviewed_sha}:{qa_path}"):
+        raise PublishError("Signing run QA differs from the reviewed publication QA.")
+
+
+def verify_package_identity(envelope, version: str, channel: str) -> None:
+    if (envelope.channel != {"stable": 0, "beta": 1}[channel]
+            or envelope.version != int(version) or envelope.target != (0, 1)):
+        raise PublishError("Verified update package does not bind the authorized Windows x64 version and channel.")
 
 
 def verify_signing_run_provenance(run: dict, jobs: dict, artifacts: dict,
@@ -264,6 +318,8 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
     source_tag_exists = api.source_tag_exists(plan.tag)
     release_exists = api.release_exists(plan.tag)
     if plan.reuse_release:
+        if plan.index_channel != "stable" or plan.package_channel != "stable":
+            raise PublishError("Existing-release promotion requires a stable package entering stable index.")
         if not tag_exists or not source_tag_exists or not release_exists:
             raise PublishError("Index-only promotion requires both immutable repository tags and the release.")
     elif tag_exists or source_tag_exists or release_exists:
@@ -332,24 +388,20 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
             raise PublishError("Public release asset SHA256 mismatch: " + asset.name)
     for item in plan.page_files:
         try:
-            current = api.get_page(item.path)
+            current = read_public_page(api, item.path)
             if current != item.data:
                 api.put_page(item.path, item.data)
-            public_bytes = api.get_page(item.path)
+            wait_public_page(api, item.path, item.data)
         except Exception as error:
             raise PublishError("Pages trust-file promotion or read-back failed: " + item.path) from error
-        if public_bytes is None or hashlib.sha256(public_bytes).hexdigest() != item.sha256:
-            raise PublishError("Public Pages trust-file SHA256 mismatch: " + item.path)
     try:
         api.put_page(plan.index_path, plan.index_bytes)
     except Exception as error:
         raise PublishError("Channel index promotion failed after all public assets were verified.") from error
     try:
-        public_index = api.get_page(plan.index_path)
+        wait_public_page(api, plan.index_path, plan.index_bytes)
     except Exception as error:
         raise PublishError("Channel index was written but public read-back failed.") from error
-    if public_index is None or hashlib.sha256(public_index).hexdigest() != hashlib.sha256(plan.index_bytes).hexdigest():
-        raise PublishError("Public channel index SHA256 mismatch after promotion.")
 
 
 def _load_json(path: Path, label: str) -> dict:
@@ -433,10 +485,7 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
     trust_manifest, issuer_raw, root_pem, _ = _verify_trust(root, trust)
     envelope = parse_envelope(signed_package.read_bytes())
     verify_envelope(envelope, trust_manifest, issuer_id, issuer_raw, root_pem, manifest["channel"])
-    expected_channel = {"stable": 0, "beta": 1}[manifest["channel"]]
-    if (envelope.channel != expected_channel or envelope.version != int(authorization["updateVersion"])
-            or envelope.target != (1, 0)):
-        raise PublishError("Verified update package does not bind the authorized Windows x64 version and channel.")
+    verify_package_identity(envelope, authorization["updateVersion"], manifest["channel"])
 
     version = authorization["updateVersion"]
     update_name = f"fishgram-update-win-x64-{envelope.version >> 32}-r{envelope.version & 0xffffffff}"
@@ -509,6 +558,7 @@ def write_promotion(plan: PromotionPlan, output: Path) -> None:
             "tag": plan.tag, "targetCommit": plan.target_commit,
             "indexChannel": plan.index_channel, "packageChannel": plan.package_channel,
             "updateVersion": plan.version,
+            "reuseRelease": plan.reuse_release,
             "releaseAssets": [{"name": item.name, "size": len(item.data), "sha256": item.sha256}
                               for item in plan.assets],
             "pagesFiles": [{"path": item.path, "size": len(item.data), "sha256": item.sha256}
@@ -524,6 +574,7 @@ def write_promotion(plan: PromotionPlan, output: Path) -> None:
         shutil.copytree(staging / "release-assets", output / "release-assets")
         shutil.copytree(staging / "pages", output / "pages")
         shutil.copyfile(staging / "promotion.json", output / "promotion.json")
+        shutil.rmtree(staging)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         if output_created and output.exists():
@@ -567,6 +618,10 @@ def _parser() -> argparse.ArgumentParser:
     provenance.add_argument("--run-id", required=True, type=int)
     provenance.add_argument("--candidate-run-id", required=True, type=int)
     provenance.add_argument("--expected-sha", required=True)
+    provenance.add_argument("--root", required=True, type=Path)
+    provenance.add_argument("--candidate-sha", required=True)
+    provenance.add_argument("--reviewed-sha", required=True)
+    provenance.add_argument("--qa-path", required=True)
     return parser
 
 
@@ -574,6 +629,8 @@ def main(argv: list[str] | None = None) -> int:
     options = _parser().parse_args(argv)
     try:
         if options.command == "verify-sign-run":
+            verify_signing_history(options.root, options.expected_sha, options.candidate_sha,
+                                   options.reviewed_sha, options.qa_path)
             verify_signing_run_provenance(_load_json(options.run_json, "Signing run"),
                                           _load_json(options.jobs_json, "Signing jobs"),
                                           _load_json(options.artifacts_json, "Signing artifacts"),
@@ -589,6 +646,8 @@ def main(argv: list[str] | None = None) -> int:
             promotion = options.promotion.resolve(strict=True)
             try:
                 metadata = _load_json(promotion / "promotion.json", "Promotion manifest")
+                if type(metadata.get("reuseRelease")) is not bool:
+                    raise PublishError("Promotion reuseRelease must be an explicit boolean.")
                 if (metadata.get("schema") != 1 or metadata.get("kind") != "fishgram-offline-promotion"
                         or metadata.get("repository") != PRODUCT_REPOSITORY
                         or metadata.get("sourceRepository") != SOURCE_REPOSITORY):
@@ -649,7 +708,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan = PromotionPlan(metadata["tag"], metadata["targetCommit"],
                                      metadata["indexChannel"], metadata["packageChannel"],
                                      metadata["updateVersion"], tuple(assets), tuple(pages),
-                                     index_meta["path"], index_bytes)
+                                     index_meta["path"], index_bytes, metadata["reuseRelease"])
             except (OSError, KeyError, TypeError, ValueError) as error:
                 if isinstance(error, PublishError):
                     raise

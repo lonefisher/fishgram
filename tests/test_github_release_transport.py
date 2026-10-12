@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from urllib.request import Request
 from urllib.parse import urlsplit
 
@@ -219,6 +220,30 @@ class GithubReleaseTransportTests(unittest.TestCase):
             publisher.promote(plan(), self.transport(stub), enabled=True, context=allowed_context())
         self.assertFalse(any(call[0] in {"POST", "PUT", "PATCH"} for call in stub.calls))
 
+    def test_transport_first_public_trust_503_recovers_and_index_remains_last(self):
+        from test_publish_release import allowed_context, plan
+        p_spec = importlib.util.spec_from_file_location("publish_release_transient", MODULE.with_name("publish_release.py"))
+        publisher = importlib.util.module_from_spec(p_spec)
+        sys.modules[p_spec.name] = publisher
+        p_spec.loader.exec_module(publisher)
+        stub = Stub()
+        failures = [0]
+        stub.source_tags = set()
+        def request(method, url, headers, body, timeout):
+            if url == "https://lonefisher.github.io/fishgram/keys/root-public.pem" and not failures[0]:
+                failures[0] += 1
+                return 503, {}, b"temporary deployment failure"
+            return stub(method, url, headers, body, timeout)
+        api = transport_module.GitHubReleaseTransport(product_token="product-app-token",
+            source_token="source-app-token", request=request)
+        original_read = publisher.read_public_page
+        with mock.patch.object(publisher, "read_public_page", side_effect=lambda api, path:
+                original_read(api, path, sleep=lambda value: None)):
+            publisher.promote(plan(), api, enabled=True, context=allowed_context())
+        self.assertEqual(failures[0], 1)
+        self.assertEqual(stub.files["stable.json"], plan().index_bytes)
+        self.assertTrue(stub.calls[-1][1].endswith("/stable.json"))
+
     def test_full_transport_upload_failure_does_not_publish_release_or_touch_pages(self):
         from test_publish_release import allowed_context, plan
         p_spec = importlib.util.spec_from_file_location("publish_release_upload_failure", MODULE.with_name("publish_release.py"))
@@ -290,6 +315,7 @@ class GithubReleaseTransportTests(unittest.TestCase):
                 "tag": candidate.tag, "targetCommit": candidate.target_commit,
                 "indexChannel": candidate.index_channel, "packageChannel": candidate.package_channel,
                 "updateVersion": candidate.version,
+                "reuseRelease": False,
                 "releaseAssets": assets, "pagesFiles": page_files,
                 "index": {"path": candidate.index_path, "size": len(candidate.index_bytes),
                           "sha256": hashlib.sha256(candidate.index_bytes).hexdigest()},

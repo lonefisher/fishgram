@@ -44,6 +44,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -102,6 +103,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SIGNING_RUN_ID: ${{ inputs.signing_run_id }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          QA_FILE: ${{ inputs.qa_file }}
         run: |
           $dir = Join-Path $env:RUNNER_TEMP 'signing-provenance'
           gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SIGNING_RUN_ID" | Out-File -Encoding utf8 "$dir-run.json"
@@ -112,7 +114,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Signing artifacts API lookup failed.' }
           $run = Get-Content -Raw "$dir-run.json" | ConvertFrom-Json
           $candidate = Get-Content -Raw (Join-Path $env:RUNNER_TEMP 'candidate/candidate-record.json') | ConvertFrom-Json
-          python tools/publish_release.py verify-sign-run --run-json "$dir-run.json" --jobs-json "$dir-jobs.json" --artifacts-json "$dir-artifacts.json" --repository $env:GITHUB_REPOSITORY --run-id $env:SIGNING_RUN_ID --candidate-run-id $env:CANDIDATE_RUN_ID --expected-sha $candidate.parentCommit
+          python tools/publish_release.py verify-sign-run --run-json "$dir-run.json" --jobs-json "$dir-jobs.json" --artifacts-json "$dir-artifacts.json" --repository $env:GITHUB_REPOSITORY --run-id $env:SIGNING_RUN_ID --candidate-run-id $env:CANDIDATE_RUN_ID --expected-sha $run.head_sha --root . --candidate-sha $candidate.parentCommit --reviewed-sha $env:GITHUB_SHA --qa-path "release/qa/$env:QA_FILE"
           if ($LASTEXITCODE) { throw 'Signing run/artifact provenance rejected.' }
       - name: Download signed artifact from exact signing run
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093

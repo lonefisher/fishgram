@@ -64,7 +64,7 @@ Windows Release 配方固定 `releaseDebugInformation=None`，客户端编译显
 
 换机器、App 权限、受保护环境、secret 名称与 Pages 接续见 [GitHub 配置](GITHUB-CONFIGURATION.md)。先配置并读回，再启用每日候选；正式发布仍须完整验收。
 
-打包先把批准的程序文件复制到全新 payload 目录，仅允许配方列出的 exe/DLL；运行目录与打包目录必须分开。`package-telegram.ps1` 接收明确的 `-InputDirectory`、`-BuildRecord` 和 `-OutputDirectory`，拒绝已有输出、未批准文件、链接、缺少的递归依赖或不匹配的构建记录。不得从包含 tdata 的运行目录重打 ZIP。对应源码发行包含所有递归依赖和必要脚本，保留 GPLv3、OpenSSL 例外及依赖许可。
+打包只允许配方列出的 exe/DLL，运行目录与打包目录必须分开。正式生产候选使用受保护的 `product-candidate.yml`，其中 `release_gate.py package-candidate` 直接验证构建记录及程序哈希，再生成全新候选目录；本机接续命令与门槛见[发行指南](RELEASING.md)。`package-telegram.ps1` 仅为内部开发打包入口，接收明确的 `-InputDirectory`、`-BuildRecord` 和 `-OutputDirectory`，要求记录的更新开关与配方完全一致，不能打包当前配方下强制开启更新的生产候选。两种入口均拒绝已有输出、未批准文件、链接、缺少的递归依赖或不匹配的构建记录。不得从包含 tdata 的运行目录重打 ZIP。对应源码发行包含所有递归依赖和必要脚本，保留 GPLv3、OpenSSL 例外及依赖许可。
 
 ## 验收与发行
 

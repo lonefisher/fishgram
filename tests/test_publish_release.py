@@ -3,8 +3,11 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
+from unittest import mock
+from types import SimpleNamespace
 
 MODULE = Path(__file__).resolve().parents[1] / "tools" / "publish_release.py"
 spec = importlib.util.spec_from_file_location("publish_release", MODULE)
@@ -132,6 +135,97 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_first_trust_read_recovers_before_promoting_index(self):
+        api = FakeApi()
+        original_get = api.get_page
+        calls = [0]
+        def get_page(path):
+            calls[0] += 1
+            if calls[0] == 1:
+                raise OSError("temporary 503")
+            return original_get(path)
+        api.get_page = get_page
+        ticks = [0]
+        original_read = publish.read_public_page
+        with mock.patch.object(publish, "read_public_page", side_effect=lambda api, path:
+                original_read(api, path, clock=lambda: ticks[0],
+                              sleep=lambda value: ticks.__setitem__(0, ticks[0] + value))):
+            publish_plan(api)
+        self.assertEqual(api.pages["stable.json"], plan().index_bytes)
+        self.assertEqual(ticks[0], 5)
+
+    def test_signed_windows_x64_identity_and_mismatched_platform_version_channel(self):
+        publish.verify_package_identity(SimpleNamespace(channel=0, version=9, target=(0, 1)), "9", "stable")
+        for channel, version, target in ((0, 9, (1, 0)), (0, 8, (0, 1)), (1, 9, (0, 1))):
+            with self.assertRaises(publish.PublishError):
+                publish.verify_package_identity(SimpleNamespace(channel=channel, version=version, target=target), "9", "stable")
+
+    def test_public_pages_retries_old_bytes_http_failure_and_then_matches(self):
+        api = FakeApi()
+        api.get_page = mock.Mock(side_effect=[b"old", OSError("deployment pending"), b"new"])
+        ticks = [0]
+        publish.wait_public_page(api, "stable.json", b"new", timeout=10, interval=1,
+                                 clock=lambda: ticks[0], sleep=lambda value: ticks.__setitem__(0, ticks[0] + value))
+        self.assertEqual(api.get_page.call_count, 3)
+
+    def test_public_pages_timeout_is_bounded(self):
+        api = FakeApi()
+        ticks = [0]
+        with self.assertRaisesRegex(publish.PublishError, "timeout"):
+            publish.wait_public_page(api, "stable.json", b"new", timeout=3, interval=1,
+                                     clock=lambda: ticks[0], sleep=lambda value: ticks.__setitem__(0, ticks[0] + value))
+        self.assertEqual(ticks[0], 3)
+
+    def test_signer_qa_commit_can_follow_candidate_but_must_be_in_reviewed_history(self):
+        with tempfile.TemporaryDirectory(dir=MODULE.parent.parent) as temp:
+            root = Path(temp)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", temp, *args], stderr=subprocess.DEVNULL).decode().strip()
+            git("init", "-b", "main")
+            git("config", "user.email", "fixture@example.invalid")
+            git("config", "user.name", "Fixture")
+            git("commit", "--allow-empty", "-m", "candidate")
+            candidate = git("rev-parse", "HEAD")
+            qa = root / "release/qa/approved.json"
+            qa.parent.mkdir(parents=True)
+            qa.write_text('{}')
+            git("add", "release/qa/approved.json")
+            git("commit", "-m", "QA")
+            signer = git("rev-parse", "HEAD")
+            git("commit", "--allow-empty", "-m", "publish")
+            reviewed = git("rev-parse", "HEAD")
+            publish.verify_signing_history(root, signer, candidate, reviewed, "release/qa/approved.json")
+            with self.assertRaises(publish.PublishError):
+                publish.verify_signing_history(root, reviewed, candidate, signer, "release/qa/approved.json")
+            qa.write_text('{"changed":true}')
+            git("add", "release/qa/approved.json")
+            git("commit", "-m", "changed QA")
+            with self.assertRaisesRegex(publish.PublishError, "QA differs"):
+                publish.verify_signing_history(root, signer, candidate, git("rev-parse", "HEAD"), "release/qa/approved.json")
+
+    def test_reuse_release_survives_offline_handoff_and_cleans_staging(self):
+        with tempfile.TemporaryDirectory(dir=MODULE.parent.parent) as temp:
+            output = Path(temp) / "promotion"
+            publish.write_promotion(plan(reuse_release=True), output)
+            record = json.loads((output / "promotion.json").read_text())
+            self.assertIs(record["reuseRelease"], True)
+            self.assertEqual(list(Path(temp).glob(".fishgram-promotion-*")), [])
+            transport_spec = importlib.util.spec_from_file_location(
+                "github_release_transport", MODULE.with_name("github_release_transport.py"))
+            github_release_transport = importlib.util.module_from_spec(transport_spec)
+            sys.modules[transport_spec.name] = github_release_transport
+            transport_spec.loader.exec_module(github_release_transport)
+            api = FakeApi(tags={plan().tag}, releases={plan().tag})
+            api.source_tags.add(plan().tag)
+            api.assets = {asset.name: asset.data for asset in plan().assets}
+            with mock.patch.object(github_release_transport.GitHubReleaseTransport,
+                                   "from_environment", return_value=api):
+                self.assertEqual(publish.main(["publish", "--promotion", str(output),
+                    "--enable-publication", "--event", "workflow_dispatch", "--ref", "refs/heads/main",
+                    "--environment", "release", "--approval-marker", "1"]), 0)
+            self.assertFalse(any(event[0] in {"create_release", "upload"} for event in api.events))
+            self.assertEqual(api.pages["stable.json"], plan().index_bytes)
+
     def test_publisher_pin_set_includes_publisher_transport_and_license_inventory(self):
         self.assertTrue({
             "tools/publish_release.py",

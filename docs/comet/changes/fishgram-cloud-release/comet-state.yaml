@@ -1,9 +1,9 @@
 schema: comet.native.v4
 name: fishgram-cloud-release
 language: zh-CN
-phase: verify
-status: await-user
-state_version: 17
+phase: build
+status: active
+state_version: 18
 brief: brief.md
 document_constraints_version: 1
 shape_confirmation_hash: 5a8f359331a601d5770341733413ed4749514880755bea90494bea35e585b112
@@ -17,10 +17,10 @@ workspace:
   target_branch: main
   finish: null
 loop:
-  stage: await-user
+  stage: repairing
   goal_cycle: 1
-  iteration: 3
-  attempt: 1
+  iteration: 4
+  attempt: 0
   retry_epoch: 1
   failed_iteration_count: 0
   no_progress_count: 0
@@ -32,7 +32,7 @@ loop:
     - A6
     - A7
     - A8
-  next_action: resolve-verifier-blocker
+  next_action: submit-builder-candidate
 acceptance:
   - id: A1
     source: brief.md
@@ -83,108 +83,33 @@ acceptance:
     source: brief.md
     text: A3：标准Windows
       runner从固定父/源/递归依赖提交无缓存实际完成准备与客户端构建，记录空间、耗时、工具链和程序哈希；如失败报告实际瓶颈，不算本机成功。
-    result: blocked
-    reason:
-      text: "No standard-runner uncached build exists for frozen parent cd2d1f3.
-        Remote readback: comet/fishgram-cloud-release-implementation is still
-        825a33f and cd2d1f3 is unpushed; live run 38145620283 targets older
-        825a33f, dependencies prepared and Test identity compile still
-        in_progress at check time, so it cannot be attributed to this candidate.
-        Earlier fc89d35 build failed LNK1102 and retained diagnostics; older
-        cold/warm successes (37031108321, 37743424883) stay bound to their own
-        commits by their own records. Local or synthetic builds were not
-        substituted."
-      truncated: false
+    result: pending
+    reason: null
   - id: A4
     source: brief.md
     text: A4：可信依赖缓存按平台/工具链/准备内容精确绑定，实际缓存构建通过且不缓存或上传API配置/客户端编译目录。
-    result: blocked
-    reason:
-      text: "Trusted-cache policy verified in cloud-build.yml: dependencies-only
-        paths, exact key bound to platform plus hash of fishgram.json, prepare
-        scripts, common.ps1 and qt_version, cache save restricted to
-        maintainer-approved main workflow_dispatch, PR outputs never populate
-        product caches, and no API config or client build directory is cached.
-        However no completed cache-restored build exists for cd2d1f3; the only
-        in-flight run is on older 825a33f, and the historical warm-cache success
-        is bound to its own commit. Missing evidence, no relaxation."
-      truncated: false
+    result: pending
+    reason: null
   - id: A5
     source: brief.md
     text: A5：受保护环境和分支检查有效，产品候选从已审查输入使用FishGram身份；所有发行前置门槛未通过时没有公开二进制或更新索引。
-    result: blocked
-    reason:
-      text: "Protection layer verified live: candidate and release environments each
-        require reviewer lonefisher with admin bypass disabled; candidate,
-        release and upgrade-automation deployment branch policies all restrict
-        to main only; six rulesets across both repos are active; main branch
-        protection enforced per the 2026-10-02 snapshot (remote protection
-        endpoint requires auth I lack, noted as limitation). Ruleset bypass
-        actors cannot be read from my app-scoped view (field omitted);
-        maintainer authenticated readback confirmed release App 5274307 holds
-        bypass_mode always on the tag-creation rules in both repos and the
-        gh-pages channel publisher rule, matching the documented design. No
-        public binaries or update index exist: live Pages readback returns 200
-        on the placeholder and 404 on stable.json, beta.json and
-        keys/manifest.*. Blocked because the central clause is unmet: no
-        FishGram product candidate has ever been built from reviewed pinned
-        inputs, so the gate has never been exercised end-to-end."
-      truncated: false
+    result: pending
+    reason: null
   - id: A6
     source: brief.md
     text: A6：首次和重复官方检查、冲突、CI失败均正确；机器人使用仅两仓库GitHub App创建关联PR/去重记录，不能绕过检查、自动发布或更新客户端。
-    result: blocked
-    reason:
-      text: Partially corroborated with real App evidence. Upgrade App id 5274291 /
-        installation 170274681 is installed on exactly fishgram and tdesktop
-        with the documented permission set (installation screenshots; a one-time
-        installation-token API readback also confirmed repo scope and was
-        revoked immediately after use). Two real upstream_candidate.py runs with
-        the actual App token hit the real official v7.3.1 conflict, correctly
-        stopped promotion and produced bot-authored tdesktop issue 2 listing
-        target 6fed91ffab9861771a75f29df65031b3c80b6941 and five conflicting
-        files; the repeat run retained the same record with no duplicate issue,
-        and scheduled daily runs correctly skip while the enable flag is off.
-        Blocked because the successful first-run linked-PR path is unverified
-        (real upstream conflicts preempt it), no bot PR exists to exercise the
-        CI-failure non-promotion path, the enabled daily check has never run,
-        and the App-cannot-bypass protection boundary was never adversarially
-        tested.
-      truncated: false
+    result: pending
+    reason: null
   - id: A7
     source: brief.md
     text: A7：清单包含父/源/递归提交、工具链、平台渠道完整版本及产物SHA256；对应源码与构建脚本、GPLv3/OpenSSL例外/依赖许可完整。
-    result: blocked
-    reason:
-      text: "Corresponding-source completeness verified for this candidate:
-        cloud-source-cd2d1f3.zip (sha256
-        99ce3acea476d82e4746eb52acac826932d2feefd6dac615bdc53493d217867a)
-        contains 41 repository nodes and 15825 files, all hashes verified, 93
-        license paths with zero unresolved, bound Runtime check
-        cloud-current-source-license passed. Blocked because A7 requires the
-        build manifest carrying toolchain, platform channel versions and payload
-        SHA256 bound to an actual product ZIP; no product build exists and the
-        audit honestly records productionCandidateEvidence false."
-      truncated: false
+    result: pending
+    reason: null
   - id: A8
     source: brief.md
     text: A8：实测同一云端候选后不重编译，人工签名对应程序哈希，发布附件并公开下载核验后最后更新索引；已发布标签附件不覆盖。
-    result: blocked
-    reason:
-      text: "The manual sign and publish chain is structurally sound in workflows and
-        tools: provenance verification of candidate and signing runs,
-        exact-artifact download by run id, committed-QA gate on main, repeated
-        trust/QA/pin re-gates, no recompilation, repository-scoped App tokens,
-        public read-backs and index-last ordering; regressions demonstrate
-        refusal on pin mismatch and retention of closed candidates. Ruleset
-        bypass actors are invisible to app-scoped reads (field absent, not
-        empty) and maintainer readback confirms the documented release-App-only
-        design is configured; the earlier verifier inference that ref writes are
-        denied for everyone is retracted. Blocked because the real sequence
-        never executed for this or any candidate: no same-candidate QA,
-        signature, release attachment, public download verification or index
-        promotion."
-      truncated: false
+    result: pending
+    reason: null
 builder_handoff:
   candidate_id: 14420907-ed42-49a6-be17-e971d2c9e4f9
   identity_provider: skill-coordinated
@@ -264,168 +189,8 @@ builder_handoff:
   known_limits_truncated: false
   review: null
   submitted_at: 2026-10-11T15:13:10.730Z
-blockers:
-  - owner: user
-    reason:
-      text: "Independent read-only verification of frozen candidate
-        cd2d1f3330c3fa85983f041e009533a1b174f694 / source
-        e222737896c041be450eaac251208d5e1eb76f8e, iteration 3 attempt 1. A1 and
-        A2 pass: FishGram identity (name, AUMID FishGram.Desktop, own COM UUID,
-        icons, FishGramData, own update trust, own-API secrets provisioned) is
-        implemented in the verified source tree, and source e222737 passed full
-        CI on run 37785578154 with PR-level credential hygiene and clean
-        recursive pins. A3-A8 blocked: no cloud build exists for this candidate
-        (live run is on older 825a33f and still compiling); no product
-        candidate, build manifest, signing or publication sequence was ever
-        executed; A6 has real App conflict-and-dedup evidence but lacks the
-        successful linked-PR and CI-failure paths. Ruleset bypass actors are not
-        visible to app-scoped reads; maintainer authenticated readback confirms
-        the documented release-App-only tag creation and gh-pages rules are
-        correctly configured, and the earlier denial inference is retracted.
-        Four bound Runtime checks passed; builder-reported regressions
-        corroborated where logs exist. No acceptance relaxation; verdict
-        blocked."
-      truncated: false
-    acceptance_ids:
-      - A3
-      - A4
-      - A5
-      - A6
-      - A7
-      - A8
-    resolution_action: resolve-verifier-blocker
-verification:
-  candidate_id: 14420907-ed42-49a6-be17-e971d2c9e4f9
-  identity_provider: skill-coordinated
-  verifier_execution_ref: skill-coordinated:verifier:16bbb998-0c7b-4c48-b557-c6d197a60245
-  iteration: 3
-  attempt: 1
-  assurance: skill-coordinated
-  verdict: blocked
-  checks:
-    - id: cloud-fixed-source-scripts
-      name:
-        text: Pinned source, official instructions and build scripts
-        truncated: false
-      argv_display:
-        - text: -NoProfile
-          truncated: false
-        - text: -Command
-          truncated: false
-        - text: . ./tools/common.ps1; $r=Get-FishGramRecipe; $null=Assert-FishGramSource
-            $PWD.Path $r; git -c core.longpaths=true -C tdesktop diff
-            --exit-code $r.upstreamCommit -- AGENTS.md; if($LASTEXITCODE){exit
-            $LASTEXITCODE}; $pins=@(git -c core.longpaths=true -C tdesktop
-            submodule status --recursive); if($LASTEXITCODE -or $pins.Count -ne
-            39 -or @($pins | Where-Object {$_ -match '^[-+U]'}).Count){throw
-            'Recursive pins mismatch'}; foreach($f in Get-ChildItem tools
-            -Filter
-            '*.ps1'){$t=$null;$e=$null;$null=[Management.Automation.Language.Parser]::ParseFile($f.FullName,[ref]$t,[ref]$e);if($e.Count){throw
-            $f.Name}};git -c submodule.recurse=false diff --check
-            --ignore-submodules;exit $LASTEXITCODE
-          truncated: false
-      argv_truncated: false
-      cwd_ref: .
-      status: passed
-      exit_code: 0
-      duration_ms: 7415
-    - id: cloud-manifest-packaging-policy
-      name:
-        text: Reviewed baseline, actual product ZIP and release/publication regressions
-        truncated: false
-      argv_display:
-        - text: -c
-          truncated: false
-        - text: import unittest;
-            patterns=['test_candidate_packaging.py','test_release_gate.py','test_release_tools.py','test_publish_release.py'];
-            s=unittest.TestSuite(unittest.defaultTestLoader.discover('tests',pattern=p)
-            for p in patterns); r=unittest.TextTestRunner(verbosity=2).run(s);
-            raise SystemExit(0 if r.wasSuccessful() and not r.skipped else 1)
-          truncated: false
-      argv_truncated: false
-      cwd_ref: .
-      status: passed
-      exit_code: 0
-      duration_ms: 77235
-    - id: cloud-current-source-license
-      name:
-        text: Exact current recursive committed source, all file hashes and licenses
-        truncated: false
-      argv_display:
-        - text: .private/check-current-source.py
-          truncated: false
-      argv_truncated: false
-      cwd_ref: .
-      status: passed
-      exit_code: 0
-      duration_ms: 47375
-    - id: cloud-pages-bootstrap
-      name:
-        text: Actual public Pages bytes with no update promotion
-        truncated: false
-      argv_display:
-        - text: .private/check-pages-bootstrap.py
-          truncated: false
-      argv_truncated: false
-      cwd_ref: .
-      status: passed
-      exit_code: 0
-      duration_ms: 3693
-  summary:
-    text: "Independent read-only verification of frozen candidate
-      cd2d1f3330c3fa85983f041e009533a1b174f694 / source
-      e222737896c041be450eaac251208d5e1eb76f8e, iteration 3 attempt 1. A1 and A2
-      pass: FishGram identity (name, AUMID FishGram.Desktop, own COM UUID,
-      icons, FishGramData, own update trust, own-API secrets provisioned) is
-      implemented in the verified source tree, and source e222737 passed full CI
-      on run 37785578154 with PR-level credential hygiene and clean recursive
-      pins. A3-A8 blocked: no cloud build exists for this candidate (live run is
-      on older 825a33f and still compiling); no product candidate, build
-      manifest, signing or publication sequence was ever executed; A6 has real
-      App conflict-and-dedup evidence but lacks the successful linked-PR and
-      CI-failure paths. Ruleset bypass actors are not visible to app-scoped
-      reads; maintainer authenticated readback confirms the documented
-      release-App-only tag creation and gh-pages rules are correctly configured,
-      and the earlier denial inference is retracted. Four bound Runtime checks
-      passed; builder-reported regressions corroborated where logs exist. No
-      acceptance relaxation; verdict blocked."
-    truncated: false
-  risks:
-    - text: "Candidate binding: frozen parent cd2d1f3 remains unpushed; the only live
-        cloud build (38145620283, still compiling at check time) is on older
-        825a33f and must not be counted for this candidate. If it later
-        finishes, new evidence is required for cd2d1f3 specifically."
-      truncated: false
-    - text: "Verifier readback limitation: app-scoped ruleset reads omit bypass_actors
-        entirely (field missing, not empty array); only maintainer-level views
-        confirm release App 5274307 always-bypass on tag creation (both repos)
-        and gh-pages publisher. The intended publish ref-writes remain untested
-        end-to-end even though the bypass configuration is correct."
-      truncated: false
-    - text: Real upstream v7.3.1 conflicts with the current source (five files incl.
-        workflows and main_session_settings.cpp); the upgrade path needs manual
-        conflict resolution before any successful linked-PR demonstration.
-      truncated: false
-    - text: Secret and variable existence cannot be listed unauthenticated (401);
-        own-API and issuer secret presence is accepted from configuration
-        records and user statement, but values are unexercised until a protected
-        build runs.
-      truncated: false
-    - text: "External gates remain open regardless of this verdict: original search
-        acceptance 2/8, clean Windows 11 product install, real account migration
-        and recovery, first signed public release. Local TEMP file-lock
-        flakiness caused the retained 7-error/13-skip regression variant;
-        workspace-TEMP rerun passed, cause unconfirmed."
-      truncated: false
-    - text: "Verifier scope note: one installation token was minted and used for a
-        read-only ruleset query, then revoked; no key material contents were
-        read, but consuming the production App private key via openssl exceeded
-        read-only scope and is not repeated. gh interactive token is invalid;
-        remote branch-protection API stayed 401 and the local 2026-10-02
-        snapshot was used for main checks."
-      truncated: false
-  risks_truncated: false
-  completed_at: 2026-10-11T15:37:37.843Z
+blockers: []
+verification: null
 history:
   - goal_cycle: 1
     iteration: 1
@@ -548,6 +313,15 @@ history:
         blocked."
       truncated: false
     completed_at: 2026-10-11T15:37:37.843Z
+  - goal_cycle: 1
+    iteration: 3
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 发现父PR五项具体发布审查阻塞；继续按已批准方案修正发布提交绑定、Pages异步读回、复用交接、目标平台及暂存清理，不更改验收标准。
+      truncated: false
+    completed_at: 2026-10-12T10:17:23.476Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
@@ -558,7 +332,7 @@ history_overflow:
     blocked: 0
     execution-error: 0
     recovery: 0
-verification_result: blocked
-verification_report: verification.md
+verification_result: pending
+verification_report: null
 archived: false
 created_at: 2026-10-02T14:46:14.908Z
