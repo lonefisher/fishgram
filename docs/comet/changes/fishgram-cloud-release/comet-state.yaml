@@ -3,7 +3,7 @@ name: fishgram-cloud-release
 language: zh-CN
 phase: build
 status: active
-state_version: 22
+state_version: 24
 brief: brief.md
 document_constraints_version: 1
 shape_confirmation_hash: 5a8f359331a601d5770341733413ed4749514880755bea90494bea35e585b112
@@ -19,7 +19,7 @@ workspace:
 loop:
   stage: repairing
   goal_cycle: 1
-  iteration: 5
+  iteration: 6
   attempt: 0
   retry_epoch: 1
   failed_iteration_count: 0
@@ -37,38 +37,13 @@ acceptance:
   - id: A1
     source: brief.md
     text: A1：产品名称、独立图标、应用ID、默认数据目录统一FishGram，自己的API身份，非官方说明、基本功能与广告保留，无新增遥测/官方崩溃上报。
-    result: passed
-    reason:
-      text: 当前父 cfacb8cef84d53338170c4faf8536216ef9df3a7 / 源
-        e222737896c041be450eaac251208d5e1eb76f8e 的身份实现核验通过：FishGram
-        名称、FishGram.Desktop AUMID、独立通知 COM UUID、Windows 资源及独立图标、FishGramData
-        默认便携目录均已接入；README 和 CMake 明确非官方身份。官方广告组件与官方 AGENTS 的 Git blob
-        差异为零；源码变化未引入遥测模块，构建显式关闭官方崩溃报告。自有 API 和 Apps 已配置，依据用户明确指令及当前交接接受此事实，未读取
-        secret 值。产品 API 仅供受保护候选构建，公开 CI
-        使用不可发行测试身份。此通过限于身份与源码保持性，尚未在真实生产二进制中验证登录、基本功能和身份；实机缺口保留于
-        A5，不冒称产品实测。证据：fishgram.json、tools/build-telegram.ps1、源码 version.h /
-        launcher.cpp / windows_app_user_model_identity.h / winrc /
-        CMakeLists.txt、.private/cloud-verifier-cfacb8c-evidence.json。
-      truncated: false
+    result: pending
+    reason: null
   - id: A2
     source: brief.md
     text: A2：源码和子模块一致性、五组生产helper、脚本及测试身份编译对全部PR运行；外部PR无法访问发行API或签名密钥。
-    result: passed
-    reason:
-      text: 当前 Git HEAD、源 HEAD 和父 gitlink 精确匹配 cfacb8c/e222737；39 个源码递归依赖无 '-'/'+'/'U'
-        偏差，源码无未提交改动，官方 AGENTS 保留。父 checks.yml / cloud-build.yml 和源
-        fishgram-checks.yml 对所有 pull_request 配置一致性、生产 helper、脚本及测试身份编译，token 为
-        contents:read、checkout persist-credentials:false；PR 不绑定
-        candidate/release/upgrade-automation 环境、不调用发行 secrets、不上传程序/API
-        编译目录。相同源码 e222737 的完整 PR CI37785578154 已成功，实际 checkout18046022 与 e222737
-        的树均为5341be2c0e458863ce3abd8a0cf2881c622fb50c，已通过提交 API
-        独立复核，故仅复用其源码编译证据。当前父 Repository checks38236614047
-        成功，日志为235项中222通过、13跳过，五组生产 helper 与13组核心场景通过；跳过项不计通过。当前候选绑定的 Runtime
-        cloud-publication-review-regression 收据
-        passed/exit0，日志70项无跳过，复用且未重跑。A2通过是 PR 检查覆盖与凭据隔离结论；当前父完整编译仍未完成，保留在
-        A3。证据：上述 workflow、Git 只读状态、.private/checks-cfacb8c.log、当前 Runtime checks
-        日志及 .private/cloud-verifier-cfacb8c-evidence.json。
-      truncated: false
+    result: pending
+    reason: null
   - id: A3
     source: brief.md
     text: A3：标准Windows
@@ -101,18 +76,18 @@ acceptance:
     result: pending
     reason: null
 builder_handoff:
-  candidate_id: 674d692f-54a2-4a6e-b8b2-398a7488c807
+  candidate_id: e6ca863b-96e6-4971-80d4-e1fb8670dea3
   identity_provider: skill-coordinated
-  builder_execution_ref: skill-coordinated:builder:a225b09a-9d25-401b-bb04-5d0862d64ddc
-  iteration: 4
+  builder_execution_ref: skill-coordinated:builder:4f2f5bf8-73de-4f3c-9bd5-1305cac20909
+  iteration: 5
   summary:
-    text: Frozen parent cfacb8cef84d53338170c4faf8536216ef9df3a7/source
-      e222737896c041be450eaac251208d5e1eb76f8e pushed. Five publication review
-      findings fixed and independently rechecked. Repository CI38236614047
-      success (222 passed,13 skipped); required full CI38236613947 still live.
-      Source archive41 repos15825 files93license paths unresolved0 verified. No
-      product build, main merge, signing or release; original search and
-      cleanWin11 remain incomplete.
+    text: "Frozen parent6222387/sourcee222 pushed. New publication findings fixed:
+      candidate tag C vs reviewed Q, global channel lock, protected reuse input,
+      exact existing tags, official ancestor at package/sign gates and complete
+      history. Independent review passed after P2 repair. 247 full Python
+      tests234pass13skip; current focused publication31/transport17/gate46 pass.
+      Prior cfac same-tree cloud success retained as historical only;
+      current38269383003 live. No production candidate or release."
     truncated: false
   addressed_acceptance_ids:
     - A2
@@ -122,51 +97,46 @@ builder_handoff:
     - A8
   checks:
     - name:
-        text: Publication review fixes
+        text: Affected publication and ancestor regression
         truncated: false
       result: passed
       note:
-        text: 25 publication+15 transport+30 gate+7 actual Git packaging+5 safety tests
-          pass zero skips; incremental reviewer01a12fa2 confirmed residual503
-          issue fixed
+        text: Publication31 transport17 gate46, independent recheck pass; full
+          suite234passed13skipped not counted passed
         truncated: false
     - name:
-        text: Exact committed source archive
+        text: Exact current source archive
         truncated: false
       result: passed
       note:
-        text: Private cloud-source-audit.json binds
-          cfacb8c/sourcee222737,41repos15825files,93licenses unresolved0;
-          SHA25676753c334ef62dd87594df7ea1d901dcc49e2f52a796992de700b7278a63c1de
+        text: '{"parentCommit":"6222387aad514b0024b88109d6e4aab0e1d9b82b","sourceCommit":"e222737896c041be450eaac251208d5e1eb76f8e","archive":"cloud-source-6222387.zip","archiveSha256":"e72a97440d81d749c47458521d60cc0cc5bf5953275041c5df14d1dc4ce85295","archiveBytes":85788898,"repositories":41,"verifiedFiles":15825,"licenseSummary":{"repositoryCount":41,"archiveFileCount":15825,"licensePathCount":93,"linkedOnlyRepositoryCount":40,"unresolvedRepositoryCount":0},"productionCandidateEvidence":false}'
         truncated: false
     - name:
-        text: Full current cloud/product/install acceptance
+        text: Current full cloud and protected production acceptance
         truncated: false
       result: not-run
       note:
-        text: CI38236613947/job114769469244 live preparation; no production artifact or
-          QA authorization
+        text: Current38269383003/job114880382939 preparing; prior cfac success does not
+          replace622; product/Win11/account/recovery incomplete
         truncated: false
   checks_truncated: false
   known_limits:
-    - text: "Current full cloud run live: do not restart or treat observation timeout
-        as failure; previous d8bad41 build cannot count as cfacb8c success."
+    - text: Current cloud38269383003 is live; do not restart. Cache hit build remains
+        unverified. Prior cfac successful test identity no product hashes.
       truncated: false
-    - text: Product protected main build requires source/parent integration and
-        maintainer candidate approval. Sandbox not detected, enable confirmation
-        pending. Original search2/8 and real install/recovery matrix incomplete.
+    - text: User confirmed reboot; Sandbox exe and services present, actual GUI
+        start/product acceptance not performed. Original search and install
+        matrix incomplete.
       truncated: false
-    - text: Actual successful linked upstream PR and CI-failure flow remain
-        unverified; daily upgrade bot disabled. Independent incremental review
-        and local tests do not replace end-to-end release.
+    - text: Upstream successful linked PR and CI failure flow remain unverified; daily
+        upgrade bot disabled. No public release approval.
       truncated: false
-    - text: Root/issuer KeePass attachment restore verified; OneDrive full database
-        restoration not verified; user waived offline backup. No credentials in
-        handoff.
+    - text: KeePass root/issuer restore verified; OneDrive full database restoration
+        unverified; user waived offline copy.
       truncated: false
   known_limits_truncated: false
   review: null
-  submitted_at: 2026-10-12T10:54:43.569Z
+  submitted_at: 2026-10-12T15:23:02.858Z
 blockers: []
 verification: null
 history:
@@ -327,6 +297,16 @@ history:
       text: 按已批准完整方案继续修复当前提交新增审查问题：发行标签固定候选构建提交、所有渠道串行发布、受保护复用入口及官方基线祖先验证。当前cfacb8c无缓存云端成功，保留原证据，不放宽实机与发行验收。
       truncated: false
     completed_at: 2026-10-12T14:57:18.326Z
+  - goal_cycle: 1
+    iteration: 5
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: New publication recovery review4249715228 needs bounded repair; preserve
+        all acceptance requirements.
+      truncated: false
+    completed_at: 2026-10-12T15:38:39.665Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null

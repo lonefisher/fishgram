@@ -40,10 +40,6 @@ class FakeApi:
         self.events.append(("source_tag_exists", tag))
         return tag in self.source_tags
 
-    def source_tag_exists(self, tag):
-        self.events.append(("source_tag_exists", tag))
-        return tag in self.source_tags
-
     def release_exists(self, tag):
         self.events.append(("release_exists", tag))
         return tag in self.releases
@@ -58,6 +54,8 @@ class FakeApi:
         self.releases.add(tag)
 
     def create_source_tag(self, tag, target):
+        if tag in self.source_tags:
+            raise RuntimeError("Source tag must never be recreated")
         self.events.append(("source_tag", tag, target))
         self.source_tags.add(tag)
 
@@ -335,12 +333,177 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertEqual(api.pages["stable.json"], plan().index_bytes)
 
 
-    def test_existing_tag_or_release_is_never_overwritten(self):
-        for api in (FakeApi(tags={"v7.2.9-r1"}), FakeApi(releases={"v7.2.9-r1"})):
+    def test_existing_release_is_never_overwritten(self):
+        for tags in ((), {"v7.2.9-r1"}):
+            api = FakeApi(tags=tags, releases={"v7.2.9-r1"})
             with self.assertRaisesRegex(publish.PublishError, "already exists"):
                 publish_plan(api)
             self.assertFalse(any(event[0] in {"create_release", "upload", "page"}
                                  for event in api.events))
+
+    def test_rerun_after_release_creation_failure_preserves_exact_tags(self):
+        from dataclasses import replace
+        candidate = replace(plan(), reviewed_commit="e" * 40)
+        for product_tag_created in (False, True):
+            with self.subTest(product_tag_created=product_tag_created):
+                api = FakeApi()
+                create_release = api.create_release
+
+                def interrupted_create(tag, target, title, body, *, prerelease):
+                    if product_tag_created:
+                        api.tags.add(tag)
+                    raise RuntimeError("temporary release creation failure")
+
+                api.create_release = interrupted_create
+                with self.assertRaisesRegex(RuntimeError, "temporary release"):
+                    publish_plan(api, candidate)
+                self.assertEqual(api.source_tags, {candidate.tag})
+                self.assertFalse(api.releases or api.assets or api.pages)
+                api.create_release = create_release
+
+                publish_plan(api, candidate)
+
+                self.assertEqual(api.source_tags, {candidate.tag})
+                self.assertEqual([event for event in api.events if event[0] == "source_tag"],
+                                 [("source_tag", candidate.tag, "c" * 40)])
+                self.assertIn(("create_release", candidate.tag, "b" * 40), api.events)
+                self.assertEqual(api.assets, {asset.name: asset.data for asset in candidate.assets})
+                self.assertEqual(api.pages["stable.json"], candidate.index_bytes)
+                self.assertEqual(api.events[-2:], [("page", "stable.json"), ("get_page", "stable.json")])
+
+    def test_matching_product_tag_without_source_tag_can_resume(self):
+        candidate = plan()
+        api = FakeApi(tags={candidate.tag})
+
+        publish_plan(api, candidate)
+
+        self.assertIn(("source_tag", candidate.tag, "c" * 40), api.events)
+        self.assertIn(("create_release", candidate.tag, "b" * 40), api.events)
+        self.assertEqual(api.pages["stable.json"], candidate.index_bytes)
+
+    def test_partial_tag_resume_through_rest_transport_requires_exact_target(self):
+        from test_github_release_transport import Stub, transport_module
+        from dataclasses import replace
+        candidate = replace(plan(), reviewed_commit="e" * 40)
+        for repository in (publish.PRODUCT_REPOSITORY, publish.SOURCE_REPOSITORY):
+            for matching in (False, True):
+                with self.subTest(repository=repository, matching=matching):
+                    stub = Stub()
+                    stub.source_tags = {candidate.tag} if repository == publish.SOURCE_REPOSITORY else set()
+                    if repository == publish.PRODUCT_REPOSITORY:
+                        stub.tags.add(candidate.tag)
+
+                    def request(method, url, headers, body, timeout):
+                        if method == "GET" and f"/repos/{repository}/git/ref/tags/" in url:
+                            commit = ("b" if repository == publish.PRODUCT_REPOSITORY else "c") * 40
+                            return 200, {}, json.dumps({"object": {
+                                "type": "commit", "sha": commit if matching else "e" * 40}}).encode()
+                        return stub(method, url, headers, body, timeout)
+
+                    api = transport_module.GitHubReleaseTransport(
+                        product_token="fixture", source_token="source-fixture", request=request)
+                    if not matching:
+                        with self.assertRaisesRegex(publish.PublishError, "exact candidate commits"):
+                            publish_plan(api, candidate)
+                        self.assertFalse(any(call[0] in {"POST", "PUT", "PATCH", "DELETE"}
+                                             for call in stub.calls))
+                        continue
+
+                    publish_plan(api, candidate)
+
+                    self.assertEqual(stub.tags, {candidate.tag})
+                    self.assertEqual(stub.source_tags, {candidate.tag})
+                    self.assertEqual(stub.assets, {asset.name: asset.data for asset in candidate.assets})
+                    self.assertEqual(stub.files["stable.json"], candidate.index_bytes)
+                    created = next(json.loads(call[3]) for call in stub.calls
+                                   if call[0] == "POST" and call[1].endswith("/releases"))
+                    self.assertEqual(created["target_commitish"], "b" * 40)
+                    if repository == publish.SOURCE_REPOSITORY:
+                        self.assertFalse(any(call[0] != "GET" and f"/repos/{repository}/git/" in call[1]
+                                             for call in stub.calls))
+
+    def test_partial_tags_must_match_candidate_commits_before_any_write(self):
+        candidate = plan()
+        for repository, product, source in (
+                (publish.PRODUCT_REPOSITORY, True, False),
+                (publish.SOURCE_REPOSITORY, False, True),
+                (publish.PRODUCT_REPOSITORY, True, True),
+                (publish.SOURCE_REPOSITORY, True, True)):
+            with self.subTest(repository=repository, product=product, source=source):
+                api = FakeApi(tags={candidate.tag} if product else ())
+                if source:
+                    api.source_tags.add(candidate.tag)
+                api.tag_commit = lambda repo, tag: "e" * 40 if repo == repository else (
+                    "b" * 40 if repo == publish.PRODUCT_REPOSITORY else "c" * 40)
+                with self.assertRaisesRegex(publish.PublishError, "tag"):
+                    publish_plan(api, candidate)
+                self.assertFalse(any(event[0] in {"source_tag", "create_release", "upload", "page"}
+                                     for event in api.events))
+
+    def test_unresolvable_partial_tag_is_refused_before_any_write(self):
+        candidate = plan()
+        for repository in (publish.PRODUCT_REPOSITORY, publish.SOURCE_REPOSITORY):
+            with self.subTest(repository=repository):
+                api = FakeApi(tags={candidate.tag} if repository == publish.PRODUCT_REPOSITORY else ())
+                if repository == publish.SOURCE_REPOSITORY:
+                    api.source_tags.add(candidate.tag)
+                api.tag_commit = mock.Mock(side_effect=RuntimeError("private API error detail"))
+                with self.assertRaisesRegex(publish.PublishError, "could not be verified"):
+                    publish_plan(api, candidate)
+                self.assertFalse(any(event[0] in {"source_tag", "create_release", "upload", "page"}
+                                     for event in api.events))
+
+    def test_resume_rejects_invalid_candidate_pins_and_review_commit_as_target(self):
+        from dataclasses import replace
+        for record in ({"parentCommit": "e" * 40, "sourceCommit": "c" * 40},
+                       {"parentCommit": "b" * 40, "sourceCommit": None},
+                       {"parentCommit": "b" * 40, "sourceCommit": "c" * 39},
+                       {"parentCommit": "b" * 40}, []):
+            with self.subTest(record=record):
+                candidate = plan()
+                candidate = replace(candidate, assets=tuple(
+                    publish.Asset(asset.name, json.dumps(record).encode())
+                    if asset.name == "candidate-record.json" else asset for asset in candidate.assets))
+                api = FakeApi(tags={candidate.tag})
+                api.source_tags.add(candidate.tag)
+                with self.assertRaises(publish.PublishError):
+                    publish_plan(api, candidate)
+                self.assertFalse(any(event[0] in {"source_tag", "create_release", "upload", "page"}
+                                     for event in api.events))
+
+    def test_resumed_product_tag_cannot_use_review_commit_instead_of_candidate(self):
+        from dataclasses import replace
+        candidate = replace(plan(), target_commit="e" * 40, reviewed_commit="e" * 40)
+        api = FakeApi(tags={candidate.tag})
+        api.tag_commit = lambda repo, tag: "e" * 40
+
+        with self.assertRaisesRegex(publish.PublishError, "exact candidate"):
+            publish_plan(api, candidate)
+
+        self.assertFalse(any(event[0] in {"source_tag", "create_release", "upload", "page"}
+                             for event in api.events))
+
+    def test_reuse_release_still_requires_all_three_objects(self):
+        candidate = plan(reuse_release=True)
+        for missing in ("product", "source", "release"):
+            with self.subTest(missing=missing):
+                api = FakeApi(tags=() if missing == "product" else {candidate.tag},
+                              releases=() if missing == "release" else {candidate.tag})
+                if missing != "source":
+                    api.source_tags.add(candidate.tag)
+                with self.assertRaisesRegex(publish.PublishError, "both immutable"):
+                    publish_plan(api, candidate)
+                self.assertFalse(any(event[0] in {"source_tag", "create_release", "upload", "page"}
+                                     for event in api.events))
+
+    def test_resumed_public_download_mismatch_leaves_index_unpromoted(self):
+        api = FakeApi(tags={plan().tag}, corrupt_download="candidate-record.json")
+        api.source_tags.add(plan().tag)
+
+        with self.assertRaisesRegex(publish.PublishError, "SHA256"):
+            publish_plan(api)
+
+        self.assertFalse(any(event[0] in {"source_tag", "page"} for event in api.events))
 
 
     def test_upload_failure_leaves_index_unpromoted(self):

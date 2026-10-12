@@ -316,6 +316,17 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
     if number > 0xFFFFFFFFFFFFFFFF:
         raise PublishError("Update version is outside the production uint64 range.")
     _validate_plan_index(plan)
+    try:
+        record = json.loads(next(asset.data for asset in plan.assets
+                                 if asset.name == "candidate-record.json"))
+        parent_commit, source_commit = record["parentCommit"], record["sourceCommit"]
+    except (StopIteration, KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise PublishError("Promotion requires a valid candidate record with both repository pins.") from error
+    if (not isinstance(parent_commit, str) or not COMMIT.fullmatch(parent_commit)
+            or not isinstance(source_commit, str) or not COMMIT.fullmatch(source_commit)):
+        raise PublishError("Candidate record has invalid pinned parent/source commits.")
+    if plan.target_commit != parent_commit:
+        raise PublishError("Release tag must point to the exact candidate build commit.")
     tag_exists = api.tag_exists(PRODUCT_REPOSITORY, plan.tag)
     source_tag_exists = api.source_tag_exists(plan.tag)
     release_exists = api.release_exists(plan.tag)
@@ -324,16 +335,18 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
             raise PublishError("Existing-release promotion requires a stable package entering stable index.")
         if not tag_exists or not source_tag_exists or not release_exists:
             raise PublishError("Index-only promotion requires both immutable repository tags and the release.")
-        try:
-            record = json.loads(next(asset.data for asset in plan.assets
-                                     if asset.name == "candidate-record.json"))
-            if (api.tag_commit(PRODUCT_REPOSITORY, plan.tag) != record["parentCommit"]
-                    or api.tag_commit(SOURCE_REPOSITORY, plan.tag) != record["sourceCommit"]):
-                raise PublishError("Existing repository tags differ from the exact candidate commits.")
-        except (StopIteration, KeyError, TypeError, ValueError) as error:
-            raise PublishError("Existing tags require a valid candidate record.") from error
-    elif tag_exists or source_tag_exists or release_exists:
-        raise PublishError("Product/source tag or release already exists; published objects are immutable.")
+    elif release_exists:
+        raise PublishError("Release already exists; published objects are immutable.")
+    # Interrupted creation may leave either immutable tag without a release.
+    # Resume only after resolving each existing tag to the exact candidate pin.
+    try:
+        mismatched_tag = (
+            tag_exists and api.tag_commit(PRODUCT_REPOSITORY, plan.tag) != parent_commit
+            or source_tag_exists and api.tag_commit(SOURCE_REPOSITORY, plan.tag) != source_commit)
+    except Exception as error:
+        raise PublishError("Existing repository tag already exists but its candidate target could not be verified.") from error
+    if mismatched_tag:
+        raise PublishError("Existing repository tags differ from the exact candidate commits.")
     old = _parse_current_index(api.get_index(plan.index_path), plan.index_channel)
     if int(plan.version) <= old:
         raise PublishError("The channel index must move to a strictly newer full update version.")
@@ -365,14 +378,7 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
         existing_assets = api.asset_names(plan.tag) if release_exists else set()
         if existing_assets:
             raise PublishError("Existing release contains assets; publication will not append or replace them.")
-    candidate_record = next(item.data for item in plan.assets if item.name == "candidate-record.json")
-    try:
-        source_commit = json.loads(candidate_record)["sourceCommit"]
-    except (json.JSONDecodeError, KeyError, TypeError) as error:
-        raise PublishError("Candidate record does not bind the source repository commit.") from error
-    if not COMMIT.fullmatch(source_commit):
-        raise PublishError("Candidate record source repository pin is malformed.")
-    if not plan.reuse_release:
+    if not plan.reuse_release and not source_tag_exists:
         api.create_source_tag(plan.tag, source_commit)
     if not plan.reuse_release:
         api.create_release(plan.tag, plan.target_commit, plan.tag,
