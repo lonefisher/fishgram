@@ -1,5 +1,15 @@
 # 更新源码候选的云端编译记录
 
+## 2026-10-13 旧工具输入的链接失败与修正
+
+[run 38288376077](https://github.com/lonefisher/tdesktop/actions/runs/38288376077) 的源码 head 为 `ef2e1996a9f2ba639e5cdbb099a0f4188fddcf61`，固定产品工具为 `7dbc44234dbe1a1426afa1e412a1a52ca9ca710b`。依赖准备于 2026-10-12 18:06:43–20:00:54 UTC 成功；客户端编译于 20:00:54–22:03:07 UTC 失败，耗时 2 小时 2 分 13 秒。生产 helper job 成功，编译后的更新包验证明确跳过，不计通过。
+
+实际下载并读回 `source-build-diagnostics` 附件：编译错误代码为 `LNK1102`，Ninja 已停止，未报告 CMake 错误或缺少依赖。该附件没有链接进程或系统内存测量，不能据此断定具体内存分配原因；原始日志只留本机私有区。
+
+Git 对象对照确认旧工具配方没有 `releaseDebugInformation=None`，配置入口也没有当前显式空的 `CMAKE_MSVC_DEBUG_INFORMATION_FORMAT` 选项。源码工作流的两处产品工具引用已在 `35c713e6d8521e08ba045743d2066fe96340a7d7` 改为已推送、已审查的固定父提交 `625165775734157474bd6149feedabddc3e93d81`。差分仅修改两个引用值，没有修改生产 C++ 源码、权限、身份或信任路径；不自动重跑已经结束的失败运行。
+
+新 [run 38314885581](https://github.com/lonefisher/tdesktop/actions/runs/38314885581) 已启动，最终结果待核验。这是对失效工具输入的修正，尚不证明 `LNK1102` 已解决，也不证明产品候选或发行资格。父仓库原运行仍固定 `6251657`/`ef2e1996`，其结果与新源码工作流提交分开记录。
+
 [源码 CI 37785578154](https://github.com/lonefisher/tdesktop/actions/runs/37785578154) 于 2026-10-08 17:20:44 UTC 完成，GitHub API 读回整体与两个 job 均为 `success`。本记录描述测试身份编译，不构成产品候选或发行批准。
 
 ## 固定输入与实际执行
