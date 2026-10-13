@@ -52,6 +52,36 @@ class ProgramRecoveryTests(unittest.TestCase):
         self.assertEqual(item.previous_version, "unknown previous version")
         self.assertNotIn("journal.bin", item.files)
 
+    def test_journal_missing_declared_backup_dll_rejects_list_and_restore(self):
+        (self.backup / "journal.bin").write_bytes(make_journal(self.backup.name))
+        (self.backup / "core.dll").unlink()
+        self.assert_invalid_journal_inventory_preserves_install()
+
+    def test_journal_undeclared_backup_dll_rejects_list_and_restore(self):
+        (self.backup / "journal.bin").write_bytes(make_journal(self.backup.name))
+        (self.backup / "extra.dll").write_bytes(b"undeclared")
+        self.assert_invalid_journal_inventory_preserves_install()
+
+    def test_journal_backup_inventory_comparison_is_case_insensitive(self):
+        (self.backup / "journal.bin").write_bytes(make_journal(
+            self.backup.name, previous=("TELEGRAM.EXE", "CORE.DLL")))
+        self.assertEqual(len(list_backups(self.install)), 1)
+        restore_backup(self.install, self.backup.name,
+                       confirm_program_restore=self.backup.name, process_running=False)
+        self.assertEqual(self.exe.read_bytes(), b"previous")
+        self.assertEqual(self.dll.read_bytes(), b"previous-dll")
+
+    def assert_invalid_journal_inventory_preserves_install(self):
+        with self.assertRaisesRegex(RecoveryError, "journal.*清单"):
+            list_backups(self.install)
+        with self.assertRaisesRegex(RecoveryError, "journal.*清单"):
+            restore_backup(self.install, self.backup.name,
+                           confirm_program_restore=self.backup.name, process_running=False)
+        self.assertEqual(self.exe.read_bytes(), b"current")
+        self.assertEqual(self.dll.read_bytes(), b"current-dll")
+        self.assertEqual(self.account.read_bytes(), b"account-secret")
+        self.assertFalse((self.meta / "manual").exists())
+
     def test_restore_requires_explicit_backup_id_confirmation(self):
         with self.assertRaises(RecoveryError):
             restore_backup(self.install, self.backup.name)
@@ -145,14 +175,14 @@ class ProgramRecoveryTests(unittest.TestCase):
             list_backups(self.install)
 
 
-def make_journal(backup_id):
+def make_journal(backup_id, previous=("Telegram.exe", "core.dll")):
     data = bytearray(b"FGTXN01\0")
     data += struct.pack("<IIQI", 1, 2, 7002009008, 0)
     def text(value):
         encoded = value.encode("ascii")
         return struct.pack("<I", len(encoded)) + encoded
     data += text(backup_id)
-    for names in (("Telegram.exe", "core.dll"), ("Telegram.exe", "core.dll")):
+    for names in (("Telegram.exe", "core.dll"), previous):
         data += struct.pack("<I", len(names))
         for name in names: data += text(name)
     return data + b"CMIT"

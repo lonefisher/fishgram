@@ -423,7 +423,10 @@ def _archive(install: Path):
             _validate_tree(child, directory=False)
             files.append(child.name)
         if not any(name.lower() == "telegram.exe" for name in files): raise RecoveryError(f"archive 缺少 Telegram.exe：{entry.name}")
-        target, previous, _ = _decode_journal(journal_path, entry.name)
+        target, previous, declared_files = _decode_journal(journal_path, entry.name)
+        if journal_path.exists() and {name.lower() for name in files} != {
+                name.lower() for name in declared_files}:
+            raise RecoveryError("archive 与 journal 程序清单不一致，拒绝恢复")
         records.append(Backup(entry.name, target, previous, tuple(sorted(files, key=str.lower))))
     records.sort(key=lambda item: item.backup_id, reverse=True)
     return install, meta, versions, tuple(records)
