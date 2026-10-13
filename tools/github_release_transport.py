@@ -358,6 +358,31 @@ class GitHubReleaseTransport:
         if not isinstance(tree, dict):
             raise TransportError('Pages commit omitted its tree.')
         base_tree = sha(tree.get('sha'))
+        existing = {}
+        for path in files:
+            content_path = quote(prefix + path, safe='/')
+            status, _, body = self._api('GET',
+                f'/repos/{PRODUCT_REPOSITORY}/contents/{content_path}?ref={parent}',
+                repository=PRODUCT_REPOSITORY, expected=(200, 404))
+            if status == 200:
+                existing[path] = self._content_bytes(body)
+        if existing:
+            if set(existing) != allowed:
+                raise TransportError('Authoritative trust bundle is incomplete; publication refused.')
+            if existing == files:
+                return
+            if existing['keys/root-public.pem'] != files['keys/root-public.pem']:
+                raise TransportError('Publication cannot replace the authoritative trust root.')
+            def manifest_version(data):
+                value = self._json(data, 'Trust manifest')
+                version = value.get('manifest_version')
+                if (value.get('format') != 1 or type(version) is not int
+                        or not 0 < version <= 0xFFFFFFFF):
+                    raise TransportError('Trust manifest version is invalid.')
+                return version
+            if manifest_version(files['keys/manifest.min.json']) <= manifest_version(
+                    existing['keys/manifest.min.json']):
+                raise TransportError('Trust manifest must be strictly newer than authoritative content.')
         entries = []
         for path, data in files.items():
             blob = request('POST', '/blobs', {'content': base64.b64encode(data).decode('ascii'),

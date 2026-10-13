@@ -140,6 +140,50 @@ class Stub:
 
 
 class GithubReleaseTransportTests(unittest.TestCase):
+    def trust_bundle(self, version=2):
+        return {"keys/root-public.pem": b"same-root", "keys/issuer-public.pem": b"issuer",
+            "keys/manifest.min.json": json.dumps({"format": 1, "manifest_version": version}).encode(),
+            "keys/manifest.sig": b"signature-" + str(version).encode()}
+
+    def test_existing_trust_rejects_root_change_or_nonincreasing_manifest_before_writes(self):
+        for root_change, version in ((True, 3), (False, 1), (False, 2)):
+            stub = Stub()
+            stub.files.update(self.trust_bundle())
+            target = self.trust_bundle(version)
+            if root_change:
+                target["keys/root-public.pem"] = b"different-root"
+            else:
+                target["keys/issuer-public.pem"] = b"changed-issuer"
+            original = dict(stub.files)
+            with self.subTest(root_change=root_change, version=version):
+                with self.assertRaises(transport_module.TransportError):
+                    self.transport(stub).put_pages_atomic(target)
+                self.assertEqual(stub.files, original)
+                self.assertFalse(any(call[0] in ("POST", "PATCH", "PUT") for call in stub.calls))
+
+    def test_existing_identical_trust_is_idempotent_and_partial_trust_is_refused(self):
+        for partial in (False, True):
+            stub = Stub()
+            target = self.trust_bundle()
+            stub.files.update(target)
+            if partial:
+                del stub.files["keys/manifest.sig"]
+                with self.assertRaises(transport_module.TransportError):
+                    self.transport(stub).put_pages_atomic(target)
+            else:
+                self.transport(stub).put_pages_atomic(target)
+            self.assertFalse(any(call[0] in ("POST", "PATCH", "PUT") for call in stub.calls))
+
+    def test_newer_same_root_trust_reads_fixed_parent_before_atomic_update(self):
+        stub = Stub()
+        stub.files.update(self.trust_bundle())
+        target = self.trust_bundle(3)
+        self.transport(stub).put_pages_atomic(target)
+        self.assertEqual(stub.files, target)
+        reads = [call for call in stub.calls if call[0] == "GET" and "/contents/keys/" in call[1]]
+        self.assertEqual(len(reads), 4)
+        self.assertTrue(all(urlsplit(call[1]).query == "ref=" + "a" * 40 for call in reads))
+
     def test_index_preflight_reads_authoritative_branch_when_public_page_is_missing(self):
         stub = Stub()
         document = {"schema": 1, "channel": "stable", "platform": "windows-x64",
@@ -288,15 +332,19 @@ class GithubReleaseTransportTests(unittest.TestCase):
         self.assertEqual(source_tag_body["tag"], "v7.2.9-r1")
 
     def test_atomic_trust_bundle_conflict_preserves_old_files_and_stops_index(self):
+        from dataclasses import replace
         from test_publish_release import allowed_context, plan, publish
         stub = Stub()
         stub.source_tags = set()
-        stub.files = {item.path: b'old-' + item.data for item in plan().page_files}
+        stub.files = self.trust_bundle(2)
+        candidate = replace(plan(), page_files=tuple(
+            publish.PageFile(path, data) for path, data in self.trust_bundle(3).items()))
         old = dict(stub.files)
         stub.fail_atomic_ref = True
         with self.assertRaisesRegex(publish.PublishError, 'atomic promotion'):
-            publish.promote(plan(), self.transport(stub), enabled=True, context=allowed_context())
+            publish.promote(candidate, self.transport(stub), enabled=True, context=allowed_context())
         self.assertEqual(stub.files, old)
+        self.assertTrue(any(call[0] == 'PATCH' for call in stub.calls))
         self.assertFalse(any(call[0] == 'PUT' for call in stub.calls))
 
     def test_atomic_trust_bundle_rejects_partial_or_arbitrary_paths_before_requests(self):

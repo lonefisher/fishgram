@@ -271,7 +271,25 @@ def _parse_current_index(value: dict | None, channel: str) -> int:
     return version
 
 
+def _validate_output_paths(assets, page_files) -> None:
+    names = [asset.name for asset in assets]
+    paths = [item.path for item in page_files]
+    if (len(names) != len({name.casefold() for name in names})
+            or len(paths) != len({path.casefold() for path in paths})):
+        raise PublishError('Promotion contains duplicate attachment or Pages paths.')
+    if any(not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', name)
+           or name.endswith('.') or name.split('.')[0].upper() in {
+               'CON', 'PRN', 'AUX', 'NUL',
+               *(f'COM{i}' for i in range(1, 10)),
+               *(f'LPT{i}' for i in range(1, 10))} for name in names):
+        raise PublishError('Release asset names must be safe basenames.')
+    if set(paths) != {'keys/root-public.pem', 'keys/issuer-public.pem',
+                      'keys/manifest.min.json', 'keys/manifest.sig'}:
+        raise PublishError('Promotion requires the exact public trust bundle paths.')
+
+
 def _validate_plan_index(plan: PromotionPlan) -> None:
+    _validate_output_paths(plan.assets, plan.page_files)
     if len(plan.index_bytes) > 1024 * 1024:
         raise PublishError("Promotion index exceeds the production ParseFeed limit.")
     try:
@@ -544,6 +562,7 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
     )
     page_files = tuple(PageFile("keys/" + name, (trust / name).read_bytes())
                        for name in ("root-public.pem", "issuer-public.pem", "manifest.min.json", "manifest.sig"))
+    _validate_output_paths(assets, page_files)
     return PromotionPlan(release_tag, manifest["parentCommit"], index_channel, manifest["channel"], version,
                          assets, page_files, index_channel + ".json", update_index,
                          reuse_release=reuse_release, reviewed_commit=commit)

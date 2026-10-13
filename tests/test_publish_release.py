@@ -140,6 +140,23 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_offline_handoff_rejects_colliding_or_unsafe_paths_before_staging(self):
+        from dataclasses import replace
+        original = plan()
+        variants = (
+            replace(original, assets=original.assets + (publish.Asset('candidate-record.json', b'other'),)),
+            replace(original, assets=original.assets + (publish.Asset('SIGNING-RECORD.JSON', b'other'),)),
+            replace(original, assets=original.assets + (publish.Asset('../escape.json', b'other'),)),
+            replace(original, page_files=original.page_files + (original.page_files[0],)),
+            replace(original, page_files=original.page_files + (publish.PageFile('keys/../../escape', b'other'),)),
+        )
+        for candidate in variants:
+            with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as temp:
+                output = Path(temp) / 'promotion'
+                with self.assertRaises(publish.PublishError):
+                    publish.write_promotion(candidate, output)
+                self.assertEqual(list(Path(temp).iterdir()), [])
+
     def test_public_asset_transient_failure_retries_same_published_beta(self):
         candidate = plan(index_channel="beta", package_channel="beta")
         api = FakeApi()
