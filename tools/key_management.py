@@ -458,6 +458,13 @@ def update_manifest(
         for group in filtered:
             if any(item not in by_id for item in group):
                 raise KeyManagementError(f"Channel {channel!r} references an unknown key.")
+        common = set.intersection(*(set(group) for group in filtered))
+        available = [by_id[item] for item in common if item not in revoked
+                     and by_id[item].get('alg') == 'Ed25519']
+        if not available:
+            raise KeyManagementError(
+                f"Channel {channel!r} cannot be signed by a single authorized Ed25519 issuer; "
+                "the current release signer requires one issuer in every group.")
     if len(updated["keys"]) > 64 or len(updated["revoked"]) > 64:
         raise KeyManagementError("Manifest key or revoked entry limit reached.")
     encoded = json.dumps(updated, separators=(",", ":"), ensure_ascii=False).encode("utf-8")

@@ -144,6 +144,22 @@ class KeyManagementTests(unittest.TestCase):
         self.assertEqual(issuer["alg"], "Ed25519")
         self.assertEqual(issuer["expires"], 1_900_000_000 + keys.YEAR_SECONDS)
 
+    def test_update_rejects_groups_without_a_common_active_signer_before_root_signing(self):
+        for groups in (["stable=issuer-a", "stable=issuer-b"],
+                       ["stable=issuer-a,issuer-b", "stable=issuer-b"]):
+            with self.subTest(groups=groups):
+                with mock.patch.object(keys, '_sign', wraps=keys._sign) as signer:
+                    if groups[0] == 'stable=issuer-a':
+                        with self.assertRaisesRegex(keys.KeyManagementError, 'single.*issuer'):
+                            self._update(add_keys=[('issuer-b', self.issuer_public)], channel_groups=groups)
+                        signer.assert_not_called()
+                    else:
+                        data, signature = self._update(
+                            add_keys=[('issuer-b', self.issuer_public)], channel_groups=groups)
+                        self.assertEqual(keys.verify_manifest(data, signature, self.root_public)
+                                         ['channels']['stable'], [['issuer-a', 'issuer-b'], ['issuer-b']])
+
+
     def test_45_day_maintenance_window_and_expired_keys(self):
         now = 1_900_000_000
         data = json.dumps({"keys": [
