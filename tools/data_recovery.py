@@ -430,10 +430,20 @@ def _remove_tree(path: Path, root: Path) -> None:
     shutil.rmtree(path)
 
 
-def _roots(work_dir, snapshot_root, executable):
+def _client_target(work_dir, executable, installation_dir=None):
+    work, exe = _canonical(work_dir), _canonical(executable)
+    install = _canonical(installation_dir if installation_dir is not None else exe.parent)
+    if (not work.is_dir() or not install.is_dir() or not exe.is_file()
+            or exe.name.casefold() != 'telegram.exe'
+            or not os.path.samefile(exe.parent, install)):
+        raise RecoveryError('Installed executable must be Telegram.exe in the selected installation directory.')
+    return work, exe
+
+
+def _roots(work_dir, snapshot_root, executable, installation_dir=None):
     work = _canonical(work_dir)
     root = _canonical(snapshot_root, missing=True)
-    exe = _canonical(executable)
+    work, exe = _client_target(work, executable, installation_dir)
     if not work.is_dir() or not exe.is_file():
         raise RecoveryError('Working directory or installed executable is invalid.')
     if root == work or root in work.parents or work in root.parents:
@@ -518,10 +528,10 @@ def _finalize_snapshot(partial: Path, root: Path, name: str, *, identities=None)
             time.sleep(min(0.1, remaining))
 
 
-def snapshot(work_dir, snapshot_root, installed_executable, version: str, *, process_probe=process_running) -> str:
+def snapshot(work_dir, snapshot_root, installed_executable, version: str, *, installation_dir=None, process_probe=process_running) -> str:
     if not isinstance(version, str) or not VERSION.fullmatch(version):
         raise RecoveryError('Use the complete FishGram version for this snapshot.')
-    work, root, exe = _roots(work_dir, snapshot_root, installed_executable)
+    work, root, exe = _roots(work_dir, snapshot_root, installed_executable, installation_dir)
     with _client_session_gate(exe.parent, exclusive=True):
         _closed(exe, process_probe)
         if (work / JOURNAL).exists():
@@ -608,10 +618,10 @@ def _recover_locked(work: Path) -> str | None:
     return None
 
 
-def recover_restore(work_dir, installed_executable, *, confirm_restore=False, process_probe=process_running):
+def recover_restore(work_dir, installed_executable, *, installation_dir=None, confirm_restore=False, process_probe=process_running):
     if not confirm_restore:
         raise RecoveryError('Data recovery requires explicit user selection.')
-    work, exe = _canonical(work_dir), _canonical(installed_executable)
+    work, exe = _client_target(work_dir, installed_executable, installation_dir)
     with _client_session_gate(exe.parent, exclusive=True):
         _closed(exe, process_probe)
         with _lock(work, '.fishgram-data.lock'):
@@ -619,10 +629,10 @@ def recover_restore(work_dir, installed_executable, *, confirm_restore=False, pr
 
 
 def restore_snapshot(work_dir, snapshot_root, installed_executable, name: str, *, confirm_restore=False,
-                     process_probe=process_running, after_old_moved=None) -> str:
+                     installation_dir=None, process_probe=process_running, after_old_moved=None) -> str:
     if not confirm_restore:
         raise RecoveryError('Data restoration requires explicit user selection.')
-    work, root, exe = _roots(work_dir, snapshot_root, installed_executable)
+    work, root, exe = _roots(work_dir, snapshot_root, installed_executable, installation_dir)
     with _client_session_gate(exe.parent, exclusive=True):
         _closed(exe, process_probe)
         _snapshot_root(root)
@@ -677,6 +687,7 @@ def main(argv=None) -> int:
         sub = commands.add_parser(command)
         sub.add_argument('--work-dir', required=True)
         sub.add_argument('--installed-executable', required=True)
+        sub.add_argument('--installation-dir', required=True)
         if command != 'recover':
             sub.add_argument('--snapshot-root', required=True)
         if command == 'snapshot':
@@ -688,12 +699,14 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == 'snapshot':
-            result = snapshot(args.work_dir, args.snapshot_root, args.installed_executable, args.version)
+            result = snapshot(args.work_dir, args.snapshot_root, args.installed_executable, args.version,
+                              installation_dir=args.installation_dir)
         elif args.command == 'restore':
             result = restore_snapshot(args.work_dir, args.snapshot_root, args.installed_executable, args.snapshot,
-                                      confirm_restore=args.confirm_restore)
+                                      confirm_restore=args.confirm_restore, installation_dir=args.installation_dir)
         else:
-            result = recover_restore(args.work_dir, args.installed_executable, confirm_restore=args.confirm_restore)
+            result = recover_restore(args.work_dir, args.installed_executable, confirm_restore=args.confirm_restore,
+                                     installation_dir=args.installation_dir)
         print('Private data operation completed.' + (' ID: ' + result if result else ''))
         return 0
     except (RecoveryError, OSError) as error:

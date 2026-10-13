@@ -36,6 +36,31 @@ class DirectoryHold:
 
 
 class DataRecoveryTests(unittest.TestCase):
+    def test_wrong_client_target_is_rejected_before_probe_or_data_changes(self):
+        import unittest.mock as mock
+        before = recovery._inventory(self.work / 'tdata')
+        wrong_dir = self.root / 'wrong-install'
+        wrong_dir.mkdir()
+        targets = (self.root / 'Updater.exe', self.root / 'ordinary.txt',
+                   wrong_dir / 'Telegram.exe')
+        for executable in targets:
+            executable.write_bytes(b'synthetic wrong target')
+            probe = mock.Mock(return_value=False)
+            with self.subTest(executable=executable.name):
+                for operation in (
+                    lambda: recovery.snapshot(self.work, self.snapshots, executable, '7.2.9-r8',
+                        installation_dir=self.root, process_probe=probe),
+                    lambda: recovery.restore_snapshot(self.work, self.snapshots, executable, 'snapshot-invalid',
+                        installation_dir=self.root, confirm_restore=True, process_probe=probe),
+                    lambda: recovery.recover_restore(self.work, executable,
+                        installation_dir=self.root, confirm_restore=True, process_probe=probe),
+                ):
+                    with self.assertRaises(recovery.RecoveryError):
+                        operation()
+                probe.assert_not_called()
+                self.assertEqual(recovery._inventory(self.work / 'tdata'), before)
+                self.assertFalse(self.snapshots.exists())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='fishgram-data-test-')
         self.addCleanup(self.temp.cleanup)
@@ -525,7 +550,8 @@ with open(sys.argv[1], 'rb') as file:
                 mock.patch.object(recovery.sys, 'stderr', stderr):
             result = recovery.main(['snapshot', '--work-dir', str(self.work),
                                     '--snapshot-root', str(self.snapshots),
-                                    '--installed-executable', str(self.exe), '--version', '7.2.9-r8'])
+                                    '--installed-executable', str(self.exe), '--installation-dir', str(self.exe.parent),
+                                    '--version', '7.2.9-r8'])
         self.assertEqual(result, 1)
         self.assertIn('publication failed', stderr.getvalue())
         self.assertIn('cleanup failed', stderr.getvalue())

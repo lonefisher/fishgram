@@ -2,6 +2,8 @@
 
 工具是 `tools/data_recovery.py`，只依赖 Python 标准库。候选 Updater 已接入跨官方基线替换前的原生快照回调；该接入本身不代表 Comet A7 或首次发行门槛通过。只在 Windows 上进行实际账户操作；开发测试使用合成数据。
 
+命令行必须同时指定 `--installation-dir` 和该目录中的 `--installed-executable Telegram.exe`。三个入口共用程序名、普通文件、父目录文件身份及无链接校验，在取得会话锁或探测进程前拒绝错误目标。独立数据目录仍由 `--work-dir` 指定；工具不能猜测任意数据目录属于哪个安装，维护者须核对这两个目录的对应关系。Python 内部调用未指定 installation_dir 时使用已指定客户端的父目录，新增调用应显式传入安装目录以避免误选另一个客户端。
+
 ## 建立快照
 
 先正常退出目标安装的全部客户端实例，并在工具完成前保持关闭。工具按实际安装 exe 的文件身份检查进程，拒绝正在运行或无法安全检查的匹配进程；复制后再次检查，并比较源和快照的完整内容清单。它不会退出或终止客户端，也不能从进程列表推断之前是正常退出还是崩溃。
@@ -11,7 +13,7 @@
 明确指定包含 `tdata` 的工作目录，不能只猜 exe 旁的路径。快照目录必须与工作目录互不包含，父目录须已存在。首次使用建议指定尚不存在的快照目录，让工具创建并设置私有 ACL；不要预先创建一个继承工作区权限的空目录。已有空目录只有通过私有 ACL 校验才可使用，工具不会自动改写其权限；之后只接受工具自身管理的目录。目录链接、junction、reparse point、路径穿越、缺少空间或源数据变化都会停止操作。普通 Windows 8.3 路径会规范化到实际目录。
 
 ```powershell
-python tools/data_recovery.py snapshot --work-dir D:\FishGram\FishGramData --installed-executable D:\FishGram\Telegram.exe --snapshot-root D:\FishGram-private-snapshots --version 7.2.9-r8
+python tools/data_recovery.py snapshot --work-dir D:\FishGram\FishGramData --installation-dir D:\FishGram --installed-executable D:\FishGram\Telegram.exe --snapshot-root D:\FishGram-private-snapshots --version 7.2.9-r8
 ```
 
 返回快照 ID。文件哈希、大小、完整版本、时间及目录结构记录在私有清单中；空目录也保留，文件修改时间复制到新文件。复制到全新暂存目录并验证后才完成快照，默认保留最近两份。只有工具管理且内容校验通过的旧快照才能清理。失败保留已有快照；清理失败可能暂时多于两份，需要排查后再操作。
@@ -29,7 +31,7 @@ Windows 最终发布目录改名遇到错误 5、32、33 时，最多尝试 11 �
 先保存当前数据快照，并明确选择对应程序版本和数据快照。新版开始数据迁移后，旧 exe 不保证能读取当前数据；工具也不会证明选中的快照与程序版本兼容。恢复会丢弃目标账户目录中快照之后的状态，因此必须显式使用 `--confirm-restore`。
 
 ```powershell
-python tools/data_recovery.py restore --work-dir D:\FishGram\FishGramData --installed-executable D:\FishGram\Telegram.exe --snapshot-root D:\FishGram-private-snapshots --snapshot <快照ID> --confirm-restore
+python tools/data_recovery.py restore --work-dir D:\FishGram\FishGramData --installation-dir D:\FishGram --installed-executable D:\FishGram\Telegram.exe --snapshot-root D:\FishGram-private-snapshots --snapshot <快照ID> --confirm-restore
 ```
 
 工具验证清单和全部内容，再建立私有恢复暂存区；在改动 `tdata` 前保存持久事务记录。当前数据通过同工作目录中的重命名保留为 `.fishgram-data-rollback-<随机ID>`，完整恢复后仍保留，避免丢失恢复前的状态。该目录不是自动保留两份的快照，暂不自动清理。普通替换失败恢复原数据；不会修改 exe、客户端配置文件或其他工作目录内容。
@@ -41,7 +43,7 @@ python tools/data_recovery.py restore --work-dir D:\FishGram\FishGramData --inst
 发生进程中断时，不要删除 `.fishgram-data-restore.json` 或手动启动客户端。正常关闭全部目标客户端后，明确选择处理该事务：
 
 ```powershell
-python tools/data_recovery.py recover --work-dir D:\FishGram\FishGramData --installed-executable D:\FishGram\Telegram.exe --confirm-restore
+python tools/data_recovery.py recover --work-dir D:\FishGram\FishGramData --installation-dir D:\FishGram --installed-executable D:\FishGram\Telegram.exe --confirm-restore
 ```
 
 未完成事务恢复原数据；已提交事务核实新数据并完成清理。未知状态、损坏记录、缺少或不匹配的备份停止自动处理并保留现场。如果未完成替换时已有新 `tdata`，恢复会先把它保留为 `.fishgram-data-rejected-<随机ID>`，不会无声删除。
