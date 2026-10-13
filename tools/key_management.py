@@ -146,15 +146,19 @@ def _write_new(path: Path, data: bytes, private: bool = False) -> None:
 
 def _generate_private(path: Path, password: str) -> None:
     path = _require_new_path(path)
-    try:
-        _openssl(
-            "genpkey", "-algorithm", "Ed25519", "-aes-256-cbc",
-            "-pass", "stdin", "-out", str(path), password=password,
-        )
-        _private_mode(path)
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
+    # Same-volume hard-link publication is exclusive and retains the restricted
+    # file ACL. OpenSSL never receives the caller's final destination path.
+    with tempfile.TemporaryDirectory(prefix='.fishgram-key-', dir=path.parent) as temporary:
+        folder = Path(temporary)
+        _private_mode(folder)
+        staged = folder / 'encrypted.pem'
+        with staged.open('xb'):
+            pass
+        _private_mode(staged)
+        _openssl('genpkey', '-algorithm', 'Ed25519', '-aes-256-cbc',
+                 '-pass', 'stdin', '-out', str(staged), password=password)
+        _private_mode(staged)
+        os.link(staged, path)
 
 
 def _public_der(private_path: Path, password: str) -> bytes:

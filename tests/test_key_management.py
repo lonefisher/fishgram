@@ -258,7 +258,8 @@ class KeyManagementTests(unittest.TestCase):
         partial = self.root / "partial-private.pem"
 
         def write_then_fail(*args, **kwargs):
-            partial.write_bytes(b"partial secret")
+            output = Path(args[args.index('-out') + 1])
+            output.write_bytes(b"partial secret")
             raise keys.KeyManagementError("simulated OpenSSL failure")
 
         with mock.patch.object(keys, "_openssl", side_effect=write_then_fail):
@@ -271,6 +272,25 @@ class KeyManagementTests(unittest.TestCase):
             with self.assertRaisesRegex(keys.KeyManagementError, "ACL denied"):
                 keys.generate_issuer(protected, self.root / "acl-public.pem", self.password)
         self.assertFalse(protected.exists())
+
+    def test_private_generation_race_preserves_competing_file_on_success_and_failure(self):
+        original = keys._openssl
+        for fail in (False, True):
+            destination = self.root / ('race-fail.pem' if fail else 'race-success.pem')
+            outputs = []
+            def competing_generation(*args, **kwargs):
+                if args[0] == 'genpkey':
+                    destination.write_bytes(b'competing encrypted backup')
+                    outputs.append(Path(args[args.index('-out') + 1]))
+                    if fail:
+                        raise keys.KeyManagementError('synthetic generation failure')
+                return original(*args, **kwargs)
+            with self.subTest(fail=fail), mock.patch.object(keys, '_openssl', side_effect=competing_generation):
+                with self.assertRaises(keys.KeyManagementError if fail else FileExistsError):
+                    keys._generate_private(destination, self.password)
+            self.assertEqual(destination.read_bytes(), b'competing encrypted backup')
+            self.assertNotEqual(outputs[0], destination)
+            self.assertFalse(outputs[0].exists())
 
     def test_root_bootstrap_failure_removes_generated_private_and_public_files(self):
         private = self.root / "failed-root.pem"
