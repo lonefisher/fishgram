@@ -140,6 +140,60 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_public_asset_transient_failure_retries_same_published_beta(self):
+        candidate = plan(index_channel="beta", package_channel="beta")
+        api = FakeApi()
+        original = api.download_asset
+        calls = []
+        def download(tag, name):
+            calls.append((tag, name))
+            if len(calls) == 1:
+                raise TimeoutError("temporary CDN timeout")
+            return original(tag, name)
+        api.download_asset = download
+        with mock.patch.object(publish.time, "sleep"):
+            publish_plan(api, candidate)
+        self.assertEqual(calls[:2], [(candidate.tag, candidate.assets[0].name)] * 2)
+        self.assertEqual(sum(event[0] == "create_release" for event in api.events), 1)
+        self.assertEqual(api.pages["beta.json"], candidate.index_bytes)
+
+    def test_public_asset_permanent_failure_has_bounded_retries_and_no_index(self):
+        api = FakeApi()
+        api.download_asset = mock.Mock(side_effect=TimeoutError("private CDN detail"))
+        with mock.patch.object(publish.time, "sleep") as sleep:
+            with self.assertRaisesRegex(publish.PublishError, "Public release asset download failed"):
+                publish_plan(api)
+        self.assertEqual(api.download_asset.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertFalse(api.pages)
+
+    def test_reuse_rejects_extra_or_missing_assets_before_any_publication(self):
+        candidate = plan(reuse_release=True)
+        for mismatch in ("extra", "missing"):
+            with self.subTest(mismatch=mismatch):
+                api = FakeApi(tags={candidate.tag}, releases={candidate.tag})
+                api.source_tags.add(candidate.tag)
+                api.assets = {asset.name: asset.data for asset in candidate.assets}
+                if mismatch == "extra":
+                    api.assets["unreviewed.exe"] = b"unreviewed"
+                else:
+                    del api.assets["qa.json"]
+                with self.assertRaisesRegex(publish.PublishError, "asset.*set"):
+                    publish_plan(api, candidate)
+                self.assertFalse(any(event[0] in {"source_tag", "create_release", "upload",
+                    "download", "atomic_pages", "page"} for event in api.events))
+
+    def test_reuse_asset_inventory_failure_stops_before_any_publication(self):
+        candidate = plan(reuse_release=True)
+        api = FakeApi(tags={candidate.tag}, releases={candidate.tag})
+        api.source_tags.add(candidate.tag)
+        api.assets = {asset.name: asset.data for asset in candidate.assets}
+        api.asset_names = mock.Mock(side_effect=RuntimeError("private transport detail"))
+        with self.assertRaisesRegex(publish.PublishError, "asset.*set"):
+            publish_plan(api, candidate)
+        self.assertFalse(any(event[0] in {"download", "atomic_pages", "page"}
+                             for event in api.events))
+
     def test_reused_tags_must_match_both_candidate_commits_before_pages_writes(self):
         candidate = plan(reuse_release=True)
         for repository in (publish.PRODUCT_REPOSITORY, publish.SOURCE_REPOSITORY):

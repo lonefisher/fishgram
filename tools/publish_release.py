@@ -367,6 +367,13 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
             or set(paths) != {"keys/root-public.pem", "keys/issuer-public.pem",
                               "keys/manifest.min.json", "keys/manifest.sig"}):
         raise PublishError("Promotion is missing the exact candidate, source, signing records or public key trust bundle.")
+    if plan.reuse_release:
+        try:
+            existing_assets = api.asset_names(plan.tag)
+        except Exception as error:
+            raise PublishError("Existing release asset set could not be verified; promotion stopped before writes.") from error
+        if existing_assets != set(names):
+            raise PublishError("Existing release asset set differs from the reviewed promotion plan.")
     if not plan.reuse_release:
         pages_config = getattr(api, "pages_config", None)
         if not callable(pages_config):
@@ -399,10 +406,14 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
         except Exception as error:
             raise PublishError("Draft release could not be published after uploads.") from error
     for asset in plan.assets:
-        try:
-            public_bytes = api.download_asset(plan.tag, asset.name)
-        except Exception as error:
-            raise PublishError("Public release asset download failed: " + asset.name) from error
+        for attempt in range(3):
+            try:
+                public_bytes = api.download_asset(plan.tag, asset.name)
+                break
+            except Exception:
+                if attempt == 2:
+                    raise PublishError("Public release asset download failed: " + asset.name) from None
+                time.sleep(5)
         if hashlib.sha256(public_bytes).hexdigest() != asset.sha256:
             raise PublishError("Public release asset SHA256 mismatch: " + asset.name)
     try:
