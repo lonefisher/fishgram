@@ -125,9 +125,9 @@ class SigningEntryTests(unittest.TestCase):
             "files": {"Telegram.exe": {"sha256": "e" * 64, "size": 1}},
         }
         qa = {
-            "schema": 1, "kind": "fishgram-candidate-qa", "approver": "maintainer",
+            "schema": 2, "kind": "fishgram-candidate-qa",
             "approvedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "environment": "clean-windows-11", "candidate": {
+            "candidate": {
                 "version": record["version"], "parentCommit": record["parentCommit"],
                 "sourceCommit": record["sourceCommit"], "archive": record["archive"],
                 "sourceArchive": record["sourceArchive"],

@@ -81,10 +81,8 @@ def bound_zip(directory, record, **kwargs):
 
 def qa_for(record, **overrides):
     qa = {
-        'schema': 1, 'kind': 'fishgram-candidate-qa',
-        'approver': 'lonefisher',
+        'schema': 2, 'kind': 'fishgram-candidate-qa',
         'approvedAt': '2026-10-08T00:00:00Z',
-        'environment': 'Clean Windows 11 24H2 VM, no prior install.',
         'candidate': {
             'version': record['version'],
             'parentCommit': record['parentCommit'],
@@ -93,7 +91,6 @@ def qa_for(record, **overrides):
             'files': {name: {'sha256': entry['sha256']} for name, entry in record['files'].items()},
         },
         'checks': {name: True for name in gate.REQUIRED_CHECKS},
-        'notes': '',
     }
     qa.update(overrides)
     return qa
@@ -363,6 +360,24 @@ class QaTests(unittest.TestCase):
 
 
 class AuthorizeTests(unittest.TestCase):
+    def test_public_qa_schema_has_no_private_identity_or_free_text_fields(self):
+        record = manifest()
+        qa = qa_for(record)
+        qa.update(schema=2)
+        for name in ('approver', 'environment', 'notes'):
+            qa.pop(name, None)
+        gate.verify_qa(record, qa)
+        for name in ('approver', 'environment', 'notes'):
+            with self.subTest(field=name), self.assertRaises(gate.GateError):
+                gate.verify_qa(record, dict(qa, **{name: 'private-marker'}))
+        with tempfile.TemporaryDirectory() as temp:
+            template = gate.qa_template(record, Path(temp) / 'qa.json')
+            self.assertEqual(template['schema'], 2)
+            self.assertFalse({'approver', 'environment', 'notes'} & set(template))
+            authorization = gate.authorize(record, qa, 'qa.json', json.dumps(qa).encode(),
+                                           Path(temp) / 'authorization.json')
+            self.assertNotIn('approver', authorization['qa'])
+
     def test_authorization_binds_signing_inputs(self):
         record = manifest()
         qa = qa_for(record)

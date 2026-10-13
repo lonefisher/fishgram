@@ -478,7 +478,7 @@ def _embed_and_record(packer: Path, trust: Path, unsigned: Path, signature: byte
         "parentCommit": manifest["parentCommit"], "sourceCommit": manifest["sourceCommit"],
         "candidateArchive": manifest["archive"], "sourceArchive": manifest["sourceArchive"],
         "qa": {"file": Path(qa["_file"]).name, "sha256": qa["_sha256"],
-               "approver": qa["approver"], "approvedAt": qa["approvedAt"]},
+               "approvedAt": qa["approvedAt"]},
         "issuer": {"id": issuer_id, "alg": "Ed25519", "publicKeySha256": sha256(issuer_raw)},
         "package": {"name": output_package.name, "size": output_package.stat().st_size,
                     "sha256": sha256_file(output_package)},

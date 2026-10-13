@@ -28,7 +28,6 @@ class GateError(ValueError):
 
 SHA = re.compile(r"^[a-f0-9]{40}$")
 DIGEST = re.compile(r"^[a-f0-9]{64}$")
-USERNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SUBMODULE_LINE = re.compile(r"^ [a-f0-9]{40} \S+( .+)?$")
 VERSION = re.compile(r"^(\d+\.\d+\.\d+)-r(\d+)$")
@@ -555,14 +554,11 @@ def qa_template(manifest, output):
     if "sourceArchive" in manifest:
         candidate["sourceArchive"] = manifest["sourceArchive"]
     template = {
-        "schema": 1,
+        "schema": 2,
         "kind": "fishgram-candidate-qa",
-        "approver": "",
         "approvedAt": "",
-        "environment": "",
         "candidate": candidate,
         "checks": {name: False for name in REQUIRED_CHECKS},
-        "notes": "",
     }
     output = Path(output)
     if output.exists():
@@ -572,25 +568,18 @@ def qa_template(manifest, output):
 
 
 def verify_qa(manifest, qa):
-    """Validate the human QA approval: schema, identity, and exact binding."""
-    if not isinstance(qa, dict) or qa.get("schema") != 1 or qa.get("kind") != "fishgram-candidate-qa":
+    """Validate anonymous reviewed QA and exact candidate binding."""
+    if not isinstance(qa, dict) or qa.get("schema") != 2 or qa.get("kind") != "fishgram-candidate-qa":
         raise GateError("Not a FishGram candidate QA approval.")
-    allowed = {"schema", "kind", "approver", "approvedAt", "environment", "candidate", "checks", "notes"}
-    if set(qa) - allowed or not {"schema", "kind", "approver", "approvedAt", "environment", "candidate", "checks"} <= set(qa):
+    allowed = {"schema", "kind", "approvedAt", "candidate", "checks"}
+    if set(qa) != allowed:
         raise GateError("QA approval has missing or unknown fields.")
-    approver = qa["approver"]
-    if not isinstance(approver, str) or not USERNAME.fullmatch(approver):
-        raise GateError("QA approver must be a valid maintainer account name.")
     stamp = qa["approvedAt"]
     if not isinstance(stamp, str) or not STAMP.fullmatch(stamp):
         raise GateError("QA approval time must be an RFC3339 UTC timestamp.")
     approved = dt.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
     if approved > dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5):
         raise GateError("QA approval time is in the future.")
-    if not isinstance(qa["environment"], str) or not qa["environment"].strip() or len(qa["environment"]) > 500:
-        raise GateError("QA environment description is required.")
-    if "notes" in qa and (not isinstance(qa["notes"], str) or len(qa["notes"]) > 4000):
-        raise GateError("QA notes must be a bounded string.")
     candidate = qa["candidate"]
     fields = {"version", "parentCommit", "sourceCommit", "archive", "files"}
     if "sourceArchive" in manifest:
@@ -648,7 +637,6 @@ def authorize(manifest, qa, qa_name, qa_bytes, output):
         "qa": {
             "file": _safe_base(qa_name, "QA file name"),
             "sha256": sha256_bytes(qa_bytes),
-            "approver": qa["approver"],
             "approvedAt": qa["approvedAt"],
         },
         "allowedActions": ["sign-update-package"],

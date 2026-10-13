@@ -20,7 +20,7 @@
 
 发布附件至少包括签名更新包、候选 ZIP、对应源码 ZIP、candidate record、`qa-proof.json` 和脱敏的 `signing-record.json`。QA proof 仅包含批准时间、候选绑定、检查结论和原始 QA SHA256，不包含 approver、环境描述、原始备注或 QA 文件名；公开 signing record 使用白名单字段，QA 部分只保留原始哈希、批准时间及 proof 哈希。原始签名记录仍用于发布前的完整绑定校验，不能拿公开投影替代原始输入。公开包不包含密钥、原始日志、账户数据或构建缓存。
 
-注意：Release 附件脱敏不等于 Git 历史脱敏。当前 workflow 仍要求 QA 文件先作为受审查的输入提交到公开父仓库，因此提交的 QA 必须已脱敏；不能把私人环境描述、原始截图、账号信息或查询词填入后再依赖附件投影隐藏。原始实测材料留在本机私有区。此约束仍需要 QA 提交前人工内容审查。
+可提交的 QA 使用 schema 2，固定字段只有 `schema`、`kind`、`approvedAt`、`candidate` 和 `checks`；不接受 approver、environment、notes 或其他自由文本字段，旧 schema 1 在签名前拒绝。人工身份及批准由受审查提交、受保护 release 环境和 GitHub 审批记录证明，匿名 JSON 本身不是身份认证。候选哈希绑定及所有必需检查仍必须通过；完整实测环境、原始 QA 备注、日志和截图留在本机私有区，不能提交到公开 Git。匿名 QA 与 Release proof 都仍须提交前内容审查。
 
 上传中断可能留下 tag、draft/已发布 release 或部分附件；不自动删除/重试覆盖，需人工检查并用新版本继续。索引始终是最后的公开推广点。
 
