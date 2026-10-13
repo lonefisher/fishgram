@@ -140,6 +140,30 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_public_qa_proof_and_signing_record_omit_identity_and_raw_notes(self):
+        qa = {'schema': 1, 'kind': 'fishgram-candidate-qa', 'approver': 'private-identity',
+              'approvedAt': '2026-10-13T00:00:00Z', 'environment': 'private-machine-description',
+              'candidate': {'version': '7.2.9-r8'}, 'checks': {'clean': True},
+              'notes': 'private-account-query'}
+        signing = {'schema': 1, 'kind': 'fishgram-signed-candidate',
+                   'qa': {'file': 'private-qa-name.json', 'sha256': 'a' * 64,
+                          'approver': qa['approver'], 'approvedAt': qa['approvedAt']},
+                   'package': {'name': 'update', 'sha256': 'b' * 64}}
+        raw = json.dumps(qa).encode()
+        proof, record = publish.public_acceptance_records(raw, signing)
+        self.assertEqual(proof.name, 'qa-proof.json')
+        self.assertEqual(record.name, 'signing-record.json')
+        parsed = json.loads(proof.data)
+        self.assertEqual(parsed['originalSha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(parsed['candidate'], qa['candidate'])
+        self.assertEqual(parsed['checks'], qa['checks'])
+        for secret in (qa['approver'], qa['environment'], qa['notes'], 'private-qa-name.json'):
+            self.assertNotIn(secret.encode(), proof.data + record.data)
+        self.assertEqual(json.loads(record.data)['qa'], {
+            'originalSha256': 'a' * 64, 'approvedAt': qa['approvedAt'],
+            'publicProofSha256': proof.sha256})
+        self.assertEqual(signing['qa']['approver'], 'private-identity')
+
     def test_offline_handoff_rejects_colliding_or_unsafe_paths_before_staging(self):
         from dataclasses import replace
         original = plan()

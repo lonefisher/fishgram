@@ -18,7 +18,11 @@
 
 2026-10-11 配置读回：`candidate` 与 `release` 均保留维护者人工审批，Selected branches and tags 只允许 branch `main`，禁止管理员绕过。Pages API 为公开 `https://lonefisher.github.io/fishgram/`，来源 `gh-pages` 根目录；独立开发说明页已有公开读回证据，更新索引尚未推广。两个 App 已安装、认证及权限读回，发布 App 仅在受保护 release 环境使用。配置接续及 refs 保护见 [GitHub 配置](GITHUB-CONFIGURATION.md)。GitHub Git/Contents API 接受变更不证明 Pages 部署完成；只以公开 URL 的逐文件 HTTP 200 和 SHA256 读回为成功。索引 write 成功但读回失败会报告失败，不能据此宣称客户端已收到新索引。真实生产候选/签名 workflow provenance 及端到端公开发布仍未验收。
 
-发布附件至少包括签名更新包、候选 ZIP、对应源码 ZIP、candidate record、QA approval 和 signing record。公开包不包含密钥、原始日志、账户数据或构建缓存。上传中断可能留下 tag、draft/已发布 release 或部分附件；不自动删除/重试覆盖，需人工检查并用新版本继续。索引始终是最后的公开推广点。
+发布附件至少包括签名更新包、候选 ZIP、对应源码 ZIP、candidate record、`qa-proof.json` 和脱敏的 `signing-record.json`。QA proof 仅包含批准时间、候选绑定、检查结论和原始 QA SHA256，不包含 approver、环境描述、原始备注或 QA 文件名；公开 signing record 使用白名单字段，QA 部分只保留原始哈希、批准时间及 proof 哈希。原始签名记录仍用于发布前的完整绑定校验，不能拿公开投影替代原始输入。公开包不包含密钥、原始日志、账户数据或构建缓存。
+
+注意：Release 附件脱敏不等于 Git 历史脱敏。当前 workflow 仍要求 QA 文件先作为受审查的输入提交到公开父仓库，因此提交的 QA 必须已脱敏；不能把私人环境描述、原始截图、账号信息或查询词填入后再依赖附件投影隐藏。原始实测材料留在本机私有区。此约束仍需要 QA 提交前人工内容审查。
+
+上传中断可能留下 tag、draft/已发布 release 或部分附件；不自动删除/重试覆盖，需人工检查并用新版本继续。索引始终是最后的公开推广点。
 
 ## 定向验证与外部限制
 

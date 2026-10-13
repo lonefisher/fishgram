@@ -151,6 +151,28 @@ class PageFile:
         return hashlib.sha256(self.data).hexdigest()
 
 
+def public_acceptance_records(qa_bytes: bytes, signing: dict) -> tuple[Asset, Asset]:
+    """Project already-verified private records onto an explicit public schema."""
+    qa = json.loads(qa_bytes)
+    proof_value = {
+        'schema': 1, 'kind': 'fishgram-public-qa-proof',
+        'originalSha256': hashlib.sha256(qa_bytes).hexdigest(),
+        'approvedAt': qa['approvedAt'], 'candidate': qa['candidate'],
+        'checks': qa['checks'],
+    }
+    encode = lambda value: (json.dumps(value, sort_keys=True, indent=2) + '\n').encode('utf-8')
+    proof = Asset('qa-proof.json', encode(proof_value))
+    public_signing = {name: signing[name] for name in (
+        'schema', 'kind', 'candidateVersion', 'updateVersion', 'channel',
+        'parentCommit', 'sourceCommit', 'candidateArchive', 'sourceArchive',
+        'issuer', 'package', 'signedAt') if name in signing}
+    public_signing['qa'] = {
+        'originalSha256': signing['qa']['sha256'],
+        'approvedAt': signing['qa']['approvedAt'], 'publicProofSha256': proof.sha256,
+    }
+    return proof, Asset('signing-record.json', encode(public_signing))
+
+
 @dataclass(frozen=True)
 class PromotionPlan:
     tag: str
@@ -552,13 +574,14 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
                                gate.sha256_file(signed_package), update_url)
     if Path(qa_path.name).name != qa_path.name or "\\" in qa_path.name:
         raise PublishError("QA approval filename is unsafe for a public attachment.")
+    public_qa, public_signing = public_acceptance_records(qa_path.read_bytes(), signing)
     assets = (
         Asset(update_name, signed_package.read_bytes()),
         Asset(manifest["archive"]["name"], candidate_zip.read_bytes()),
         Asset(manifest["sourceArchive"]["name"], source_zip.read_bytes()),
         Asset("candidate-record.json", record_path.read_bytes()),
-        Asset(qa_path.name, qa_path.read_bytes()),
-        Asset("signing-record.json", signing_record_path.read_bytes()),
+        public_qa,
+        public_signing,
     )
     page_files = tuple(PageFile("keys/" + name, (trust / name).read_bytes())
                        for name in ("root-public.pem", "issuer-public.pem", "manifest.min.json", "manifest.sig"))
