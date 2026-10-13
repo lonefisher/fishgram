@@ -138,6 +138,26 @@ class UpgradePolicyTests(unittest.TestCase):
         clone.assert_not_called()
         checks.assert_not_called()
 
+    def test_existing_linked_candidates_do_not_clone_or_push(self):
+        import base64
+        import json
+        source = {'state': 'open', 'html_url': 'source', 'head': {'sha': 'a' * 40}}
+        parent = {'state': 'open', 'html_url': 'parent', 'head': {'sha': 'b' * 40}}
+        responses = [
+            {'repositories': [{'full_name': bot.PRODUCT}, {'full_name': bot.SOURCE}]},
+            {'encoding': 'base64', 'content': base64.b64encode(json.dumps({'upstreamTag': 'v7.2.9'}).encode()).decode()},
+            {'tag_name': 'v7.3.0'}, [source], [parent]]
+        with mock.patch.object(bot, 'api', side_effect=responses), \
+                mock.patch.object(bot, 'clone_parent_candidate') as clone, \
+                mock.patch.object(bot, 'git') as git, \
+                mock.patch.object(bot, 'link_candidates') as link, \
+                mock.patch.object(bot, 'record_candidate_failures') as checks:
+            bot.main()
+        clone.assert_not_called()
+        git.assert_not_called()
+        link.assert_called_once_with(source, parent)
+        checks.assert_called_once_with('v7.3.0', source, parent)
+
     def test_parent_checkout_is_isolated_and_based_on_public_main(self):
         actual_run = subprocess.run
         with temporary_git_workspace(prefix='fishgram-upgrade-clone-') as directory:
