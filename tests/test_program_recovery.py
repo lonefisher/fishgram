@@ -140,6 +140,21 @@ class ProgramRecoveryTests(unittest.TestCase):
         self.assertEqual(self.exe.read_bytes(), b"current")
         self.assertEqual(self.dll.read_bytes(), b"current-dll")
 
+    def test_failed_restore_with_case_changed_dll_preserves_original_file(self):
+        renamed = self.install / "Core.dll"
+        self.dll.rename(renamed)
+        def fail_after_dll(_source, destination):
+            if destination.name.lower() == "telegram.exe.restore":
+                raise OSError("simulated later copy failure")
+        with self.assertRaises(RecoveryError):
+            restore_backup(self.install, self.backup.name,
+                           confirm_program_restore=self.backup.name, copy_hook=fail_after_dll,
+                           process_running=False)
+        self.assertEqual(self.exe.read_bytes(), b"current")
+        self.assertEqual(renamed.read_bytes(), b"current-dll")
+        self.assertEqual(self.account.read_bytes(), b"account-secret")
+        self.assertFalse((self.meta / "manual" / "pending").exists())
+
     def test_install_lock_is_exclusive_like_production(self):
         lock_path = self.meta / "install.lock"
         with _InstallLock(lock_path):

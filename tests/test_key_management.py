@@ -85,6 +85,26 @@ class KeyManagementTests(unittest.TestCase):
         with self.assertRaises(keys.KeyManagementError):
             keys.verify_manifest(self.initial_bytes + b" ", self.initial_sig, self.root_public)
 
+    def test_exclusive_create_race_preserves_other_writer_output(self):
+        destination = self.root / "concurrent-output.bin"
+        original_open = Path.open
+        def raced_open(path, mode="r", *args, **kwargs):
+            if path == destination and mode == "xb":
+                with original_open(path, "wb") as stream:
+                    stream.write(b"other-writer")
+            return original_open(path, mode, *args, **kwargs)
+        with mock.patch.object(Path, "open", raced_open):
+            with self.assertRaises(FileExistsError):
+                keys._write_new(destination, b"requested-output")
+        self.assertEqual(destination.read_bytes(), b"other-writer")
+
+    def test_failed_private_permissions_remove_only_our_created_output(self):
+        destination = self.root / "failed-output.bin"
+        with mock.patch.object(keys, "_private_mode", side_effect=OSError("fixture")):
+            with self.assertRaises(OSError):
+                keys._write_new(destination, b"fixture", private=True)
+        self.assertFalse(destination.exists())
+
     def test_manifest_version_must_increase_and_generated_version_verifies(self):
         with self.assertRaisesRegex(keys.KeyManagementError, "greater"):
             self._update(version=1)

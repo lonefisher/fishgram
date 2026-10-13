@@ -611,8 +611,9 @@ def _recover_pending(install: Path, manual: Path):
         if restore.exists(): restore.unlink()
         _copy_durable(originals / name, restore)
         _move_write_through(restore, install / name, replace=True)
+    original_names = {name.lower() for name in state["files"]}
     for name in state["target_files"]:
-        if name not in state["files"]:
+        if name.lower() not in original_names:
             added = install / name
             if added.exists(): added.unlink()
     shutil.rmtree(pending)

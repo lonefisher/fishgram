@@ -131,13 +131,16 @@ def _require_new_path(path: Path) -> Path:
 
 def _write_new(path: Path, data: bytes, private: bool = False) -> None:
     path = _require_new_path(path)
+    created = False
     try:
         with path.open("xb") as stream:
+            created = True
             stream.write(data)
         if private:
             _private_mode(path)
     except Exception:
-        path.unlink(missing_ok=True)
+        if created:
+            path.unlink(missing_ok=True)
         raise
 
 
