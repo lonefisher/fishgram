@@ -140,7 +140,14 @@ jobs:
         run: |
           $packageDir = Join-Path $env:RUNNER_TEMP 'candidate/package'
           $candidateZip = @(Get-ChildItem -LiteralPath $packageDir -File -Filter '*-candidate.zip')
-          $signedPackages = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'signed') -File -Filter '*.tupdate')
+          $signedDir = Join-Path $env:RUNNER_TEMP 'signed'
+          $signingRecord = Get-Content -Raw -LiteralPath (Join-Path $signedDir 'signing-record.json') | ConvertFrom-Json
+          $signedName = $signingRecord.package.name
+          if ($signedName -isnot [string] -or $signedName -cnotmatch '^fishgram-update-win-x64-[1-9][0-9]*-r[1-9][0-9]*(-beta)?$') { throw 'Signing record contains an invalid production package name.' }
+          $signedPath = Join-Path $signedDir $signedName
+          if (-not (Test-Path -LiteralPath $signedPath -PathType Leaf)) { throw 'Recorded signed package is missing.' }
+          $signedPackages = @(Get-Item -LiteralPath $signedPath)
+          if ($signedPackages[0].Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Recorded signed package cannot be a link.' }
           if ($candidateZip.Count -ne 1 -or $signedPackages.Count -ne 1) { throw 'Exact candidate and signed artifact payloads are required.' }
           $args = @('prepare', '--root', '.', '--commit', $env:GITHUB_SHA, '--index-channel', $env:INDEX_CHANNEL,
             '--candidate-record', (Join-Path $env:RUNNER_TEMP 'candidate/candidate-record.json'),
