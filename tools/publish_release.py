@@ -166,6 +166,15 @@ def public_acceptance_records(qa_bytes: bytes, signing: dict) -> tuple[Asset, As
         'schema', 'kind', 'candidateVersion', 'updateVersion', 'channel',
         'parentCommit', 'sourceCommit', 'candidateArchive', 'sourceArchive',
         'issuer', 'package', 'signedAt') if name in signing}
+    for name, fields in {
+        'issuer': ('id', 'alg', 'publicKeySha256'),
+        'package': ('name', 'size', 'sha256'),
+        'candidateArchive': ('name', 'size', 'sha256'),
+        'sourceArchive': ('name', 'size', 'sha256'),
+    }.items():
+        if name in signing:
+            public_signing[name] = {field: signing[name][field] for field in fields
+                                    if field in signing[name]}
     public_signing['qa'] = {
         'originalSha256': signing['qa']['sha256'],
         'approvedAt': signing['qa']['approvedAt'], 'publicProofSha256': proof.sha256,

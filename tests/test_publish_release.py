@@ -148,7 +148,9 @@ class PublishReleaseTests(unittest.TestCase):
         signing = {'schema': 1, 'kind': 'fishgram-signed-candidate',
                    'qa': {'file': 'private-qa-name.json', 'sha256': 'a' * 64,
                           'approver': qa['approver'], 'approvedAt': qa['approvedAt']},
-                   'package': {'name': 'update', 'sha256': 'b' * 64}}
+                   'package': {'name': 'update', 'sha256': 'b' * 64},
+                   'issuer': {'id': 'issuer-a', 'alg': 'Ed25519',
+                              'publicKeySha256': 'c' * 64, 'notes': 'private-issuer-note'}}
         raw = json.dumps(qa).encode()
         proof, record = publish.public_acceptance_records(raw, signing)
         self.assertEqual(proof.name, 'qa-proof.json')
@@ -157,7 +159,8 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertEqual(parsed['originalSha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual(parsed['candidate'], qa['candidate'])
         self.assertEqual(parsed['checks'], qa['checks'])
-        for secret in (qa['approver'], qa['environment'], qa['notes'], 'private-qa-name.json'):
+        for secret in (qa['approver'], qa['environment'], qa['notes'], 'private-qa-name.json',
+                       'private-issuer-note'):
             self.assertNotIn(secret.encode(), proof.data + record.data)
         self.assertEqual(json.loads(record.data)['qa'], {
             'originalSha256': 'a' * 64, 'approvedAt': qa['approvedAt'],
