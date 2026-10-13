@@ -58,6 +58,8 @@ git -C tdesktop submodule update --init --recursive
 
 PR 编译使用显式 `-TestIdentity`，绝不能发行该产物。产品身份只在受保护候选构建中开放。所有可能含 API 配置的编译目录、缓存和日志均为私有；CI 不上传它们。
 
+Windows 本机构建宜使用较短的工作区与构建目录路径。`git core.longpaths=true` 只解决 Git 文件操作，不能保证 MSVC 可写入超过 260 字符的对象路径。若出现 `C1083`、编译器生成文件名为空及 `Invalid argument`，先核对实际 `/Fo` 输出路径；本机已用同一编译命令仅缩短 `/Fo` 输出的对照确认过这一原因。`CMAKE_OBJECT_PATH_MAX` 无法缩短固定的目标目录层级，不能单凭设置它判定问题解决。已有构建应先核对 `CMAKE_HOME_DIRECTORY`、对象与链接记录及程序哈希，避免混淆不同构建目录；不要删除原构建、运行目录或账户数据来尝试修复。短路径目录链接只作本机临时诊断，须核对目标且不进入公开仓库；这类本机结果不替代云端候选验收。
+
 Windows Release 配方固定 `releaseDebugInformation=None`，客户端编译显式设置空的 `CMAKE_MSVC_DEBUG_INFORMATION_FORMAT`，避免上游默认 Embedded 的调试信息及 PDB 链接开销。构建清单记录该策略；不改变 MSVC、SDK、Qt 或 Release 优化。`tools/test-release-debug-policy.ps1` 用同一份上游 CMake 规则实际编译、链接和运行 Embedded/None 对照；它验证参数传播，不能替代完整客户端云端构建。云端运行 37821646662 的 x64 链接失败时系统峰值提交内存约 34.7 GiB，与失败后提交上限接近；系统峰值是开机以来的峰值，并非链接进程独立峰值；新策略的实际资源效果须由新运行测量确认。
 
 更新系统的生产验签、Packer往返与Windows事务测试见[更新开发验证](UPDATE-TESTING.md)；完整密钥维护见[密钥指南](KEY-MANAGEMENT.md)，FishGram应用身份配置见[应用身份](APPLICATION-IDENTITY.md)。局部测试不替代正式安装和账户恢复验收。
