@@ -8,6 +8,7 @@ be tested without contacting GitHub.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 from dataclasses import dataclass
 import hashlib
 import json
@@ -154,6 +155,15 @@ class PageFile:
 def public_acceptance_records(qa_bytes: bytes, signing: dict) -> tuple[Asset, Asset]:
     """Project already-verified private records onto an explicit public schema."""
     qa = json.loads(qa_bytes)
+    for value in (qa.get('approvedAt'), signing.get('signedAt'), signing.get('qa', {}).get('approvedAt')):
+        if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', value):
+            raise PublishError('Public acceptance timestamps must be exact UTC strings.')
+        try:
+            dt.datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ')
+        except ValueError as error:
+            raise PublishError('Public acceptance timestamp is invalid.') from error
+    if signing['qa']['approvedAt'] != qa['approvedAt']:
+        raise PublishError('Signing approval time differs from verified QA.')
     proof_value = {
         'schema': 1, 'kind': 'fishgram-public-qa-proof',
         'originalSha256': hashlib.sha256(qa_bytes).hexdigest(),
@@ -466,8 +476,7 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
         if hashlib.sha256(public_bytes).hexdigest() != asset.sha256:
             raise PublishError("Public release asset SHA256 mismatch: " + asset.name)
     try:
-        if any(read_public_page(api, item.path) != item.data for item in plan.page_files):
-            api.put_pages_atomic({item.path: item.data for item in plan.page_files})
+        api.put_pages_atomic({item.path: item.data for item in plan.page_files})
         for item in plan.page_files:
             wait_public_page(api, item.path, item.data)
     except Exception as error:
@@ -533,7 +542,7 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
     except gate.GateError as error:
         raise PublishError("Publisher review pins rejected the protected-main checkout.") from error
     signing = _load_json(signing_record_path, "Signing record")
-    _load_json(qa_path, "QA approval")
+    qa = _load_json(qa_path, "QA approval")
     signing_qa = signing.get("qa")
     signing_issuer = signing.get("issuer")
     signed_entry = signing.get("package")
@@ -548,6 +557,7 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
             or not isinstance(signing_qa, dict)
             or signing_qa.get("file") != qa_path.name
             or signing_qa.get("sha256") != gate.sha256_file(qa_path)
+            or signing_qa.get("approvedAt") != qa.get("approvedAt")
             or not isinstance(signing_issuer, dict)
             or signing_issuer.get("id") != issuer_id
             or signing_issuer.get("alg") != "Ed25519"

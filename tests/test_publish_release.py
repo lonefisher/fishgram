@@ -140,6 +140,31 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_matching_public_trust_still_requires_authoritative_validation(self):
+        api = FakeApi()
+        candidate = plan()
+        api.pages = {item.path: item.data for item in candidate.page_files}
+        api.put_pages_atomic = mock.Mock(side_effect=RuntimeError('authoritative newer trust'))
+        with self.assertRaisesRegex(publish.PublishError, 'atomic promotion'):
+            publish_plan(api, candidate)
+        api.put_pages_atomic.assert_called_once()
+        self.assertNotIn('stable.json', api.pages)
+
+    def test_public_proof_rejects_nested_or_invalid_time_fields(self):
+        qa = {'approvedAt': '2026-10-13T00:00:00Z', 'candidate': {}, 'checks': {}}
+        for field, value in (('signedAt', {'notes': 'private-time-marker'}),
+                             ('approvedAt', {'notes': 'private-time-marker'}),
+                             ('signedAt', '2026-99-99T00:00:00Z'),
+                             ('approvedAt', '2026-10-12T00:00:00Z')):
+            signing = {'qa': {'sha256': 'a' * 64, 'approvedAt': qa['approvedAt']},
+                       'signedAt': '2026-10-13T01:00:00Z'}
+            if field == 'signedAt':
+                signing[field] = value
+            else:
+                signing['qa'][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(publish.PublishError):
+                publish.public_acceptance_records(json.dumps(qa).encode(), signing)
+
     def test_public_qa_proof_and_signing_record_omit_identity_and_raw_notes(self):
         qa = {'schema': 1, 'kind': 'fishgram-candidate-qa', 'approver': 'private-identity',
               'approvedAt': '2026-10-13T00:00:00Z', 'environment': 'private-machine-description',
@@ -150,7 +175,8 @@ class PublishReleaseTests(unittest.TestCase):
                           'approver': qa['approver'], 'approvedAt': qa['approvedAt']},
                    'package': {'name': 'update', 'sha256': 'b' * 64},
                    'issuer': {'id': 'issuer-a', 'alg': 'Ed25519',
-                              'publicKeySha256': 'c' * 64, 'notes': 'private-issuer-note'}}
+                              'publicKeySha256': 'c' * 64, 'notes': 'private-issuer-note'},
+                   'signedAt': '2026-10-13T01:00:00Z'}
         raw = json.dumps(qa).encode()
         proof, record = publish.public_acceptance_records(raw, signing)
         self.assertEqual(proof.name, 'qa-proof.json')
@@ -314,9 +340,9 @@ class PublishReleaseTests(unittest.TestCase):
             return original_get(path)
         api.get_page = get_page
         ticks = [0]
-        original_read = publish.read_public_page
-        with mock.patch.object(publish, "read_public_page", side_effect=lambda api, path:
-                original_read(api, path, clock=lambda: ticks[0],
+        original_read = publish.wait_public_page
+        with mock.patch.object(publish, "wait_public_page", side_effect=lambda api, path, expected:
+                original_read(api, path, expected, clock=lambda: ticks[0],
                               sleep=lambda value: ticks.__setitem__(0, ticks[0] + value))):
             publish_plan(api)
         self.assertEqual(api.pages["stable.json"], plan().index_bytes)
@@ -444,11 +470,11 @@ class PublishReleaseTests(unittest.TestCase):
             publish_plan(api)
         self.assertFalse(any(event[0] in ('source_tag', 'create_release', 'upload', 'page') for event in api.events))
 
-    def test_unchanged_trust_bundle_skips_commit_and_promotes_only_index(self):
+    def test_unchanged_public_trust_still_checks_authoritative_transport(self):
         api = FakeApi()
         api.pages = {item.path: item.data for item in plan().page_files}
         publish_plan(api)
-        self.assertFalse(any(event[0] == 'atomic_pages' for event in api.events))
+        self.assertEqual(sum(event[0] == 'atomic_pages' for event in api.events), 1)
         self.assertEqual([event for event in api.events if event[0] == 'page'], [('page', 'stable.json')])
 
 
