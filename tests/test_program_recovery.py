@@ -140,6 +140,43 @@ class ProgramRecoveryTests(unittest.TestCase):
         self.assertEqual(self.exe.read_bytes(), b"current")
         self.assertEqual(self.dll.read_bytes(), b"current-dll")
 
+    def test_empty_initialization_without_journal_can_retry(self):
+        for with_original in (False, True):
+            pending = self.meta / "manual" / "pending"
+            pending.mkdir(parents=True)
+            if with_original:
+                (pending / "original").mkdir()
+            program_recovery._recover_pending(self.install, pending.parent)
+            self.assertFalse(pending.exists())
+            self.assertEqual(self.exe.read_bytes(), b"current")
+            self.assertEqual(self.dll.read_bytes(), b"current-dll")
+
+    def test_nonempty_initialization_without_journal_preserves_unknown_files(self):
+        pending = self.meta / "manual" / "pending"
+        original = pending / "original"
+        original.mkdir(parents=True)
+        saved = original / "Telegram.exe"
+        saved.write_bytes(b"unclassified")
+        with self.assertRaises(RecoveryError):
+            program_recovery._recover_pending(self.install, pending.parent)
+        self.assertEqual(saved.read_bytes(), b"unclassified")
+
+    def test_original_directory_creation_failure_cleans_empty_pending_and_allows_retry(self):
+        original_mkdir = Path.mkdir
+        def fail_original(path, *args, **kwargs):
+            if path == self.meta / "manual" / "pending" / "original":
+                raise OSError("fixture initialization failure")
+            return original_mkdir(path, *args, **kwargs)
+        with patch.object(Path, "mkdir", fail_original):
+            with self.assertRaises(RecoveryError):
+                restore_backup(self.install, self.backup.name,
+                    confirm_program_restore=self.backup.name, process_running=False)
+        self.assertFalse((self.meta / "manual" / "pending").exists())
+        self.assertEqual(self.exe.read_bytes(), b"current")
+        restore_backup(self.install, self.backup.name,
+                       confirm_program_restore=self.backup.name, process_running=False)
+        self.assertEqual(self.exe.read_bytes(), b"previous")
+
     def test_failed_restore_with_case_changed_dll_preserves_original_file(self):
         renamed = self.install / "Core.dll"
         self.dll.rename(renamed)

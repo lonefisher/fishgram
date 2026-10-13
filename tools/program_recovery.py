@@ -587,6 +587,17 @@ def _recover_pending(install: Path, manual: Path):
     journal = pending / "transaction.json"
     if not pending.exists(): return
     _validate_tree(pending, directory=True)
+    if not journal.exists() and not _is_reparse(journal):
+        children = list(pending.iterdir())
+        if not children:
+            pending.rmdir()
+            return
+        if len(children) == 1 and children[0].name == "original":
+            _validate_tree(children[0], directory=True)
+            if not any(children[0].iterdir()):
+                children[0].rmdir()
+                pending.rmdir()
+                return
     if not journal.is_file() or _is_reparse(journal): raise RecoveryError("持久事务缺失或不可信；停止以保留现场")
     _validate_tree(journal, directory=False)
     if journal.stat().st_size > MAX_JOURNAL: raise RecoveryError("持久事务日志过大")
@@ -659,8 +670,8 @@ def restore_backup(install_dir, backup_id, *, confirm_program_restore=None,
                 raise RecoveryError(f"保存当前程序到 latestmanualbackup 失败：{exc}") from exc
             pending = manual / "pending"
             pending.mkdir()
-            originals = pending / "original"; originals.mkdir()
             try:
+                originals = pending / "original"; originals.mkdir()
                 target_files = record.files
                 _write_json(pending / "transaction.json", {"backup_id": backup_id,
                     "files": files, "target_files": target_files, "phase": "preparing"})
