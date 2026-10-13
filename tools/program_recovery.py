@@ -51,6 +51,7 @@ def _is_reparse(path: Path) -> bool:
 def _trusted_acl(path: Path, *, all_allowed=False):
     """Mirror production HasTrustedPermissions; uncertainty is a hard failure."""
     _windows_only()
+    is_directory = path.is_dir()
     advapi = ctypes.WinDLL("advapi32", use_last_error=True)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     advapi.GetTokenInformation.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]
@@ -112,7 +113,8 @@ def _trusted_acl(path: Path, *, all_allowed=False):
                 raise RecoveryError(f"无法读取 ACL ACE：{path}")
             raw = ctypes.string_at(ace, 8)
             ace_type, flags, _size, mask = struct.unpack_from("<BBHI", raw)
-            if flags & 0x08:  # INHERIT_ONLY_ACE
+            if flags & 0x08 and not (is_directory and flags & 0x03):
+                # Child-only ACEs still affect files/directories created here.
                 continue
             if ace_type == 1:  # ACCESS_DENIED_ACE_TYPE: same treatment as production
                 continue

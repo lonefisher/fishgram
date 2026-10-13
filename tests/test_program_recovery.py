@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 import sys
 import struct
+import os
+import subprocess
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -225,6 +227,29 @@ class ProgramRecoveryTests(unittest.TestCase):
         (self.backup / "tdata" / "key_data").write_bytes(b"secret")
         with self.assertRaises(RecoveryError):
             list_backups(self.install)
+
+
+class ProgramRecoveryAclTests(unittest.TestCase):
+    def test_child_only_untrusted_write_is_rejected_but_read_is_allowed(self):
+        with tempfile.TemporaryDirectory(prefix="fishgram-acl-fixture-") as temp:
+            for mask, rejected in (("GW", True), ("GR", False)):
+                directory = Path(temp) / mask
+                directory.mkdir()
+                command = """
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$acl=[Security.AccessControl.DirectorySecurity]::new()
+$acl.SetSecurityDescriptorSddlForm("O:${sid}G:SYD:P(A;OICI;FA;;;${sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OIIO;$env:FISHGRAM_FIXTURE_MASK;;;WD)")
+Set-Acl -LiteralPath $env:FISHGRAM_FIXTURE_DIRECTORY -AclObject $acl -ErrorAction Stop
+"""
+                subprocess.run(["pwsh", "-NoProfile", "-Command", command],
+                    env={**os.environ, "FISHGRAM_FIXTURE_MASK": mask,
+                         "FISHGRAM_FIXTURE_DIRECTORY": str(directory)},
+                    capture_output=True, check=True)
+                if rejected:
+                    with self.assertRaisesRegex(RecoveryError, "ACL"):
+                        program_recovery._trusted_acl(directory)
+                else:
+                    program_recovery._trusted_acl(directory)
 
 
 def make_journal(backup_id, previous=("Telegram.exe", "core.dll")):
