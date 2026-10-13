@@ -6,6 +6,10 @@
 
 生产顺序为：核对两仓标签目标及 release 状态；读取并核对 Pages 配置；创建尚不存在的源码仓版本 tag；创建父仓 draft release；逐件上传所有附件并核对 API 返回的名称、大小和 uploaded 状态；发布 draft；从公开 release URL 逐件下载并校验 SHA256；经 Git blobs/tree/commit API 将 `keys/` 中四个 trust 文件放入同一提交，以非强制更新推进 Pages 分支，随后从公开 Pages URL 逐件读回并校验 SHA256；最后更新 `stable.json` 或 `beta.json`，再从公开 Pages URL 读回并校验索引哈希。任何失败均中止后续步骤，不回滚或覆盖已公开对象。错误标签目标、普通发布下已存在的 release、旧/相同完整十进制 update version、Pages 缺失或 Pages 配置不符合 FishGram URL 都会拒绝。
 
+信任授权以 Pages 源分支的固定父提交为准，每次推广都检查完整的四文件 bundle；公开 CDN 字节相同也不能跳过该检查。权威 bundle 完全相同则不创建新提交；不同内容必须保持根 PEM 不变且 `manifest_version` 严格递增，权威文件不完整时停止。Git ref 非强制更新拒绝并发分支推进。索引也从权威分支读回完整版本，写入前按同一 Contents 读取重新比较并使用 SHA 条件更新；公开 CDN 仅用于部署后哈希读回，不决定是否允许版本回退。
+
+公开证明中的 QA 批准时间必须与已验证 QA 一致，批准时间及签名时间只接受实际有效的 UTC 字符串。对象或其他嵌套值不会被透传到公开附件；这些时间记录不替代人工环境审批或候选哈希绑定。
+
 若源码标签创建成功后 GitHub API 暂时失败，且产品 release 尚未创建，可用相同候选续跑。已有源码标签必须解析到该候选 `sourceCommit`；已有父仓标签也必须解析到候选 `parentCommit`。发布器保留这些精确标签，继续创建缺少的对象，不删除或覆盖标签。已有 release 的续跑不属于此路径，仍须人工核实；稳定索引推广使用受约束的 `reuse_release` 流程。
 
 索引顶层 `channel` 表示 index channel；entry `channel` 表示签名 package channel，省略时生产 `ParseFeed` 默认到索引渠道。beta index 可推广新的 stable 签名候选；stable index 不接受 beta 包。更新 URL 使用生产约束 `https://github.com/lonefisher/fishgram/releases/download/<tag>/fishgram-update-win-x64-<base>-r<revision>[-beta]`。版本和大小保留十进制字符串。
