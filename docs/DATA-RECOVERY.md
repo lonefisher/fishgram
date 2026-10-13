@@ -8,7 +8,7 @@
 
 快照、恢复和中断恢复会在安装目录的 `client-session.lock` 上取得与生产客户端/Updater 相同的独占 lease，并一直持有到操作结束。gate-aware 客户端使用共享 lease，因此会阻止快照或数据替换与客户端会话并行；进程检查仍保留，用于发现未接入 gate 的旧客户端。lease 不可用、ACL 不可信或锁忙时工具停止。
 
-明确指定包含 `tdata` 的工作目录，不能只猜 exe 旁的路径。快照目录必须与工作目录互不包含，父目录须已存在，首次使用应为空；之后只接受工具自身管理的目录。目录链接、junction、reparse point、路径穿越、缺少空间或源数据变化都会停止操作。普通 Windows 8.3 路径会规范化到实际目录。
+明确指定包含 `tdata` 的工作目录，不能只猜 exe 旁的路径。快照目录必须与工作目录互不包含，父目录须已存在。首次使用建议指定尚不存在的快照目录，让工具创建并设置私有 ACL；不要预先创建一个继承工作区权限的空目录。已有空目录只有通过私有 ACL 校验才可使用，工具不会自动改写其权限；之后只接受工具自身管理的目录。目录链接、junction、reparse point、路径穿越、缺少空间或源数据变化都会停止操作。普通 Windows 8.3 路径会规范化到实际目录。
 
 ```powershell
 python tools/data_recovery.py snapshot --work-dir D:\FishGram\FishGramData --installed-executable D:\FishGram\Telegram.exe --snapshot-root D:\FishGram-private-snapshots --version 7.2.9-r8
