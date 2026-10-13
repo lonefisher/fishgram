@@ -86,17 +86,24 @@ class KeyManagementTests(unittest.TestCase):
             keys.verify_manifest(self.initial_bytes + b" ", self.initial_sig, self.root_public)
 
     def test_exclusive_create_race_preserves_other_writer_output(self):
-        destination = self.root / "concurrent-output.bin"
-        original_open = Path.open
-        def raced_open(path, mode="r", *args, **kwargs):
-            if path == destination and mode == "xb":
-                with original_open(path, "wb") as stream:
-                    stream.write(b"other-writer")
-            return original_open(path, mode, *args, **kwargs)
-        with mock.patch.object(Path, "open", raced_open):
-            with self.assertRaises(FileExistsError):
-                keys._write_new(destination, b"requested-output")
-        self.assertEqual(destination.read_bytes(), b"other-writer")
+        for parent in (self.root, self.root / '..' / self.root.name):
+            with self.subTest(parent=parent):
+                destination = parent / "concurrent-output.bin"
+                original_open = Path.open
+                intercepted = []
+                def raced_open(path, mode="r", *args, **kwargs):
+                    if (path.name == destination.name and mode == "xb"
+                            and os.path.samefile(path.parent, destination.parent)):
+                        intercepted.append(True)
+                        with original_open(path, "wb") as stream:
+                            stream.write(b"other-writer")
+                    return original_open(path, mode, *args, **kwargs)
+                with mock.patch.object(Path, "open", raced_open):
+                    with self.assertRaises(FileExistsError):
+                        keys._write_new(destination, b"requested-output")
+                self.assertEqual(destination.read_bytes(), b"other-writer")
+                self.assertEqual(intercepted, [True])
+                destination.unlink()
 
     def test_failed_private_permissions_remove_only_our_created_output(self):
         destination = self.root / "failed-output.bin"
