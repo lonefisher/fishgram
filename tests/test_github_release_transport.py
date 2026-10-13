@@ -130,7 +130,8 @@ class Stub:
                 value = self.files.get(file_path)
                 if value is None:
                     return 404, {}, b""
-                return 200, {}, json.dumps({"sha": "blob-sha"}).encode()
+                return 200, {}, json.dumps({"sha": "blob-sha", "type": "file",
+                    "encoding": "base64", "content": base64.b64encode(value).decode()}).encode()
             if method == "PUT":
                 obj = json.loads(body)
                 self.files[file_path] = base64.b64decode(obj["content"])
@@ -139,6 +140,30 @@ class Stub:
 
 
 class GithubReleaseTransportTests(unittest.TestCase):
+    def test_index_preflight_reads_authoritative_branch_when_public_page_is_missing(self):
+        stub = Stub()
+        document = {"schema": 1, "channel": "stable", "platform": "windows-x64",
+                    "update": {"version": "30073399661297666"}}
+        stub.files["stable.json"] = json.dumps(document).encode()
+        original = stub.__call__
+        def request(method, url, headers, body, timeout):
+            if url.startswith(transport_module.PAGES_ROOT):
+                return 404, {}, b""
+            return original(method, url, headers, body, timeout)
+        api = transport_module.GitHubReleaseTransport(product_token="fixture",
+            source_token="source-fixture", request=request)
+        self.assertEqual(api.get_index("stable.json"), document)
+
+    def test_index_write_rechecks_branch_version_before_put(self):
+        stub = Stub()
+        current = {"schema": 1, "channel": "stable", "platform": "windows-x64",
+                   "update": {"version": "30073399661297666"}}
+        stub.files["stable.json"] = json.dumps(current).encode()
+        candidate = {**current, "update": {"version": "30073399661297665"}}
+        with self.assertRaisesRegex(transport_module.TransportError, "newer"):
+            self.transport(stub).put_page("stable.json", json.dumps(candidate).encode())
+        self.assertEqual(json.loads(stub.files["stable.json"]), current)
+
     def test_tag_commit_resolves_lightweight_and_annotated_tags(self):
         for annotated in (False, True):
             stub = Stub()
@@ -452,7 +477,7 @@ class RedirectBoundaryTests(unittest.TestCase):
         transport = transport_module.GitHubReleaseTransport(
             product_token='product-fixture', source_token='source-fixture',
             request=Stub())
-        transport.get_page = lambda path: b'[]'
+        transport.get_branch_page = lambda path: b'[]'
         with self.assertRaises(transport_module.TransportError):
             transport.get_index('stable.json')
 

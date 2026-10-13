@@ -248,7 +248,7 @@ class GitHubReleaseTransport:
             raise TransportError("Pages path is malformed.")
 
     def get_index(self, path: str) -> dict | None:
-        data = self.get_page(path)
+        data = self.get_branch_page(path)
         if data is None:
             return None
         try:
@@ -258,6 +258,37 @@ class GitHubReleaseTransport:
         if not isinstance(value, dict):
             raise TransportError('Current public channel index must be a JSON object.')
         return value
+
+    @staticmethod
+    def _content_bytes(body: bytes) -> bytes:
+        value = GitHubReleaseTransport._json(body, "Pages content")
+        if (value.get("type") != "file" or value.get("encoding") != "base64"
+                or not isinstance(value.get("content"), str)):
+            raise TransportError("Authoritative Pages content is not an encoded file.")
+        try:
+            return base64.b64decode(value["content"].replace("\n", ""), validate=True)
+        except (ValueError, TypeError) as error:
+            raise TransportError("Authoritative Pages content encoding is invalid.") from error
+
+    def get_branch_page(self, path: str) -> bytes | None:
+        status, _, body = self._api("GET", self._contents_path(path),
+            repository=PRODUCT_REPOSITORY, expected=(200, 404))
+        return None if status == 404 else self._content_bytes(body)
+
+    @staticmethod
+    def _index_version(data: bytes, path: str) -> int:
+        try:
+            value = json.loads(data)
+            version = value["update"]["version"]
+            if (value["schema"] != 1 or value["platform"] != "windows-x64"
+                    or value["channel"] + ".json" != path
+                    or not isinstance(version, str)
+                    or not re.fullmatch(r"[1-9][0-9]*", version)
+                    or int(version) > 0xFFFFFFFFFFFFFFFF):
+                raise ValueError()
+            return int(version)
+        except (ValueError, TypeError, KeyError) as error:
+            raise TransportError("Authoritative channel index version is invalid.") from error
 
     def _contents_path(self, path: str) -> str:
         self._safe_page_path(path)
@@ -282,6 +313,10 @@ class GitHubReleaseTransport:
             existing_sha = self._json(body, "Pages content").get("sha")
             if not isinstance(existing_sha, str) or not existing_sha:
                 raise TransportError("Pages contents API omitted the existing file SHA.")
+        if path in {"stable.json", "beta.json"}:
+            target_version = self._index_version(data, path)
+            if status == 200 and target_version <= self._index_version(self._content_bytes(body), path):
+                raise TransportError("Channel index must be strictly newer than authoritative branch content.")
         payload = {"message": "Publish verified FishGram update metadata",
                    "content": base64.b64encode(data).decode("ascii"),
                    "branch": self._pages["source"]["branch"]}
