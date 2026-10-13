@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   candidate:
-    if: vars.UPGRADE_APP_ENABLED == 'true'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && vars.UPGRADE_APP_ENABLED == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: upgrade-automation
