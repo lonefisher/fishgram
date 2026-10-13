@@ -18,6 +18,14 @@ spec.loader.exec_module(keys)
 
 
 class KeyManagementTests(unittest.TestCase):
+    def test_posix_private_directory_retains_search_permission(self):
+        for directory, mode in ((True, 0o700), (False, 0o600)):
+            target = mock.Mock()
+            target.is_dir.return_value = directory
+            with self.subTest(directory=directory), mock.patch.object(keys.os, 'name', 'posix'):
+                keys._private_mode(target)
+            target.chmod.assert_called_once_with(mode)
+
     @classmethod
     def setUpClass(cls):
         if not (os.environ.get("FISHGRAM_OPENSSL") or shutil.which("openssl")):

@@ -94,7 +94,7 @@ def _private_mode(path: Path) -> None:
         except (OSError, subprocess.SubprocessError, StopIteration) as error:
             raise KeyManagementError(f"Could not restrict permissions on {path}.") from error
     else:
-        path.chmod(0o600)
+        path.chmod(0o700 if path.is_dir() else 0o600)
 
 
 def _require_new_path(path: Path) -> Path:
