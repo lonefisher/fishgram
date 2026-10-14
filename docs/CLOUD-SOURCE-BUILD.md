@@ -35,3 +35,7 @@ Git 对象对照确认旧工具配方没有 `releaseDebugInformation=None`，配
 成功任务没有生成诊断错误附件；artifact API 读回为空。该工作流按约定不上传程序、构建目录、原始日志或 API 配置。因此，本记录不提供该次程序下载、程序 SHA256、资源空间测量或干净 Windows 11 实测结论。父仓库流程另行记录资源测量和后续检查。
 
 本记录不能替代受保护环境使用 FishGram 自有 API 和正式更新信任构建的产品候选。当前本机后续清单改动、缓存复测、真实搜索完整验收、签名安装、恢复及首发链路仍需各自证据。对应 Comet 未完成项不因本次源码编译成功而改为通过。
+
+## 2026-10-14 搜索修复源码 CI 终态
+
+REST 读回 run 38371777173 为 completed/success，head 为 7b355486ade41e14858ac3027c14a43719987a30。Production helper tests job 成功；Source test identity compile job 于 2026-10-13 08:48:15–12:37:05 UTC 成功。这是整个 job 时间，不是编译净耗时。测试身份成功不证明实际产品、搜索完整验收或发行链路完成。
