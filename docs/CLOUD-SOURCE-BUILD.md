@@ -39,3 +39,9 @@ Git 对象对照确认旧工具配方没有 `releaseDebugInformation=None`，配
 ## 2026-10-14 搜索修复源码 CI 终态
 
 REST 读回 run 38371777173 为 completed/success，head 为 7b355486ade41e14858ac3027c14a43719987a30。Production helper tests job 成功；Source test identity compile job 于 2026-10-13 08:48:15–12:37:05 UTC 成功。这是整个 job 时间，不是编译净耗时。测试身份成功不证明实际产品、搜索完整验收或发行链路完成。
+
+## 2026-10-15 固定 77cfa9e 的完整结果
+
+run 38581294626 整体 completed/success，head 为 77cfa9e7ccce95fbc04e1c7be917d67893af1d67。实际 merge checkout 1958bb632b4bf195fef7c796e1a21e368649f1b5 与 head 的 tree 均为 c7e3e747cba7eabfb0690b2953a462218b274293，完整 SHA 经提交 API 读回确认。Source test identity compile job 为 2026-10-14 14:32:23–17:42:14 UTC；包含依赖准备，不能当成编译净耗时。
+
+生产 helper 与完整 job 成功；完整日志读回复原/恢复测试 37 项、Packer 11 项及验签 60/60、63/63。该流程不上传客户端，是公共测试身份成功，不是 FishGram 自有 API 产品候选。后续首屏失败续接修复与真实 RPC/GUI/Windows 11 验收均不由本次成功证明。

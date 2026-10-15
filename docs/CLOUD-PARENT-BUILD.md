@@ -101,3 +101,11 @@ run 38300802404 已整体成功。PR head 625165775734157474bd6149feedabddc3e93d
 ## 2026-10-14 既有完整构建终态
 
 REST 读回 run 38380825820 为 completed/success，head 为 edf4d759e0a4fb89cc1cc35b50ae9d9fc1b4fe87。依赖 job 于 2026-10-13 10:04:19–10:06:14 UTC 成功；Test identity compile job 于 10:06:16–13:08:28 UTC 成功。以上是 job 时间，不能当作编译步骤净耗时或缓存命中证据。仅证明该固定输入的测试身份 CI 成功，不覆盖后续修复或产品候选。
+
+## 2026-10-15 固定 9321091 的完整无缓存结果
+
+run 38582455230 整体 completed/success。head 为 9321091a994ca3f37c86cb5545f3d017cfe9c7c7，源码固定 77cfa9e7ccce95fbc04e1c7be917d67893af1d67；实际 PR merge checkout dae375a 与 head 的 tree 均为 8f30aa4c2ecbb0510c79df457b2da6a1977d31a6。依赖 cache 明确未命中。Test identity compile job 为 2026-10-14 14:41:55–18:33:50 UTC，此为整个 job 时间，不是编译净耗时。
+
+日志实际读回恢复测试 38 项、Packer 11 项及验签 60/60、63/63 成功。数值附件显示 4 逻辑核、物理内存 17174360064 bytes；结束可用磁盘 113367715840 bytes，build-modified 17772951704 bytes。系统 peakCommit 21765869568、commitLimit 24150757376 bytes，结束链接器宿主 x64；系统峰值不能算单个编译进程峰值。
+
+该运行只有不可发行测试身份，没有产品程序下载或同候选实机结论。随后新增发行续跑、程序恢复、QA 与密钥策略审查修复仍需自己的验证，不套用本次成功。
