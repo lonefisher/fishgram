@@ -1,9 +1,12 @@
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
+import time
 from unittest import mock
 import unittest
 import zipfile
@@ -35,6 +38,75 @@ def commit_index(root):
     return git(root, 'rev-parse', 'HEAD')
 
 
+class BlobReaderLifecycleTests(unittest.TestCase):
+    def run_reader(self, *, stalled=False, body_error=False):
+        # A real direct child waits for EOF. No mocked wait/kill results and no
+        # filesystem cleanup retries: old terminate-on-exit must fail this.
+        command = [sys.executable, '-u', '-c',
+                   'import sys,time; print("ready", flush=True); '
+                   'sys.stdin.buffer.read(); ' + ('time.sleep(60)' if stalled else 'sys.exit(0)')]
+        popen = subprocess.Popen
+        children = []
+        def launch(*args, **kwargs):
+            if 'cat-file' not in args[0]:
+                return popen(*args, **kwargs)
+            child = popen(command, **kwargs)
+            children.append(child)
+            return child
+        with tempfile.TemporaryDirectory(prefix='fishgram-blob-lifecycle-') as temp:
+            root = Path(temp)
+            init(root / 'repo')
+            started = time.monotonic()
+            try:
+                with mock.patch.object(source.subprocess, 'Popen', side_effect=launch), \
+                        mock.patch.object(source, 'BLOB_EXIT_TIMEOUT', 0.2, create=True):
+                    # Resolver calls stay real; replace only the owned batch
+                    # child after resolving its native executable.
+                    with source.BlobReader(root / 'repo') as reader:
+                        self.assertEqual(reader.process.stdout.readline().strip(), b'ready')
+                        if body_error:
+                            raise ValueError('export-body-failure')
+            finally:
+                self.exit_states = [child.poll() for child in children]
+                for child in children:
+                    if child.poll() is None:
+                        child.kill()
+                        child.wait(timeout=5)
+                self.children = children
+                self.elapsed = time.monotonic() - started
+
+    def test_normal_eof_waits_for_child_success_without_termination(self):
+        self.run_reader()
+        self.assertEqual(self.children[-1].returncode, 0)
+
+    def test_exception_still_waits_for_eof_without_masking_export_error(self):
+        with self.assertRaisesRegex(ValueError, 'export-body-failure'):
+            self.run_reader(body_error=True)
+        self.assertEqual(self.children[-1].returncode, 0)
+
+    def test_stalled_child_is_reaped_with_bounded_timeout_and_reported(self):
+        with self.assertRaisesRegex(source.SourceExportError, 'timed out'):
+            self.run_reader(stalled=True)
+        self.assertIsNotNone(self.children[-1].returncode)
+        self.assertTrue(all(code is not None for code in self.exit_states))
+        self.assertNotEqual(self.children[-1].returncode, 0)
+        self.assertLess(self.elapsed, 5)
+
+    def test_stalled_child_is_reaped_without_masking_export_exception(self):
+        with self.assertRaisesRegex(ValueError, 'export-body-failure') as result:
+            self.run_reader(stalled=True, body_error=True)
+        self.assertTrue(all(code is not None for code in self.exit_states))
+        self.assertLess(self.elapsed, 5)
+        self.assertTrue(any('timed out' in note for note in result.exception.__notes__))
+
+    @unittest.skipUnless(os.name == 'nt', 'Git for Windows direct-child resolution')
+    def test_missing_native_git_is_rejected_without_falling_back_to_shim(self):
+        with tempfile.TemporaryDirectory(prefix='fishgram-direct-git-') as temp:
+            with mock.patch.object(source, 'git', return_value=str(Path(temp)).encode()):
+                with self.assertRaisesRegex(source.SourceExportError, 'direct Git'):
+                    source.BlobReader(Path(temp))
+
+
 class ExportTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='fishgram-source-export-')
@@ -59,6 +131,34 @@ class ExportTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_real_batch_git_exits_cleanly_on_success_and_export_exception(self):
+        readers = []
+        original = source.BlobReader
+        class ObservedReader(original):
+            def __init__(self, *args):
+                super().__init__(*args)
+                readers.append(self)
+        with mock.patch.object(source, 'BlobReader', ObservedReader):
+            source.export(self.root, self.output, self.parent_commit)
+        self.assertTrue(readers)
+        for reader in readers:
+            self.assertEqual(reader.process.poll(), 0)
+            self.assertTrue(reader.process.stdin.closed)
+            self.assertTrue(reader.process.stdout.closed)
+            if os.name == 'nt':
+                self.assertNotIn('shims', Path(reader.process.args[0]).parts)
+                self.assertNotEqual(Path(reader.process.args[0]).parent.name, 'cmd')
+        self.output.unlink()
+        readers.clear()
+        with mock.patch.object(source, 'BlobReader', ObservedReader), \
+                mock.patch.object(source.zipfile.ZipFile, 'writestr',
+                                  side_effect=ValueError('archive write failed')):
+            with self.assertRaisesRegex(ValueError, 'archive write failed'):
+                source.export(self.root, self.output, self.parent_commit)
+        self.assertFalse(self.output.exists())
+        self.assertTrue(readers)
+        self.assertTrue(all(reader.process.poll() == 0 for reader in readers))
 
     def test_export_binds_committed_license_supplements_and_ignores_working_copy(self):
         body = 'MIT License\n' + 'Synthetic fixed license text.\n' * 40

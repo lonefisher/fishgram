@@ -116,31 +116,68 @@ def walk_commits(root: Path, commit: str, prefix: str, entries: dict, modules: l
             raise SourceExportError('Unsupported link or source tree entry.')
 
 
+BLOB_EXIT_TIMEOUT = 5
+
+
+def _batch_git(root: Path) -> str:
+    if os.name != 'nt':
+        return 'git'
+    # Git for Windows keeps the real binary in its exec-path. PATH can name
+    # both a Scoop shim and Git's cmd launcher; killing either only reaps the
+    # wrapper. Fail closed if this installation cannot provide a direct child.
+    executable = Path(os.fsdecode(git(root, '--exec-path')).strip()) / 'git.exe'
+    if not executable.is_absolute() or not executable.is_file():
+        raise SourceExportError('The direct Git batch executable is unavailable.')
+    return str(executable)
+
+
 class BlobReader:
-	def __init__(self, root):
-		self.process = subprocess.Popen(['git', '-C', str(root), 'cat-file', '--batch'],
-			stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-	def __enter__(self):
-		return self
-	def __exit__(self, *args):
-		self.process.stdin.close()
-		self.process.stdout.close()
-		if self.process.poll() is None:
-			self.process.terminate()
-		self.process.wait()
-	def read(self, digest):
-		self.process.stdin.write((digest + '\n').encode('ascii'))
-		self.process.stdin.flush()
-		header = self.process.stdout.readline().decode('ascii').strip().split()
-		if len(header) != 3 or header[0] != digest or header[1] != 'blob' or not header[2].isdigit():
-			raise SourceExportError('A source blob could not be read.')
-		size = int(header[2])
-		if size > 2 * 1024**3:
-			raise SourceExportError('A source blob exceeds the export limit.')
-		content = self.process.stdout.read(size)
-		if len(content) != size or self.process.stdout.read(1) != b'\n':
-			raise SourceExportError('A source blob was truncated.')
-		return content
+    def __init__(self, root):
+        self.process = subprocess.Popen([_batch_git(root), '-C', str(root), 'cat-file', '--batch'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            try:
+                self.process.stdin.close()  # EOF lets cat-file exit normally.
+            except BrokenPipeError:
+                pass
+            try:
+                code = self.process.wait(timeout=BLOB_EXIT_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                # This is the directly launched cat-file process, never a shim
+                # or an arbitrary same-name Git process. It spawns no children.
+                self.process.kill()
+                try:
+                    self.process.wait(timeout=BLOB_EXIT_TIMEOUT)
+                except subprocess.TimeoutExpired as error:
+                    raise SourceExportError('Git batch process could not be reaped after timeout.') from error
+                error = SourceExportError('Git batch process timed out after stdin EOF.')
+                if exc is None:
+                    raise error
+                exc.add_note(str(error))
+                return
+            if code and exc is None:
+                raise SourceExportError('Git batch process exited unsuccessfully.')
+        finally:
+            self.process.stdout.close()
+
+    def read(self, digest):
+        self.process.stdin.write((digest + '\n').encode('ascii'))
+        self.process.stdin.flush()
+        header = self.process.stdout.readline().decode('ascii').strip().split()
+        if len(header) != 3 or header[0] != digest or header[1] != 'blob' or not header[2].isdigit():
+            raise SourceExportError('A source blob could not be read.')
+        size = int(header[2])
+        if size > 2 * 1024**3:
+            raise SourceExportError('A source blob exceeds the export limit.')
+        content = self.process.stdout.read(size)
+        if len(content) != size or self.process.stdout.read(1) != b'\n':
+            raise SourceExportError('A source blob was truncated.')
+        return content
 
 
 def export(root: Path, output: Path, parent_commit: str) -> dict:
