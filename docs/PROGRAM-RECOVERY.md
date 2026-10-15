@@ -19,6 +19,8 @@ python .\tools\program_recovery.py --install "C:\Apps\FishGram" `
 
 每次恢复先把当前所有程序 exe/DLL 完整复制到 `.fishgram-update\manual\latestmanualbackup`，并以持久事务保存原件。替换中断时会从事务原件回滚；下次运行会先处理遗留事务。自动回滚也失败时，保留事务现场并停止，不能清理该目录后重试。
 
+恢复事务开始前拒绝已有 `.restore`，不将外来暂存当成自己的文件清理。回滚会先校验原件、目标和暂存的路径类型、reparse 标志及 ACL，再恢复原程序，并清除本事务新增 DLL 及其未 rename 的 `.restore`。首次日志写入留下 `transaction.json.new` 时，只有完整 preparing JSON、空 original、合法且匹配当前安装/指定 archive 的清单及全部路径验证通过，才清除初始化残留后允许重试；损坏 JSON、非空 original、未知条目和 reparse 残留均保留并停止。
+
 生产事务的 `versions/<backupid>` 是原程序文件目录。生产代码将 `pending/backup` 改名为该目录，然后删除 `pending`，因此已发布 archive 本身没有 `journal.bin`，也没有 `oldbaseversion`。列表只能给出 backup ID 和文件名；“记录目标版本”与“前一程序版本”都显示未知，不能把新安装事务的 `journal.version` 当成旧程序版本。即使某个外部备份附带 journal，也不会用它把记录目标版本冒充前一程序版本。
 
 这个工具从不自动恢复账户数据。需要恢复 `tdata` 时，须另行明确选择数据恢复工具和快照；本工具不操作它们。程序回退也不修改签名索引或在线版本号。

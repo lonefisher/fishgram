@@ -140,6 +140,83 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_reuse_resumes_beta_index_after_pages_failure_without_release_writes(self):
+        from dataclasses import replace
+        for channel in ('beta', 'stable'):
+            with self.subTest(package_channel=channel):
+                candidate = plan(index_channel='beta', package_channel=channel)
+                api = FakeApi()
+                atomic = api.put_pages_atomic
+                api.put_pages_atomic = mock.Mock(side_effect=RuntimeError('Pages unavailable'))
+                with self.assertRaisesRegex(publish.PublishError, 'atomic promotion'):
+                    publish_plan(api, candidate)
+                self.assertIn(candidate.tag, api.releases)
+                self.assertNotIn('beta.json', api.pages)
+                api.put_pages_atomic = atomic
+                api.events.clear()
+                publish_plan(api, replace(candidate, reuse_release=True))
+                self.assertEqual(api.pages['beta.json'], candidate.index_bytes)
+                self.assertFalse(any(e[0] in {'upload', 'create_release', 'source_tag',
+                                              'publish_release'} for e in api.events))
+
+    def test_reuse_same_index_is_idempotent_but_rejects_conflict_and_downgrade(self):
+        candidate = plan(index_channel='beta', package_channel='beta', reuse_release=True)
+        for change in ('same', 'hash', 'newer', 'tag', 'asset'):
+            with self.subTest(change=change):
+                current = json.loads(candidate.index_bytes)
+                if change == 'hash':
+                    current['update']['sha256'] = 'f' * 64
+                elif change == 'newer':
+                    current['update']['version'] = '30073399661297666'
+                    current['update']['url'] = current['update']['url'].replace('-r1', '-r2')
+                api = FakeApi(index=current, tags={candidate.tag}, releases={candidate.tag})
+                api.pages[candidate.index_path] = candidate.index_bytes
+                api.source_tags.add(candidate.tag)
+                api.assets = {a.name: a.data for a in candidate.assets}
+                if change == 'tag':
+                    api.tag_commit = lambda *args: 'd' * 40
+                if change == 'asset':
+                    api.assets[candidate.assets[0].name] += b'tampered'
+                if change == 'same':
+                    publish_plan(api, candidate)
+                    self.assertFalse(any(e[0] == 'page' for e in api.events))
+                else:
+                    with self.assertRaises(publish.PublishError):
+                        publish_plan(api, candidate)
+                    self.assertFalse(any(e[0] in {'page', 'atomic_pages', 'upload'} for e in api.events))
+
+    def test_reuse_equal_branch_index_waits_for_public_deployment(self):
+        candidate = plan(reuse_release=True)
+        api = FakeApi(index=json.loads(candidate.index_bytes),
+                      tags={candidate.tag}, releases={candidate.tag})
+        api.source_tags.add(candidate.tag)
+        api.assets = {a.name: a.data for a in candidate.assets}
+        reads = []
+        def public(path):
+            if path != 'stable.json':
+                return next(p.data for p in candidate.page_files if p.path == path)
+            reads.append(path)
+            return None if len(reads) == 1 else candidate.index_bytes
+        api.get_page = public
+        wait = publish.wait_public_page
+        with mock.patch.object(publish, 'wait_public_page',
+                               side_effect=lambda a, p, b: wait(a, p, b, interval=0)):
+            publish_plan(api, candidate)
+        self.assertEqual(reads, ['stable.json', 'stable.json'])
+        self.assertFalse(any(e[0] in {'page', 'upload'} for e in api.events))
+
+    def test_reuse_equal_index_still_requires_authoritative_trust_validation(self):
+        candidate = plan(reuse_release=True)
+        api = FakeApi(index=json.loads(candidate.index_bytes),
+                      tags={candidate.tag}, releases={candidate.tag})
+        api.source_tags.add(candidate.tag)
+        api.assets = {a.name: a.data for a in candidate.assets}
+        api.pages[candidate.index_path] = candidate.index_bytes
+        api.put_pages_atomic = mock.Mock(side_effect=RuntimeError('newer authoritative trust'))
+        with self.assertRaisesRegex(publish.PublishError, 'atomic promotion'):
+            publish_plan(api, candidate)
+        self.assertFalse(any(e[0] == 'page' for e in api.events))
+
     def test_matching_public_trust_still_requires_authoritative_validation(self):
         api = FakeApi()
         candidate = plan()

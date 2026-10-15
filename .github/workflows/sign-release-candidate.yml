@@ -41,7 +41,7 @@ jobs:
           ISSUER_KEY_ID: ${{ vars.ISSUER_KEY_ID }}
         run: |
           if ($env:CANDIDATE_RUN_ID -notmatch '^\d+$') { throw 'Candidate run ID must be numeric.' }
-          if ([IO.Path]::GetFileName($env:QA_FILE) -ne $env:QA_FILE -or $env:QA_FILE.Contains('..')) { throw 'QA file must be a safe committed basename.' }
+          if ($env:QA_FILE -cnotmatch '\A[A-Za-z0-9._-]+\.json\z' -or [IO.Path]::GetFileName($env:QA_FILE) -ne $env:QA_FILE -or $env:QA_FILE.Contains('..')) { throw 'QA file must be a safe committed .json basename.' }
           if ($env:ISSUER_KEY_ID -notmatch '^[A-Za-z0-9._-]{1,64}$') { throw 'Protected release environment issuer ID is not configured.' }
           git ls-files --error-unmatch -- "release/qa/$env:QA_FILE" *> $null
           if ($LASTEXITCODE) { throw 'QA approval is not committed on protected main.' }

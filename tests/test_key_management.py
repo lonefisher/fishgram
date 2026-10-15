@@ -49,7 +49,9 @@ class KeyManagementTests(unittest.TestCase):
         self.assertGreaterEqual(self.generated_expiry, before + keys.YEAR_SECONDS)
         self.assertLessEqual(self.generated_expiry, after + keys.YEAR_SECONDS)
         self.assertIn(b"ENCRYPTED PRIVATE KEY", self.issuer_private.read_bytes()[:80])
-        timestamp = 1_800_000_000
+        # Keep the baseline issuer valid at _update's deterministic clock;
+        # expiry regressions below explicitly supply expired keys.
+        timestamp = 1_899_000_000
         raw_pub = keys._public_der(self.issuer_private, self.password)[-32:]
         self.initial = {
             "format": 1,
@@ -173,6 +175,35 @@ class KeyManagementTests(unittest.TestCase):
                             add_keys=[('issuer-b', self.issuer_public)], channel_groups=groups)
                         self.assertEqual(keys.verify_manifest(data, signature, self.root_public)
                                          ['channels']['stable'], [['issuer-a', 'issuer-b'], ['issuer-b']])
+
+    def test_expired_common_issuer_is_rejected_before_signing(self):
+        now = 1_900_000_000
+        for expiry in (now - 1, now):
+            with self.subTest(expiry=expiry):
+                self.initial['keys'][0]['expires'] = expiry
+                self.initial_bytes, self.initial_sig = self._signed(self.initial)
+                # New valid keys in separate groups cannot rescue their only
+                # common issuer when that issuer has already expired.
+                with mock.patch.object(keys, '_sign', wraps=keys._sign) as signer:
+                    with self.assertRaisesRegex(keys.KeyManagementError, 'single.*issuer'):
+                        self._update(add_keys=[('issuer-b', self.issuer_public),
+                                               ('issuer-c', self.issuer_public)],
+                                     channel_groups=['stable=issuer-a,issuer-b',
+                                                     'stable=issuer-a,issuer-c'])
+                    signer.assert_not_called()
+
+    def test_missing_issuer_expiry_uses_new_manifest_expiry_and_renewal_recovers(self):
+        del self.initial['keys'][0]['expires']
+        self.initial_bytes, self.initial_sig = self._signed(self.initial)
+        data, signature = self._update()
+        parsed = keys.verify_manifest(data, signature, self.root_public)
+        self.assertNotIn('expires', parsed['keys'][0])
+        self.assertEqual(parsed['expires'], 1_900_000_000 + keys.YEAR_SECONDS)
+        self.initial['keys'][0]['expires'] = 1_900_000_000
+        self.initial_bytes, self.initial_sig = self._signed(self.initial)
+        data, signature = self._update(renew_ids=['issuer-a'])
+        parsed = keys.verify_manifest(data, signature, self.root_public)
+        self.assertEqual(parsed['keys'][0]['expires'], parsed['expires'])
 
 
     def test_45_day_maintenance_window_and_expired_keys(self):

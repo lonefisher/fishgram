@@ -7,6 +7,33 @@ import unittest
 
 
 class PublishWorkflowPayloadTests(unittest.TestCase):
+    def test_signer_qa_input_matches_publish_history_before_secret_step(self):
+        workflow = (Path(__file__).parents[1] / '.github/workflows/sign-release-candidate.yml').read_text()
+        start = workflow.index('        run: |', workflow.index('- name: Validate input names'))
+        end = workflow.index('      - name:', start)
+        block = '\n'.join(line[10:] for line in workflow[start:end].splitlines()[1:])
+        with tempfile.TemporaryDirectory(prefix='fishgram-signing-input-') as temp:
+            root = Path(temp)
+            subprocess.run(['git', 'init', temp], capture_output=True, check=True)
+            qa = root / 'release/qa'
+            qa.mkdir(parents=True)
+            names = ('approved-1_2.json', 'approved', 'approved.txt', 'approved.JSON',
+                     'approved.json.bak', 'approved*.json', '../approved.json', 'approved.json\n')
+            for name in names[:5]:
+                (qa / name).write_text('{}')
+            subprocess.run(['git', '-C', temp, 'add', '--', 'release/qa'], check=True,
+                           capture_output=True)
+            harness = root / 'validate.ps1'
+            harness.write_text("$ErrorActionPreference='Stop'\n" + block)
+            for name in names:
+                with self.subTest(name=name):
+                    result = subprocess.run(['pwsh', '-NoProfile', '-File', str(harness)],
+                        cwd=root, capture_output=True, text=True,
+                        env={**os.environ, 'QA_FILE': name, 'CANDIDATE_RUN_ID': '123',
+                             'ISSUER_KEY_ID': 'fixture-issuer'})
+                    self.assertEqual(result.returncode == 0, name == 'approved-1_2.json',
+                                     result.stderr)
+
     def run_selection(self, name, *, exists=True):
         workflow = (Path(__file__).parents[1] / '.github/workflows/publish-release.yml').read_text()
         start = workflow.index("          $packageDir =")

@@ -391,8 +391,6 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
     source_tag_exists = api.source_tag_exists(plan.tag)
     release_exists = api.release_exists(plan.tag)
     if plan.reuse_release:
-        if plan.index_channel != "stable" or plan.package_channel != "stable":
-            raise PublishError("Existing-release promotion requires a stable package entering stable index.")
         if not tag_exists or not source_tag_exists or not release_exists:
             raise PublishError("Index-only promotion requires both immutable repository tags and the release.")
     elif release_exists:
@@ -407,8 +405,11 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
         raise PublishError("Existing repository tag already exists but its candidate target could not be verified.") from error
     if mismatched_tag:
         raise PublishError("Existing repository tags differ from the exact candidate commits.")
-    old = _parse_current_index(api.get_index(plan.index_path), plan.index_channel)
-    if int(plan.version) <= old:
+    current_index = api.get_index(plan.index_path)
+    old = _parse_current_index(current_index, plan.index_channel)
+    already_indexed = (plan.reuse_release and int(plan.version) == old
+                       and current_index == json.loads(plan.index_bytes))
+    if int(plan.version) <= old and not already_indexed:
         raise PublishError("The channel index must move to a strictly newer full update version.")
     names = [asset.name for asset in plan.assets]
     paths = [item.path for item in plan.page_files]
@@ -481,6 +482,15 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
             wait_public_page(api, item.path, item.data)
     except Exception as error:
         raise PublishError("Pages trust-bundle atomic promotion or read-back failed.") from error
+    # A previous index write may have succeeded before its read-back failed.
+    # Revalidate authoritative trust and public bytes, but never rewrite an
+    # equal index or weaken any of the immutable release checks above.
+    if already_indexed:
+        try:
+            wait_public_page(api, plan.index_path, plan.index_bytes)
+        except Exception as error:
+            raise PublishError('Existing channel index public read-back failed.') from error
+        return
     try:
         api.put_page(plan.index_path, plan.index_bytes)
     except Exception as error:
@@ -584,8 +594,6 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
     index_channel = index_channel or manifest["channel"]
     if index_channel not in {"stable", "beta"}:
         raise PublishError("Only stable and beta index channels are supported.")
-    if reuse_release and (index_channel != "stable" or manifest["channel"] != "stable"):
-        raise PublishError("Existing-release index promotion is only valid for a stable package entering stable index.")
     if index_channel != manifest["channel"]:
         if not supports_split_channel_feed(root):
             raise PublishError("Beta index promotion of a stable package is held until production ParseFeed supports split channels.")
@@ -686,7 +694,7 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--index-channel", choices=("stable", "beta"),
                          help="Defaults to the signed package channel; beta can index a stable package.")
     prepare.add_argument("--reuse-release", action="store_true",
-                         help="Verify an existing immutable stable release and promote only its stable index entry.")
+                         help="Verify an exact immutable release and resume its authorized channel index promotion.")
     prepare.add_argument("--candidate-record", required=True, type=Path)
     prepare.add_argument("--qa", required=True, type=Path)
     prepare.add_argument("--signing-record", required=True, type=Path)

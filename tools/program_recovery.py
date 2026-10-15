@@ -600,25 +600,64 @@ def _recover_pending(install: Path, manual: Path):
                 children[0].rmdir()
                 pending.rmdir()
                 return
+        # The first durable JSON write may have completed before its rename.
+        # Recognize only the exact initialization state; do not discard an
+        # arbitrary .new file or any nonempty/unknown original inventory.
+        if {child.name for child in children} == {'original', 'transaction.json.new'}:
+            originals = pending / 'original'
+            staged_journal = pending / 'transaction.json.new'
+            _validate_tree(originals, directory=True)
+            _validate_tree(staged_journal, directory=False)
+            if not staged_journal.is_file() or staged_journal.stat().st_size > MAX_JOURNAL:
+                raise RecoveryError('初始化事务日志无效；保留现场')
+            state = json.loads(staged_journal.read_text(encoding='utf-8'))
+            _validate_transaction(state)
+            if state['phase'] != 'preparing' or any(originals.iterdir()):
+                raise RecoveryError('初始化事务状态不明确；保留现场')
+            record = next((item for item in _archive(install)[3]
+                           if item.backup_id == state['backup_id']), None)
+            current = {p.name.lower() for p in install.iterdir()
+                       if _safe_program_name(p.name)}
+            if (record is None or current != {n.lower() for n in state['files']}
+                    or {n.lower() for n in record.files} != {n.lower() for n in state['target_files']}):
+                raise RecoveryError('初始化事务清单不匹配；保留现场')
+            for name in state['files']:
+                _validate_tree(install / name, directory=False)
+            staged_journal.unlink()
+            originals.rmdir()
+            pending.rmdir()
+            return
     if not journal.is_file() or _is_reparse(journal): raise RecoveryError("持久事务缺失或不可信；停止以保留现场")
     _validate_tree(journal, directory=False)
     if journal.stat().st_size > MAX_JOURNAL: raise RecoveryError("持久事务日志过大")
     state = json.loads(journal.read_text(encoding="utf-8"))
+    _validate_transaction(state)
+    originals = pending / 'original'
+    _validate_tree(originals, directory=True)
+    allowed = {'original', 'transaction.json', 'transaction.json.new'}
+    for child in pending.iterdir():
+        if child.name not in allowed:
+            raise RecoveryError('持久事务含未知条目；保留现场')
+        _validate_tree(child, directory=child.name == 'original')
+    for saved in originals.iterdir():
+        if saved.name.lower() not in {name.lower() for name in state['files']}:
+            raise RecoveryError('持久事务含未声明原件；保留现场')
+        _validate_tree(saved, directory=False)
     if state.get("phase") == "preparing":
         shutil.rmtree(pending)
         return
     if state.get("phase") != "applying": raise RecoveryError("持久事务阶段未知；保留现场")
-    originals = pending / "original"
-    _validate_tree(originals, directory=True)
-    if not isinstance(state.get("files"), list) or not isinstance(state.get("target_files"), list):
-        raise RecoveryError("持久事务文件清单无效")
-    if any(not isinstance(name, str) or not _safe_program_name(name)
-           for name in state["files"] + state["target_files"]):
-        raise RecoveryError("持久事务含非法程序路径")
     for name in state["files"]:
-        if not _safe_program_name(name): raise RecoveryError("事务含非法路径")
         saved = originals / name
         if not saved.is_file() or _is_reparse(saved): raise RecoveryError("事务原件缺失；停止")
+        _validate_tree(saved, directory=False)
+    # Validate every path before rollback writes or deletes anything. In
+    # particular, a newly added DLL can still have an unrenamed .restore.
+    for name in set(state['files'] + state['target_files']):
+        for path in (install / name, install / (name + '.restore')):
+            if path.exists() or _is_reparse(path):
+                _validate_tree(path, directory=False)
+                if not path.is_file(): raise RecoveryError('恢复目标不是普通文件')
     for name in state["files"]:
         restore = install / (name + ".restore")
         if restore.exists(): restore.unlink()
@@ -629,7 +668,25 @@ def _recover_pending(install: Path, manual: Path):
         if name.lower() not in original_names:
             added = install / name
             if added.exists(): added.unlink()
+            staged = install / (name + '.restore')
+            if staged.exists(): staged.unlink()
     shutil.rmtree(pending)
+
+
+def _validate_transaction(state):
+    if (not isinstance(state, dict)
+            or set(state) != {'backup_id', 'files', 'target_files', 'phase'}
+            or not isinstance(state['backup_id'], str)
+            or not BACKUP_ID.fullmatch(state['backup_id'])
+            or state['phase'] not in ('preparing', 'applying')):
+        raise RecoveryError('持久事务字段无效；保留现场')
+    for field in ('files', 'target_files'):
+        names = state[field]
+        if (not isinstance(names, list) or not 1 <= len(names) <= 4096
+                or any(not isinstance(n, str) or not _safe_program_name(n) for n in names)
+                or len({n.lower() for n in names}) != len(names)
+                or 'telegram.exe' not in {n.lower() for n in names}):
+            raise RecoveryError('持久事务文件清单无效；保留现场')
 
 
 def restore_backup(install_dir, backup_id, *, confirm_program_restore=None,
@@ -659,6 +716,10 @@ def restore_backup(install_dir, backup_id, *, confirm_program_restore=None,
             if running: raise RecoveryError("目标安装目录中的 Telegram.exe 仍在运行")
             files = tuple(sorted((p.name for p in install.iterdir() if p.is_file() and _safe_program_name(p.name)), key=str.lower))
             if not any(name.lower() == "telegram.exe" for name in files): raise RecoveryError("安装目录缺少 Telegram.exe")
+            for name in set(files + record.files):
+                staged = install / (name + '.restore')
+                if staged.exists() or _is_reparse(staged):
+                    raise RecoveryError(f'拒绝覆盖已有恢复暂存路径：{staged}')
             for name in files:
                 _validate_tree(install / name, directory=False)
                 if install.joinpath(name).stat().st_file_attributes & 0x1:

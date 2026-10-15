@@ -67,7 +67,7 @@ python tools/key_management.py update-manifest `
 
 清单兼容 `tdesktop/Telegram/SourceFiles/core/update_verify.h/.cpp` 的 `Core::Updates::ParseVerifiedManifest`：顶层字段 `format=1`、uint32 `manifest_version`、秒级整数 `issued`/`expires`、`keys`、`channels`、`revoked`；Ed25519 公钥字段是 `alg="Ed25519"` 和 32 字节 `x` 的无填充 Base64URL。渠道组遵循 AND-of-ORs 规则。根签名覆盖清单确切字节。该客户端解析器最多允许 256 KiB、64 keys、16 channels、每渠道 8 groups、每组 16 IDs 和 64 revoked IDs。正式操作仍须由发行集成和客户端验收核对。
 
-当前受保护发行流程每个包使用一个 Ed25519 发行密钥。因此维护工具在根签名前要求每个保留渠道的所有组具有至少一个共同、未吊销的 Ed25519 密钥；互不相交的多签名组会被拒绝。多个 OR 选项及具有共同密钥的多个组仍可使用，签名时还会检查所选密钥的有效期。不能通过签发不可满足的策略来启用多签名；扩展发行签名流程后才可放开此限制。客户端仍按完整 AND-of-ORs 规则验签。
+当前受保护发行流程每个包使用一个 Ed25519 发行密钥。因此维护工具在根签名前要求每个保留渠道的所有组具有至少一个共同、未吊销且未过期的 Ed25519 密钥；互不相交的多签名组会被拒绝。密钥 `expires` 缺省时使用新清单的 `expires`，到期时间等于当前时间也视为过期。可在同一次维护中显式续期或配置有效的新共同 issuer。多个 OR 选项及具有共同密钥的多个组仍可使用，签名时还会检查所选密钥的有效期。不能通过签发不可满足的策略来启用多签名；扩展发行签名流程后才可放开此限制。客户端仍按完整 AND-of-ORs 规则验签。
 
 ## 45 天到期检查
 

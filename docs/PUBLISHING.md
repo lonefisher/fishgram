@@ -10,7 +10,7 @@
 
 公开证明中的 QA 批准时间必须与已验证 QA 一致，批准时间及签名时间只接受实际有效的 UTC 字符串。对象或其他嵌套值不会被透传到公开附件；这些时间记录不替代人工环境审批或候选哈希绑定。
 
-若源码标签创建成功后 GitHub API 暂时失败，且产品 release 尚未创建，可用相同候选续跑。已有源码标签必须解析到该候选 `sourceCommit`；已有父仓标签也必须解析到候选 `parentCommit`。发布器保留这些精确标签，继续创建缺少的对象，不删除或覆盖标签。已有 release 的续跑不属于此路径，仍须人工核实；稳定索引推广使用受约束的 `reuse_release` 流程。
+若源码标签创建成功后 GitHub API 暂时失败，且产品 release 尚未创建，可用相同候选续跑。已有源码标签必须解析到该候选 `sourceCommit`；已有父仓标签也必须解析到候选 `parentCommit`。发布器保留这些精确标签，继续创建缺少的对象，不删除或覆盖标签。已有 release 须显式选择 `reuse_release`，按下述完整附件和候选校验续跑。
 
 索引顶层 `channel` 表示 index channel；entry `channel` 表示签名 package channel，省略时生产 `ParseFeed` 默认到索引渠道。beta index 可推广新的 stable 签名候选；stable index 不接受 beta 包。更新 URL 使用生产约束 `https://github.com/lonefisher/fishgram/releases/download/<tag>/fishgram-update-win-x64-<base>-r<revision>[-beta]`。版本和大小保留十进制字符串。
 
@@ -26,15 +26,17 @@
 
 可提交的 QA 使用 schema 2，固定字段只有 `schema`、`kind`、`approvedAt`、`candidate` 和 `checks`；不接受 approver、environment、notes 或其他自由文本字段，旧 schema 1 在签名前拒绝。人工身份及批准由受审查提交、受保护 release 环境和 GitHub 审批记录证明，匿名 JSON 本身不是身份认证。候选哈希绑定及所有必需检查仍必须通过；完整实测环境、原始 QA 备注、日志和截图留在本机私有区，不能提交到公开 Git。匿名 QA 与 Release proof 都仍须提交前内容审查。
 
-上传中断可能留下 tag、draft/已发布 release 或部分附件；不自动删除/重试覆盖，需人工检查并用新版本继续。索引始终是最后的公开推广点。
+上传中断可能留下 tag、draft 或部分附件；不自动删除、追加或覆盖，需人工检查。release 已发布且附件完整，仅 Pages 推广失败时，可显式复用同一候选续跑；缺失或不匹配的附件不能通过此路径修补。索引始终是最后的公开推广点。
 
 ## 定向验证与外部限制
 
 签名提交可晚于候选提交：发布器验证 candidate → signer → 当前受保护 main 的祖先关系，以及 signer 和当前 main 中 QA 文件的 Git blob 一致。签名 run 的来源仍要求 main、人工触发、成功 job 与唯一候选 artifact；候选本身继续绑定原构建提交。
 
-产品发行标签固定到候选记录的 `parentCommit`，不指向后续 QA 或发布审核提交；后者单独保存在 promotion 的 `repositoryInputs` 中 `lonefisher/fishgram` 项的 `reviewedCommit`。stable 与 beta 共用一个发布并发组，串行写入共享 Pages 信任文件。受保护 workflow 的 `reuse_release` 默认关闭，只有显式开启时传递复用选项；仅支持既有稳定包进入 stable 索引，并仍校验已有标签、附件及哈希，不覆盖附件。
+产品发行标签固定到候选记录的 `parentCommit`，不指向后续 QA 或发布审核提交；后者单独保存在 promotion 的 `repositoryInputs` 中 `lonefisher/fishgram` 项的 `reviewedCommit`。stable 与 beta 共用一个发布并发组，串行写入共享 Pages 信任文件。受保护 workflow 的 `reuse_release` 默认关闭，只有显式开启时传递复用选项；支持 beta 包进入 beta 索引、stable 包先进入 beta 索引及随后进入 stable 索引。每次均核对两仓标签、完整附件集合及逐件公开下载 SHA256，候选 record 也必须一致，不创建或覆盖 release、标签和附件；stable 索引仍拒绝 beta 包。
 
-Pages 每次写入后按公开字节进行有界轮询，轮询预算为 180 秒，每 5 秒读回一次，单次 HTTP 请求还受 transport 的 30 秒超时约束；旧内容、404 和临时 HTTP 错误均继续等待，超时明确失败，不把 Contents API 写入成功当成公开推广成功。离线 promotion 显式保存并校验布尔 `reuseRelease`，只允许稳定签名包进入稳定索引，且仍逐件核对已有不可变附件。准备成功会清理暂存副本。
+Pages 每次写入后按公开字节进行有界轮询，轮询预算为 180 秒，每 5 秒读回一次，单次 HTTP 请求还受 transport 的 30 秒超时约束；旧内容、404 和临时 HTTP 错误均继续等待，超时明确失败，不把 Contents API 写入成功当成公开推广成功。离线 promotion 显式保存并校验布尔 `reuseRelease`。源分支索引已是同版本同内容时，复用仅重新核对附件及公开索引部署，不重写索引；同版本不同内容和版本回退仍拒绝。准备成功会清理暂存副本。
+
+签名 workflow 在接触发行密钥前限制 QA 为安全、区分大小写的 `.json` basename，拒绝通配符、目录和其他扩展名，与发布器 `verify_signing_history` 的 `release/qa/<basename>.json` 输入契约一致。
 
 - `python -m unittest discover -s tests -p test_publish_release.py -v` 验证 offline manifest、split-channel、版本单调性、来源候选及门控。
 - `python -m unittest discover -s tests -p test_github_release_transport.py -v` 使用内存 HTTP stub 检查具体 REST method/host/path/body/auth、draft 上传地址、双仓权限分离、Pages 404 fail-closed、公开无 token 下载以及 attachment → keys → index 最后读回的请求顺序。测试不访问 GitHub，不签真实密钥、不公开产物。

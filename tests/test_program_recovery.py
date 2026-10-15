@@ -1,4 +1,5 @@
 import tempfile
+import json
 import unittest
 from pathlib import Path
 import sys
@@ -141,6 +142,138 @@ class ProgramRecoveryTests(unittest.TestCase):
                            confirm_program_restore=self.backup.name, copy_hook=fail_after_one)
         self.assertEqual(self.exe.read_bytes(), b"current")
         self.assertEqual(self.dll.read_bytes(), b"current-dll")
+
+    def test_new_dll_rename_failure_cleans_its_partial_stage_and_allows_retry(self):
+        (self.backup / 'new.dll').write_bytes(b'new-backup-dll')
+        move = program_recovery._move_write_through
+        def fail_new_stage(source, destination, **kwargs):
+            if source == self.install / 'new.dll.restore':
+                raise OSError('new DLL rename interrupted')
+            return move(source, destination, **kwargs)
+        with patch.object(program_recovery, '_move_write_through', fail_new_stage):
+            with self.assertRaisesRegex(RecoveryError, '已从持久事务恢复'):
+                restore_backup(self.install, self.backup.name,
+                               confirm_program_restore=self.backup.name, process_running=False)
+        self.assertEqual(self.exe.read_bytes(), b'current')
+        self.assertEqual(self.dll.read_bytes(), b'current-dll')
+        self.assertEqual(self.account.read_bytes(), b'account-secret')
+        self.assertFalse((self.install / 'new.dll.restore').exists())
+        self.assertFalse((self.install / 'new.dll').exists())
+        restore_backup(self.install, self.backup.name,
+                       confirm_program_restore=self.backup.name, process_running=False)
+        self.assertEqual((self.install / 'new.dll').read_bytes(), b'new-backup-dll')
+
+    def test_existing_target_stage_is_preserved_before_transaction_starts(self):
+        (self.backup / 'new.dll').write_bytes(b'new-backup-dll')
+        staged = self.install / 'new.dll.restore'
+        staged.write_bytes(b'unrelated-stage')
+        with self.assertRaises(RecoveryError):
+            restore_backup(self.install, self.backup.name,
+                           confirm_program_restore=self.backup.name, process_running=False)
+        self.assertEqual(staged.read_bytes(), b'unrelated-stage')
+        self.assertEqual(self.exe.read_bytes(), b'current')
+        self.assertFalse((self.meta / 'manual/pending').exists())
+
+    def test_new_dll_partial_copy_failure_cleans_only_transaction_stage(self):
+        (self.backup / 'new.dll').write_bytes(b'backup-dll')
+        unrelated = self.install / 'unrelated.dll.restore'
+        unrelated.write_bytes(b'keep-external-stage')
+        def interrupted_copy(source, destination):
+            if destination == self.install / 'new.dll.restore':
+                destination.write_bytes(b'partial')
+                raise OSError('interrupted partial copy')
+        with self.assertRaisesRegex(RecoveryError, '已从持久事务恢复'):
+            restore_backup(self.install, self.backup.name,
+                           confirm_program_restore=self.backup.name,
+                           copy_hook=interrupted_copy, process_running=False)
+        self.assertFalse((self.install / 'new.dll.restore').exists())
+        self.assertEqual(unrelated.read_bytes(), b'keep-external-stage')
+        self.assertEqual(self.exe.read_bytes(), b'current')
+        self.assertEqual(self.dll.read_bytes(), b'current-dll')
+
+    def test_first_journal_rename_failure_recovers_validated_initialization(self):
+        move = program_recovery._move_write_through
+        calls = []
+        def fail_first_journal(source, destination, **kwargs):
+            if source.name == 'transaction.json.new' and not calls:
+                calls.append(source)
+                raise OSError('first journal rename interrupted')
+            return move(source, destination, **kwargs)
+        with patch.object(program_recovery, '_move_write_through', fail_first_journal):
+            with self.assertRaisesRegex(RecoveryError, '已从持久事务恢复'):
+                restore_backup(self.install, self.backup.name,
+                               confirm_program_restore=self.backup.name, process_running=False)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse((self.meta / 'manual/pending').exists())
+        self.assertEqual(self.exe.read_bytes(), b'current')
+        restore_backup(self.install, self.backup.name,
+                       confirm_program_restore=self.backup.name, process_running=False)
+        self.assertEqual(self.exe.read_bytes(), b'previous')
+
+    def test_unknown_initial_journal_or_contents_are_preserved(self):
+        pending = self.meta / 'manual/pending'
+        original = pending / 'original'
+        original.mkdir(parents=True)
+        staged = pending / 'transaction.json.new'
+        state = {'backup_id': self.backup.name, 'phase': 'preparing',
+                 'files': ['Telegram.exe', 'core.dll'],
+                 'target_files': ['Telegram.exe', 'core.dll']}
+        for change in ('broken', 'applying', 'path', 'extra', 'nonempty',
+                       'unknown_backup', 'current_inventory', 'target_inventory'):
+            with self.subTest(change=change):
+                value = dict(state)
+                if change == 'applying': value['phase'] = 'applying'
+                if change == 'path': value['target_files'] = ['../outside.dll']
+                if change == 'unknown_backup': value['backup_id'] = 'abcd'
+                if change == 'current_inventory': value['files'] = ['Telegram.exe']
+                if change == 'target_inventory': value['target_files'] = ['Telegram.exe']
+                staged.write_text('{' if change == 'broken' else json.dumps(value))
+                extra = pending / 'unknown.bin'
+                saved = original / 'Telegram.exe'
+                if change == 'extra': extra.write_bytes(b'unknown')
+                if change == 'nonempty': saved.write_bytes(b'saved')
+                before = staged.read_bytes()
+                with self.assertRaises((RecoveryError, ValueError)):
+                    program_recovery._recover_pending(self.install, pending.parent)
+                self.assertEqual(staged.read_bytes(), before)
+                self.assertTrue(original.is_dir())
+                self.assertEqual(self.exe.read_bytes(), b'current')
+                extra.unlink(missing_ok=True)
+                saved.unlink(missing_ok=True)
+
+    def test_rollback_reparse_new_stage_preserves_external_and_pending(self):
+        pending = self.meta / 'manual/pending'
+        originals = pending / 'original'
+        originals.mkdir(parents=True)
+        for name in ('Telegram.exe', 'core.dll'):
+            (originals / name).write_bytes((self.install / name).read_bytes())
+        (pending / 'transaction.json').write_text(json.dumps({
+            'backup_id': self.backup.name, 'phase': 'applying',
+            'files': ['Telegram.exe', 'core.dll'],
+            'target_files': ['Telegram.exe', 'core.dll', 'new.dll']}))
+        outside = self.install.parent / 'outside.dll'
+        outside.write_bytes(b'external')
+        link = self.install / 'new.dll.restore'
+        link.symlink_to(outside)
+        with self.assertRaises(RecoveryError):
+            program_recovery._recover_pending(self.install, pending.parent)
+        self.assertEqual(outside.read_bytes(), b'external')
+        self.assertTrue(link.is_symlink())
+        self.assertTrue(pending.exists())
+
+    def test_preparing_journal_does_not_authorize_unknown_pending_contents(self):
+        pending = self.meta / 'manual/pending'
+        original = pending / 'original'
+        original.mkdir(parents=True)
+        (pending / 'transaction.json').write_text(json.dumps({
+            'backup_id': self.backup.name, 'phase': 'preparing',
+            'files': ['Telegram.exe', 'core.dll'],
+            'target_files': ['Telegram.exe', 'core.dll']}))
+        unknown = original / 'unknown.dll'
+        unknown.write_bytes(b'not-declared')
+        with self.assertRaises(RecoveryError):
+            program_recovery._recover_pending(self.install, pending.parent)
+        self.assertEqual(unknown.read_bytes(), b'not-declared')
 
     def test_empty_initialization_without_journal_can_retry(self):
         for with_original in (False, True):

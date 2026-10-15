@@ -464,7 +464,8 @@ def update_manifest(
                 raise KeyManagementError(f"Channel {channel!r} references an unknown key.")
         common = set.intersection(*(set(group) for group in filtered))
         available = [by_id[item] for item in common if item not in revoked
-                     and by_id[item].get('alg') == 'Ed25519']
+                     and by_id[item].get('alg') == 'Ed25519'
+                     and by_id[item].get('expires', updated['expires']) > now]
         if not available:
             raise KeyManagementError(
                 f"Channel {channel!r} cannot be signed by a single authorized Ed25519 issuer; "
