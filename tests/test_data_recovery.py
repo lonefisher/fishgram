@@ -80,6 +80,177 @@ class DataRecoveryTests(unittest.TestCase):
         return recovery.restore_snapshot(self.work, self.snapshots, self.exe, name,
                                          confirm_restore=True, process_probe=lambda path: False, **kwargs)
 
+    def test_snapshot_marker_interrupted_write_is_not_published_and_can_resume(self):
+        real_open = Path.open
+        expected = b'FishGram snapshots v1\n'
+
+        class InterruptedWrite:
+            def __init__(self, output):
+                self.output = output
+            def __enter__(self):
+                self.output.__enter__()
+                return self
+            def __exit__(self, *args):
+                return self.output.__exit__(*args)
+            def write(self, content):
+                self.output.write(content[:8])
+                self.output.flush()
+                raise KeyboardInterrupt('synthetic interrupted marker write')
+            def __getattr__(self, name):
+                return getattr(self.output, name)
+
+        def interrupt(path, mode='r', *args, **kwargs):
+            output = real_open(path, mode, *args, **kwargs)
+            if path.parent == self.snapshots and ('x' in mode or 'w' in mode):
+                return InterruptedWrite(output)
+            return output
+
+        with mock.patch.object(Path, 'open', new=interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                recovery._snapshot_root(self.snapshots)
+        self.assertFalse((self.snapshots / recovery.MARKER).exists())
+        recovery._snapshot_root(self.snapshots)
+        self.assertEqual((self.snapshots / recovery.MARKER).read_bytes(), expected)
+
+    def test_snapshot_marker_fsync_interruption_keeps_final_marker_absent(self):
+        with mock.patch.object(recovery.os, 'fsync', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                recovery._snapshot_root(self.snapshots)
+        self.assertFalse((self.snapshots / recovery.MARKER).exists())
+        recovery._snapshot_root(self.snapshots)
+        self.assertEqual((self.snapshots / recovery.MARKER).read_bytes(), b'FishGram snapshots v1\n')
+
+    def test_snapshot_marker_unknown_or_damaged_initialization_is_preserved(self):
+        for name, content in ((recovery.MARKER, b''), (recovery.MARKER, b'FishGram'),
+                              ('.partial-' + 'a' * 32, b'user data'),
+                              ('notes.txt', b'user data')):
+            with self.subTest(name=name, content=content):
+                root = self.root / ('unknown-' + str(len(list(self.root.iterdir()))))
+                root.mkdir()
+                recovery._private_acl(root)
+                entry = root / name
+                entry.write_bytes(content)
+                recovery._private_acl(entry)
+                with self.assertRaises(recovery.RecoveryError):
+                    recovery._snapshot_root(root)
+                self.assertEqual(entry.read_bytes(), content)
+                self.assertEqual({path.name for path in root.iterdir()}, {name})
+
+    def test_snapshot_marker_publication_flushes_and_never_overwrites_racing_target(self):
+        real_publish = recovery._publish_snapshot_marker
+        real_fsync = recovery.os.fsync
+        synced = []
+
+        def fsync(fd):
+            real_fsync(fd)
+            synced.append(True)
+
+        def race(temporary, marker):
+            self.assertTrue(synced)
+            self.assertEqual(temporary.parent, marker.parent)
+            self.assertEqual(temporary.read_bytes(), b'FishGram snapshots v1\n')
+            marker.write_bytes(b'unknown racing contents')
+            return real_publish(temporary, marker)
+
+        with mock.patch.object(recovery.os, 'fsync', side_effect=fsync), \
+                mock.patch.object(recovery, '_publish_snapshot_marker', side_effect=race):
+            with self.assertRaisesRegex(recovery.RecoveryError, 'unrelated'):
+                recovery._snapshot_root(self.snapshots)
+        self.assertEqual((self.snapshots / recovery.MARKER).read_bytes(), b'unknown racing contents')
+
+    def test_snapshot_marker_valid_racing_publication_is_accepted_without_replacement(self):
+        real_publish = recovery._publish_snapshot_marker
+        winner = []
+
+        def race(temporary, marker):
+            marker.write_bytes(b'FishGram snapshots v1\n')
+            recovery._private_acl(marker)
+            winner.append(marker.stat().st_ino)
+            return real_publish(temporary, marker)
+
+        with mock.patch.object(recovery, '_publish_snapshot_marker', side_effect=race):
+            recovery._snapshot_root(self.snapshots)
+        marker = self.snapshots / recovery.MARKER
+        self.assertEqual(marker.stat().st_ino, winner[0])
+        self.assertEqual(marker.read_bytes(), b'FishGram snapshots v1\n')
+
+    def test_snapshot_marker_success_cleans_only_this_initialization_stage(self):
+        recovery._snapshot_root(self.snapshots)
+        self.assertEqual({path.name for path in self.snapshots.iterdir()}, {recovery.MARKER})
+        self.assertEqual((self.snapshots / recovery.MARKER).read_bytes(), b'FishGram snapshots v1\n')
+
+    def test_snapshot_marker_owned_stage_replacement_is_never_deleted(self):
+        real_cleanup = recovery._remove_owned_marker_stage
+        replacement = []
+
+        def replace_before_cleanup(path, identity):
+            path.rename(self.root / 'saved-owned-stage')
+            path.write_bytes(b'user data')
+            replacement.append(path)
+            return real_cleanup(path, identity)
+
+        with mock.patch.object(recovery, '_remove_owned_marker_stage', side_effect=replace_before_cleanup):
+            with self.assertRaisesRegex(recovery.RecoveryError, 'identity'):
+                recovery._snapshot_root(self.snapshots)
+        self.assertEqual(replacement[0].read_bytes(), b'user data')
+        self.assertEqual((self.snapshots / recovery.MARKER).read_bytes(), b'FishGram snapshots v1\n')
+
+    def test_snapshot_marker_concurrent_initializers_remain_recoverable(self):
+        self.snapshots.mkdir()
+        recovery._private_acl(self.snapshots)
+        barrier = threading.Barrier(2)
+        errors = []
+
+        def initialize():
+            try:
+                barrier.wait(timeout=5)
+                recovery._snapshot_root(self.snapshots)
+            except recovery.RecoveryError:
+                pass  # A busy initializer may fail closed; a later retry must work.
+            except BaseException as error:
+                errors.append(error)
+
+        threads = [threading.Thread(target=initialize) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        recovery._snapshot_root(self.snapshots)
+        self.assertEqual((self.snapshots / recovery.MARKER).read_bytes(), b'FishGram snapshots v1\n')
+
+    def test_snapshot_marker_initialization_reparse_is_rejected_without_following(self):
+        self.snapshots.mkdir()
+        recovery._private_acl(self.snapshots)
+        outside = self.root / 'outside-init'
+        outside.mkdir()
+        sentinel = outside / 'keep.txt'
+        sentinel.write_bytes(b'user data')
+        link = self.snapshots / ('.partial-' + 'a' * 32)
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            self.skipTest('This Windows token cannot create symlinks')
+        with self.assertRaisesRegex(recovery.RecoveryError, 'link|reparse'):
+            recovery._snapshot_root(self.snapshots)
+        self.assertEqual(sentinel.read_bytes(), b'user data')
+        self.assertTrue(link.is_symlink())
+
+    @unittest.skipUnless(os.name == 'nt', 'Real Windows directory sharing')
+    def test_snapshot_marker_root_guard_blocks_real_directory_rename(self):
+        self.snapshots.mkdir()
+        recovery._private_acl(self.snapshots)
+        moved = self.root / 'moved-snapshot-root'
+        with recovery._snapshot_root_guard(self.snapshots):
+            with self.assertRaises(OSError) as blocked:
+                os.rename(self.snapshots, moved)
+            self.assertIn(blocked.exception.winerror, (5, 32, 33))
+            self.assertTrue(self.snapshots.is_dir())
+            self.assertFalse(moved.exists())
+        os.rename(self.snapshots, moved)
+        self.assertTrue(moved.is_dir())
+
     def test_snapshot_hashes_and_default_two_copy_retention(self):
         names = []
         for index in range(3):

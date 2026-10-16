@@ -30,6 +30,8 @@ SNAPSHOT = re.compile(r'snapshot-[0-9]{8}T[0-9]{12}Z-[a-f0-9]{32}')
 LOCAL_FOLDER = re.compile(r'\.fishgram-data-(stage|rollback)-[a-f0-9]{32}')
 JOURNAL = '.fishgram-data-restore.json'
 MARKER = '.fishgram-snapshots'
+MARKER_CONTENT = b'FishGram snapshots v1\n'
+MARKER_STAGE = re.compile(r'\.partial-[a-f0-9]{32}')
 MAX_MANIFEST = 8 * 1024 * 1024
 FILE_ALL_ACCESS = 0x001F01FF
 FILE_GENERIC_READ_EXECUTE = 0x001200A9
@@ -451,29 +453,155 @@ def _roots(work_dir, snapshot_root, executable, installation_dir=None):
     return work, root, exe
 
 
+@contextlib.contextmanager
+def _snapshot_root_guard(root: Path):
+    handles = []
+    kernel = None
+    try:
+        if os.name == 'nt':
+            kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong,
+                                          ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+            kernel.CreateFileW.restype = ctypes.c_void_p
+            kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+            for path in [*reversed(root.parents), root]:
+                handle = kernel.CreateFileW(str(path), 0x1 | 0x80 | 0x20000, 3, None, 3, 0x02200000, None)
+                if handle == ctypes.c_void_p(-1).value:
+                    raise RecoveryError('Could not guard the snapshot directory chain.')
+                handles.append(handle)
+                _reject_link(path)
+        else:
+            _canonical(root)
+        yield
+    finally:
+        if kernel is not None:
+            for handle in reversed(handles):
+                kernel.CloseHandle(handle)
+
+
+@contextlib.contextmanager
+def _snapshot_metadata_reader(path: Path, *, delete_owned=False):
+    _reject_link(path)
+    if not stat.S_ISREG(path.lstat().st_mode):
+        raise RecoveryError('Snapshot initialization metadata must be a regular file.')
+    if os.name == 'nt':
+        import msvcrt
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong,
+                                      ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+        kernel.CreateFileW.restype = ctypes.c_void_p
+        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        access = 0x80000000 | (0x10000 if delete_owned else 0)
+        handle = kernel.CreateFileW(str(path), access, 3, None, 3, 0x00200000, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise RecoveryError('Could not read snapshot initialization metadata.')
+        try:
+            _reject_link(path)
+            fd = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+        except BaseException:
+            kernel.CloseHandle(handle)
+            raise
+    else:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'rb') as source:
+        if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+            raise RecoveryError('Snapshot initialization metadata must be a regular file.')
+        yield source
+
+
+def _snapshot_marker_data(path: Path) -> bytes:
+    with _snapshot_metadata_reader(path) as source:
+        return source.read(len(MARKER_CONTENT) + 1)
+
+
+def _publish_snapshot_marker(temporary: Path, marker: Path) -> None:
+    if temporary.parent != marker.parent or not MARKER_STAGE.fullmatch(temporary.name) or marker.name != MARKER:
+        raise RecoveryError('Invalid snapshot marker publication paths.')
+    _reject_link(marker)
+    with _snapshot_metadata_reader(temporary) as source:
+        if source.read(len(MARKER_CONTENT) + 1) != MARKER_CONTENT:
+            raise RecoveryError('Incomplete snapshot initialization metadata.')
+        os.link(temporary, marker, follow_symlinks=False)
+        if os.name != 'nt':
+            fd = os.open(marker.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+
+
+def _remove_owned_marker_stage(path: Path, identity) -> None:
+    with _snapshot_metadata_reader(path, delete_owned=True) as source:
+        info = os.fstat(source.fileno())
+        if ((info.st_dev, info.st_ino) != identity
+                or source.read(len(MARKER_CONTENT) + 1) != MARKER_CONTENT):
+            raise RecoveryError('Snapshot initialization staging identity changed.')
+        if os.name == 'nt':
+            import msvcrt
+            kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel.SetFileInformationByHandle.argtypes = [ctypes.c_void_p, ctypes.c_int,
+                                                         ctypes.c_void_p, ctypes.c_ulong]
+            disposition = ctypes.c_ubyte(1)
+            if not kernel.SetFileInformationByHandle(msvcrt.get_osfhandle(source.fileno()), 4,
+                                                     ctypes.byref(disposition), ctypes.sizeof(disposition)):
+                raise RecoveryError('Could not remove owned snapshot initialization staging.')
+        else:
+            path.unlink()
+
+
+def _validate_snapshot_root_entries(root: Path) -> bool:
+    marker = root / MARKER
+    entries = list(root.iterdir())
+    for path in entries:
+        _reject_link(path)
+    marked = os.path.lexists(marker)
+    if marked and _snapshot_marker_data(marker) != MARKER_CONTENT:
+        raise RecoveryError('Refusing an existing unrelated snapshot directory.')
+    for path in entries:
+        if MARKER_STAGE.fullmatch(path.name) and not path.is_dir():
+            if not MARKER_CONTENT.startswith(_snapshot_marker_data(path)):
+                raise RecoveryError('Unrecognized snapshot initialization contents.')
+        elif not marked or (path.name not in (MARKER, '.snapshot.lock')
+                            and not SNAPSHOT.fullmatch(path.name)
+                            and not re.fullmatch(r'\.partial-[a-f0-9]{32}', path.name)):
+            raise RecoveryError('Snapshot directory contains an unrelated entry.')
+    return marked
+
+
 def _snapshot_root(root: Path) -> None:
-    _reject_link(root / MARKER)
-    existed = root.exists()
-    if existed:
+    root = _canonical(root, missing=True)
+    created = False
+    try:
+        root.mkdir()
+        created = True
+    except FileExistsError:
+        pass
+    with _snapshot_root_guard(root):
         if not root.is_dir():
             raise RecoveryError('Snapshot root is not a directory.')
-        entries = list(root.iterdir())
-        if entries and (not (root / MARKER).is_file() or (root / MARKER).read_bytes() != b'FishGram snapshots v1\n'):
-            raise RecoveryError('Refusing an existing unrelated snapshot directory.')
-    else:
-        root.mkdir()
-    for path in root.iterdir():
-        _reject_link(path)
-        if path.name not in (MARKER, '.snapshot.lock') and not SNAPSHOT.fullmatch(path.name) and not re.fullmatch(r'\.partial-[a-f0-9]{32}', path.name):
-            raise RecoveryError('Snapshot directory contains an unrelated entry.')
-    if existed:
+        if created:
+            _private_acl(root)
+        if _validate_snapshot_root_entries(root):
+            _validate_private_tree(root)
+            return
         _validate_private_tree(root)
-    else:
-        _private_acl(root)
-    if not (root / MARKER).exists():
-        marker = root / MARKER
-        marker.write_bytes(b'FishGram snapshots v1\n')
-        _private_acl(marker)
+        temporary = root / ('.partial-' + uuid.uuid4().hex)
+        with temporary.open('xb') as output:
+            _private_acl(temporary)
+            info = os.fstat(output.fileno())
+            identity = info.st_dev, info.st_ino
+            output.write(MARKER_CONTENT)
+            output.flush()
+            os.fsync(output.fileno())
+        _validate_snapshot_root_entries(root)
+        try:
+            _publish_snapshot_marker(temporary, root / MARKER)
+        except FileExistsError:
+            pass
+        if not _validate_snapshot_root_entries(root):
+            raise RecoveryError('Snapshot marker publication did not complete.')
+        _validate_private_tree(root)
+        _remove_owned_marker_stage(temporary, identity)
 
 
 def _read_snapshot(root: Path, name: str):

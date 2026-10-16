@@ -10,6 +10,8 @@
 
 快照、恢复和中断恢复会在安装目录的 `client-session.lock` 上取得与生产客户端/Updater 相同的独占 lease，并一直持有到操作结束。gate-aware 客户端使用共享 lease，因此会阻止快照或数据替换与客户端会话并行；进程检查仍保留，用于发现未接入 gate 的旧客户端。lease 不可用、ACL 不可信或锁忙时工具停止。
 
+Python 首次初始化快照目录时，先在同目录的 `.partial-<32位随机ID>` 普通文件中写入 marker、flush 并 fsync，再以不覆盖目标的原子硬链接发布 `.fishgram-snapshots`；不支持硬链接时安全失败，不退回直接写最终 marker。目录链用无 share-delete 的 Windows 句柄持有，包含 LIST_DIRECTORY、READ_ATTRIBUTES 与 READ_CONTROL 权限；读取初始化文件也使用不跟随 reparse 的句柄。成功后只清理本次创建且文件身份读回一致的暂存，Windows 通过持有句柄删除该对象；异常残留不自动删除，其名字符合 native 快照根目录的 `.partial-<ID>` 白名单，且文件 ACL 与 marker 相同。无最终 marker 时，只接受私有 ACL 校验通过、严格命名的普通暂存文件，内容必须是完整 marker 的前缀（含写入前的空文件），并重新从新暂存文件发布。已有空白或损坏的最终 marker、未知内容、目录或链接继续拒绝并保留现场，不猜测其来源或自动覆盖。此规则仅覆盖 Python 初始化，不代表断电耐久性或真实账户恢复验收。
+
 明确指定包含 `tdata` 的工作目录，不能只猜 exe 旁的路径。快照目录必须与工作目录互不包含，父目录须已存在。首次使用建议指定尚不存在的快照目录，让工具创建并设置私有 ACL；不要预先创建一个继承工作区权限的空目录。已有空目录只有通过私有 ACL 校验才可使用，工具不会自动改写其权限；之后只接受工具自身管理的目录。目录链接、junction、reparse point、路径穿越、缺少空间或源数据变化都会停止操作。普通 Windows 8.3 路径会规范化到实际目录。
 
 ```powershell
