@@ -161,6 +161,29 @@ class GithubReleaseTransportTests(unittest.TestCase):
                 self.assertEqual(stub.files, original)
                 self.assertFalse(any(call[0] in ("POST", "PATCH", "PUT") for call in stub.calls))
 
+    def test_promotion_rejects_authoritative_trust_conflict_before_any_release_write(self):
+        from dataclasses import replace
+        from test_publish_release import allowed_context, plan, publish
+        for root_change, version in ((True, 3), (False, 1), (False, 2)):
+            with self.subTest(root_change=root_change, version=version):
+                stub = Stub()
+                stub.files.update(self.trust_bundle())
+                target = self.trust_bundle(version)
+                target['keys/issuer-public.pem'] = b'new-issuer'
+                if root_change:
+                    target['keys/root-public.pem'] = b'new-root'
+                candidate = replace(plan(), page_files=tuple(
+                    publish.PageFile(path, data) for path, data in target.items()))
+                with self.assertRaises(publish.PublishError):
+                    publish.promote(candidate, self.transport(stub), enabled=True, context=allowed_context())
+                self.assertFalse(any(call[0] in ('POST', 'PATCH', 'PUT') for call in stub.calls))
+
+    def test_trust_preflight_is_read_only_for_newer_same_root_bundle(self):
+        stub = Stub()
+        stub.files.update(self.trust_bundle())
+        self.transport(stub).preflight_pages(self.trust_bundle(3))
+        self.assertFalse(any(call[0] in ('POST', 'PATCH', 'PUT') for call in stub.calls))
+
     def test_existing_identical_trust_is_idempotent_and_partial_trust_is_refused(self):
         for partial in (False, True):
             stub = Stub()

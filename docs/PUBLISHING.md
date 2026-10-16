@@ -43,3 +43,6 @@ Pages 每次写入后按公开字节进行有界轮询，轮询预算为 180 秒
 - 尚未完成：生产 `config/update-trust` 已在候选分支由客户端代码验签，但仍须随受审查固定提交进入实际人工 workflow；真实已批准候选/签名 artifact、分仓发布 token、release/tag/附件及更新索引推广均待端到端验收。已完成的 App 认证、配置、环境保护和 API stub 不替代这些验收，也不表示已发行。
 
 复用既有发行前，发布器解析两个仓库的实际标签目标（普通标签或附注标签），逐一核对候选 parentCommit/sourceCommit；错误目标、非提交对象、循环或过长标签链会拒绝。标签存在和附件匹配不能代替源码目标一致。该核验在任何 Pages 写入前完成。
+# Authoritative trust preflight
+
+Before creating either repository tag or the release, the publisher reads the Pages trust bundle at a fixed branch commit. It rejects an incomplete bundle, a changed root, or a changed bundle with a nonincreasing manifest version. The atomic Pages update repeats the same checks against its current branch parent and never forces the ref. This preflight avoids known conflicts before immutable release writes; it is not a cross-service transaction and cannot prevent an unrelated writer changing Pages after the check.

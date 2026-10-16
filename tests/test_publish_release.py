@@ -90,6 +90,9 @@ class FakeApi:
         self.events.append(("atomic_pages", tuple(files)))
         self.pages.update(files)
 
+    def preflight_pages(self, files):
+        self.events.append(('trust_preflight', tuple(files)))
+
     def get_page(self, path):
         self.events.append(("get_page", path))
         return self.pages.get(path)

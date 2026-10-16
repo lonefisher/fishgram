@@ -327,6 +327,12 @@ class GitHubReleaseTransport:
 
     def put_pages_atomic(self, files: dict[str, bytes]) -> None:
         """Publish the entire public trust bundle with one non-forced branch update."""
+        self._pages_trust_transaction(files, publish=True)
+
+    def preflight_pages(self, files: dict[str, bytes]) -> None:
+        self._pages_trust_transaction(files, publish=False)
+
+    def _pages_trust_transaction(self, files: dict[str, bytes], *, publish: bool) -> None:
         allowed = {"keys/root-public.pem", "keys/issuer-public.pem",
                    "keys/manifest.min.json", "keys/manifest.sig"}
         if not isinstance(files, dict) or set(files) != allowed:
@@ -383,6 +389,8 @@ class GitHubReleaseTransport:
             if manifest_version(files['keys/manifest.min.json']) <= manifest_version(
                     existing['keys/manifest.min.json']):
                 raise TransportError('Trust manifest must be strictly newer than authoritative content.')
+        if not publish:
+            return
         entries = []
         for path, data in files.items():
             blob = request('POST', '/blobs', {'content': base64.b64encode(data).decode('ascii'),
