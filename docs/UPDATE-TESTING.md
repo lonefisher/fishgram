@@ -46,3 +46,8 @@ Comet 仍处于实现阶段。完整更新矩阵、干净 Windows 11、真实 UA
 固定父提交273163274fcb677bd93cd1076b81e503bc897fd5、源码10df321519820764578dc42eca40ff1e6bed0dc5，使用Python3.13.16、独立工作区私有TEMP，并显式提供已有编译的原生快照/Packer/包验证器夹具，完整unittest discover实际336项通过、零跳过，exit0，耗时274.870秒。测试包含本轮候选信任、卷根路径、快照marker初始化与进程生命周期修复。
 
 该结果是本机工具回归，不是新提交的云端完整编译、真实账号迁移或首次发行。夹具复用了此前编译产物，没有据此宣称重新编译全部原生程序。此前系统TEMP及其他Python环境的WinError32/5清理错误仍保留，不归因已确认的外部服务，也不声称本次环境隔离修复了它们。
+# 2026-10-17: review fixes, local regression
+
+Parent `b48576c1a5799c556502715f0aa647085908a815`, source `10df321519820764578dc42eca40ff1e6bed0dc5`: Python 3.13.16 with isolated private TEMP and existing compiled snapshot/Packer/package-verifier fixtures completed 358 tests, zero skips, exit 0 in 209.745 seconds. This covers strict public PEM contents, candidate-commit root binding, authoritative Pages trust preflight before release writes, download signing disclosures and journaling before restore copies.
+
+The native fixtures were not rebuilt in this run. Publisher messages about successful release/index verification come from simulated transports; no real release or channel update occurred. Real account recovery, power-loss durability, current product cloud candidates and complete Windows 11 acceptance remain unverified.

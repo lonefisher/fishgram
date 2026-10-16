@@ -51,3 +51,8 @@ run 38581294626 整体 completed/success，head 为 77cfa9e7ccce95fbc04e1c7be917
 run38726879150为workflow_dispatch，固定10df321519820764578dc42eca40ff1e6bed0dc5，整体completed/success；源码完整job 2026-10-15 11:22:36–15:10:31 UTC，包括依赖准备。生产helper成功；完整日志读回恢复37项、Packer11项、验签60/60与63/63成功。这是测试身份完整编译，不是产品候选或真实更新链路。
 
 源码fork自动停用后遗留PR检查队列，手动成功曾未进入PR rollup；保持必需检查不变，重新打开原PR3后pull_request run38891213011实际启动并出现在PR检查中。新事件仍需自己的终态，不把旧成功移植为新检查结果。
+# 2026-10-17: reopened PR build completed
+
+[Run 38891213011](https://github.com/lonefisher/tdesktop/actions/runs/38891213011), triggered by `pull_request` for source `10df321519820764578dc42eca40ff1e6bed0dc5`, completed successfully. The full compile job ran from 2026-10-16 11:03:04 to 14:55:45 UTC, including dependencies. Production helper checks, 37 recovery tests, 11 Packer tests and 60/60 plus 63/63 verification checks passed. This is test identity evidence without uploaded client binaries.
+
+PR #3 then merged through the ordinary protected path as `0d29fca9f46615950bbb2707e08208d9a59a44a2`. Its source tree `ffa3d69fe43ce332a4c4c1d1b835b0472f344645` matches the tested head. Neither the merge nor these checks prove real-account search, product identity construction, installation recovery or public release readiness.

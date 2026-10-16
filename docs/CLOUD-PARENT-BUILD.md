@@ -117,3 +117,8 @@ run 38726743268 completed/success，head 3ab3ff1c444c80cec73e8a0eedd5338db4e4591
 实际日志读回恢复38项、Packer11项、验签60/60与63/63成功。数值附件11984192406（compile-measurements，1929bytes）包含5份JSON：4逻辑核，物理内存17174360064bytes；结束磁盘可用113602764800bytes，build-modified17773105653bytes。系统peakCommit21832478720、commitLimit23915298816bytes，链接器宿主x64。峰值属于整个系统，不是单个编译或链接进程。
 
 本次是不可发行测试身份，不上传客户端；不能提供该次程序SHA256、产品候选或Windows11实测结论。后续abce384进程退出修复及新增审查修复均需自己的检查。缓存复测、真实产品、搜索完整验收、签名更新与恢复和首发门槛继续保留。
+# 2026-10-17: completed abce384 build
+
+[Run 38891184021](https://github.com/lonefisher/fishgram/actions/runs/38891184021) completed successfully for parent `abce3841b73848664cc260510bad1df023f6408a` and source `10df321519820764578dc42eca40ff1e6bed0dc5`. The compile job ran from 2026-10-16 11:04:41 to 14:54:14 UTC, including dependency preparation. Its exact dependency cache was absent. Logs confirm 38 recovery tests, 11 Packer tests and 60/60 plus 63/63 verification checks. System peak committed memory was 21,737,754,624 bytes, not a per-process peak.
+
+This was a non-releasable test identity build without client uploads. It does not establish product-candidate or Windows 11 acceptance, nor cloud success for later review fixes. Run 38920034465 for `03ddecb` remains separate.
