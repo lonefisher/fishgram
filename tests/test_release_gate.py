@@ -526,6 +526,23 @@ class CheckoutTests(unittest.TestCase):
         finally:
             gate.git = original
 
+    def test_private_workspace_accepts_tracked_api_documentation(self):
+        gate.git = fake_git_factory({('status', '--porcelain', '--untracked-files=all'): '', ('ls-files', '-z'):
+            'tools/telegram-api-setup.md\0docs/APPLICATION-IDENTITY.md\0'})
+        gate.check_private_workspace('/repo')
+
+    def test_private_workspace_rejects_credential_files_and_directory_components(self):
+        for name in ('.private/fishgram-api.clixml', 'nested/LOGS/output.txt',
+                     'build-modified/CMakeCache.txt', 'reports/result.json',
+                     'config/fishgram-api.clixml', 'config/api-secret.cmake',
+                     'config/api-credentials.json', 'config/root-private.pem',
+                     'nested/issuer-private.pem', '.env.production', 'config/key.pfx'):
+            with self.subTest(name=name):
+                gate.git = fake_git_factory({('status', '--porcelain', '--untracked-files=all'): '',
+                                             ('ls-files', '-z'): name + '\0'})
+                with self.assertRaisesRegex(gate.GateError, 'committed'):
+                    gate.check_private_workspace('/repo')
+
 
 class CliTests(unittest.TestCase):
     def test_actual_git_preserves_clean_submodule_status_prefix(self):

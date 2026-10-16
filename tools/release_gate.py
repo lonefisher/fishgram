@@ -230,9 +230,17 @@ def check_private_workspace(root):
         if path.exists() or path.is_symlink():
             raise GateError("Private build material already exists before credentials: " + name)
     tracked = git(root, "ls-files", "-z").split("\0")
-    forbidden = (".private/", "logs/", "build-modified/", "api-", "root-private", "issuer-private")
-    if any(any(part.casefold() in item.casefold() for part in forbidden) for item in tracked if item):
-        raise GateError("A private credential or build path is committed in the checkout.")
+    private_directories = {".private", "logs", "build-modified", "reports", "tdata", "runtime"}
+    for item in filter(None, tracked):
+        parts = item.casefold().split("/")
+        name = parts[-1]
+        credential = (name == ".env" or name.startswith(".env.")
+                      or name.endswith((".clixml", ".pfx", ".p12"))
+                      or name.startswith(("root-private", "issuer-private"))
+                      or (name.startswith("api-") and name.endswith(
+                          (".cmake", ".json", ".xml", ".yaml", ".yml", ".env", ".ini", ".key", ".pem"))))
+        if credential or any(part in private_directories for part in parts):
+            raise GateError("A private credential or build path is committed in the checkout.")
 
 
 def _plain_build_path(root, path):
