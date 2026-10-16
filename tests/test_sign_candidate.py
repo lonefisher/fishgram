@@ -69,6 +69,24 @@ class SigningEntryTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_public_trust_rejects_appended_pem_blocks_and_extra_content(self):
+        trust = self.root / 'config/update-trust'
+        trust.mkdir(parents=True)
+        (trust / 'manifest.min.json').write_bytes(self.trust_json)
+        (trust / 'manifest.sig').write_bytes(self.root_signature)
+        originals = {'root-public.pem': self.root_public.read_bytes(),
+                     'issuer-public.pem': self.issuer_public.read_bytes()}
+        for name, original in originals.items():
+            (trust / name).write_bytes(original)
+        sign._verify_trust(self.root, trust)
+        for name in originals:
+            for suffix in (self.issuer_private.read_bytes(), self.issuer_public.read_bytes(), b'extra\n'):
+                with self.subTest(name=name, suffix=suffix[:20]):
+                    (trust / name).write_bytes(originals[name] + suffix)
+                    with self.assertRaises(sign.SigningError):
+                        sign._verify_trust(self.root, trust)
+                    (trust / name).write_bytes(originals[name])
+
     def test_candidate_workflow_rejects_inactive_or_unauthorized_trust_before_api_secrets(self):
         workflow = (ROOT / '.github/workflows/product-candidate.yml').read_text()
         lines = [line.strip() for line in workflow.splitlines()

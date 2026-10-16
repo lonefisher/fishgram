@@ -279,6 +279,10 @@ def _verify_trust(root: Path, trust: Path) -> tuple[dict, bytes, bytes, bytes]:
     root_pem, issuer_pem = root_path.read_bytes(), issuer_path.read_bytes()
     data, signature = data_path.read_bytes(), sig_path.read_bytes()
     try:
+        for path, pem in ((root_path, root_pem), (issuer_path, issuer_pem)):
+            canonical = keys._openssl("pkey", "-pubin", "-in", str(path), "-outform", "PEM")
+            if pem.replace(b"\r\n", b"\n") != canonical.replace(b"\r\n", b"\n"):
+                raise SigningError("Production public keys must contain exactly one canonical public PEM block.")
         manifest = keys.verify_manifest(data, signature, root_path)
         issuer_der = keys._openssl("pkey", "-pubin", "-in", str(issuer_path), "-outform", "DER")
     except Exception as error:
