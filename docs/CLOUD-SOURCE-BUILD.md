@@ -45,3 +45,9 @@ REST 读回 run 38371777173 为 completed/success，head 为 7b355486ade41e14858
 run 38581294626 整体 completed/success，head 为 77cfa9e7ccce95fbc04e1c7be917d67893af1d67。实际 merge checkout 1958bb632b4bf195fef7c796e1a21e368649f1b5 与 head 的 tree 均为 c7e3e747cba7eabfb0690b2953a462218b274293，完整 SHA 经提交 API 读回确认。Source test identity compile job 为 2026-10-14 14:32:23–17:42:14 UTC；包含依赖准备，不能当成编译净耗时。
 
 生产 helper 与完整 job 成功；完整日志读回复原/恢复测试 37 项、Packer 11 项及验签 60/60、63/63。该流程不上传客户端，是公共测试身份成功，不是 FishGram 自有 API 产品候选。后续首屏失败续接修复与真实 RPC/GUI/Windows 11 验收均不由本次成功证明。
+
+## 2026-10-16 读回 10df321519 完整构建
+
+run38726879150为workflow_dispatch，固定10df321519820764578dc42eca40ff1e6bed0dc5，整体completed/success；源码完整job 2026-10-15 11:22:36–15:10:31 UTC，包括依赖准备。生产helper成功；完整日志读回恢复37项、Packer11项、验签60/60与63/63成功。这是测试身份完整编译，不是产品候选或真实更新链路。
+
+源码fork自动停用后遗留PR检查队列，手动成功曾未进入PR rollup；保持必需检查不变，重新打开原PR3后pull_request run38891213011实际启动并出现在PR检查中。新事件仍需自己的终态，不把旧成功移植为新检查结果。

@@ -109,3 +109,11 @@ run 38582455230 整体 completed/success。head 为 9321091a994ca3f37c86cb5545f3
 日志实际读回恢复测试 38 项、Packer 11 项及验签 60/60、63/63 成功。数值附件显示 4 逻辑核、物理内存 17174360064 bytes；结束可用磁盘 113367715840 bytes，build-modified 17772951704 bytes。系统 peakCommit 21765869568、commitLimit 24150757376 bytes，结束链接器宿主 x64；系统峰值不能算单个编译进程峰值。
 
 该运行只有不可发行测试身份，没有产品程序下载或同候选实机结论。随后新增发行续跑、程序恢复、QA 与密钥策略审查修复仍需自己的验证，不套用本次成功。
+
+## 2026-10-16 读回 3ab3ff1 完整构建
+
+run 38726743268 completed/success，head 3ab3ff1c444c80cec73e8a0eedd5338db4e45916，源码10df321519820764578dc42eca40ff1e6bed0dc5。实际PR合并checkout 6bd3abb311aed39f440c15828f694728b6c4ef1b与head的tree均为288ba055ae43ca2aeea74d3a2e0ff0c6045df1d8，经提交API确认。compile job 2026-10-15 11:22:53–15:12:50 UTC，包括依赖准备，不是纯编译时间。依赖cache明确未命中。
+
+实际日志读回恢复38项、Packer11项、验签60/60与63/63成功。数值附件11984192406（compile-measurements，1929bytes）包含5份JSON：4逻辑核，物理内存17174360064bytes；结束磁盘可用113602764800bytes，build-modified17773105653bytes。系统peakCommit21832478720、commitLimit23915298816bytes，链接器宿主x64。峰值属于整个系统，不是单个编译或链接进程。
+
+本次是不可发行测试身份，不上传客户端；不能提供该次程序SHA256、产品候选或Windows11实测结论。后续abce384进程退出修复及新增审查修复均需自己的检查。缓存复测、真实产品、搜索完整验收、签名更新与恢复和首发门槛继续保留。
