@@ -17,6 +17,8 @@ python .\tools\program_recovery.py --install "C:\Apps\FishGram" `
 
 列表操作只读。恢复要求 FishGram 正常退出；工具按目标 exe 的完整路径检查进程，并按生产顺序持有 `.fishgram-update\install.lock` 与 `install\client-session.lock` 的独占 lease。Client gate lease 使用 `LockFileEx(LOCKFILE_FAIL_IMMEDIATELY | LOCKFILE_EXCLUSIVE_LOCK, offset=0, length=1)`；整个恢复期间同时保留从盘符根到安装目录的目录句柄，权限为 `FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL`，共享读写但不共享删除。`FILE_LIST_DIRECTORY` 使 Windows 对目录改名执行 share-delete 冲突检查；目录内新建子项和写入仍被允许，而且多个进程可同时持有这样的 guard。session lock 使用 gate 同款当前用户、SYSTEM、Administrators 受保护 ACL，并验证 owner、全部允许 ACE、普通文件属性及 reparse 标志。共享 client lease 存在时立即拒绝恢复。非 Windows、任一锁忙/无法验证、目录交换或 reparse point、路径/文件清单异常、空间不足或程序仍运行时都会拒绝继续。
 
+路径规范化保留本地卷根的绝对锚点：`D:\` 不能被去尾分隔符变为盘符相对路径 `D:`；后续子路径始终为 `D:\Telegram.exe`。UNC 与设备路径仍按现有本地盘符边界拒绝。回归仅 mock `GetFullPathNameW` 的返回，不对真实卷根执行读写或恢复。
+
 每次恢复先把当前所有程序 exe/DLL 完整复制到 `.fishgram-update\manual\latestmanualbackup`，并以持久事务保存原件。替换中断时会从事务原件回滚；下次运行会先处理遗留事务。自动回滚也失败时，保留事务现场并停止，不能清理该目录后重试。
 
 恢复事务开始前拒绝已有 `.restore`，不将外来暂存当成自己的文件清理。回滚会先校验原件、目标和暂存的路径类型、reparse 标志及 ACL，再恢复原程序，并清除本事务新增 DLL 及其未 rename 的 `.restore`。首次日志写入留下 `transaction.json.new` 时，只有完整 preparing JSON、空 original、合法且匹配当前安装/指定 archive 的清单及全部路径验证通过，才清除初始化残留后允许重试；损坏 JSON、非空 original、未知条目和 reparse 残留均保留并停止。

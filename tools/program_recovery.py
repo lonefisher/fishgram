@@ -169,7 +169,9 @@ def _canonical_install(path: Path) -> Path:
     value = buf.value.replace("/", "\\")
     if len(value) < 3 or value[1:3] != ":\\" or value.startswith("\\\\"):
         raise RecoveryError("安装路径必须是本地盘符路径")
-    return Path(value.rstrip("\\"))
+    # Path normalizes directory separators while retaining a drive root's
+    # anchor. Stripping D:\ to D: would make child paths drive-relative.
+    return Path(value)
 
 
 @contextmanager

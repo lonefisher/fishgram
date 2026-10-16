@@ -36,7 +36,7 @@ jobs:
               -not (Test-Path config/update-trust/manifest.min.json) -or
               -not (Test-Path config/update-trust/manifest.sig)) { throw 'Reviewed FishGram production public update trust is absent.' }
           if (Get-ChildItem config/update-trust -Force | Where-Object { $_.Name -match 'test|fixture|private|secret' }) { throw 'Update trust contains forbidden test/private material.' }
-          python tools/key_management.py check --manifest config/update-trust/manifest.min.json --signature config/update-trust/manifest.sig --root-public config/update-trust/root-public.pem
+          python tools/sign_candidate.py verify-trust --root .
           if ($LASTEXITCODE) { throw 'Reviewed production update trust was rejected.' }
       - name: Exact dependency cache identity
         id: key

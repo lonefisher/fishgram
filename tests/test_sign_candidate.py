@@ -69,6 +69,58 @@ class SigningEntryTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_candidate_workflow_rejects_inactive_or_unauthorized_trust_before_api_secrets(self):
+        workflow = (ROOT / '.github/workflows/product-candidate.yml').read_text()
+        lines = [line.strip() for line in workflow.splitlines()
+                 if line.strip().startswith('python tools/') and
+                 ('key_management.py check ' in line or 'sign_candidate.py verify-trust' in line)]
+        self.assertEqual(len(lines), 1)
+        command = lines[0]
+        self.assertLess(workflow.index(command), workflow.index('secrets.FISHGRAM_API_ID'))
+        trust = self.root / 'config/update-trust'
+        trust.mkdir(parents=True)
+        (trust / 'root-public.pem').write_bytes(self.root_public.read_bytes())
+        (trust / 'issuer-public.pem').write_bytes(self.issuer_public.read_bytes())
+        # Run the workflow's actual public-trust command in the temporary
+        # candidate root, using the real production CLI and real signatures.
+        for script in ('key_management.py', 'sign_candidate.py'):
+            command = command.replace('python tools/' + script,
+                                      'python "' + str(ROOT / 'tools' / script) + '"')
+        harness = self.root / 'preflight.ps1'
+        harness.write_text(command + '\nexit $LASTEXITCODE\n', encoding='utf-8')
+        cases = [('stable', 'valid', True), ('beta', 'valid', True),
+                 ('stable', 'expired_manifest', False), ('beta', 'expired_manifest', False),
+                 ('stable', 'future_manifest', False), ('stable', 'expired_issuer', False),
+                 ('stable', 'revoked', False), ('stable', 'other_public_key', False),
+                 ('stable', 'ambiguous_issuer', False), ('stable', 'bad_signature', False),
+                 ('beta', 'unauthorized_beta', False), ('stable', 'unauthorized_beta', True),
+                 ('stable', 'implicit_issuer_expiry', True), ('other', 'valid', False)]
+        for channel, change, accepted in cases:
+            with self.subTest(channel=channel, change=change):
+                manifest = json.loads(self.trust_json)
+                if change == 'expired_manifest': manifest['expires'] = self.now - 1
+                if change == 'future_manifest': manifest['issued'] = self.now + 3600
+                if change == 'expired_issuer': manifest['keys'][0]['expires'] = self.now - 1
+                if change == 'revoked': manifest['revoked'] = ['issuer-a']
+                if change == 'other_public_key':
+                    manifest['keys'][0]['x'] = keys._b64url(keys._public_der(self.root_private, self.password)[-32:])
+                if change == 'ambiguous_issuer':
+                    manifest['keys'].append({**manifest['keys'][0], 'id': 'duplicate-public'})
+                if change == 'unauthorized_beta':
+                    manifest['keys'].append({'id': 'other', 'alg': 'Ed25519',
+                        'x': keys._b64url(keys._public_der(self.root_private, self.password)[-32:])})
+                    manifest['channels']['beta'] = [['issuer-a', 'other'], ['other']]
+                if change == 'implicit_issuer_expiry': manifest['keys'][0].pop('expires')
+                data = json.dumps(manifest, separators=(',', ':')).encode()
+                (trust / 'manifest.min.json').write_bytes(data)
+                signature = keys._sign(self.root_private, self.password, data)
+                if change == 'bad_signature': signature = bytes([signature[0] ^ 1]) + signature[1:]
+                (trust / 'manifest.sig').write_bytes(signature)
+                (self.root / 'fishgram.json').write_text(json.dumps({'channel': channel}))
+                result = subprocess.run(['pwsh', '-NoProfile', '-File', str(harness)],
+                                        cwd=self.root, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, accepted, result.stdout + result.stderr)
+
     def test_issuer_must_be_authorized_in_every_channel_group(self):
         sign.check_issuer_authorization(self.manifest, "issuer-a", "stable", self.pub, now=self.now)
         with self.assertRaises(sign.SigningError):

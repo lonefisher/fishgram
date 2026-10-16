@@ -13,6 +13,37 @@ import program_recovery
 from program_recovery import RecoveryError, _ClientSessionLease, _InstallLock, _directory_guard, list_backups, restore_backup
 
 
+class CanonicalInstallTests(unittest.TestCase):
+    def canonical_returned_by_windows(self, value):
+        # Never read/write a real drive root; only emulate GetFullPathNameW.
+        from unittest.mock import Mock
+        def full_path(_input, _size, buffer, _last):
+            buffer.value = value
+            return len(value)
+        kernel = Mock()
+        kernel.GetFullPathNameW.side_effect = full_path
+        with patch.object(program_recovery.ctypes, 'WinDLL', return_value=kernel):
+            return program_recovery._canonical_install(Path('synthetic-input'))
+
+    def test_volume_root_remains_absolute_and_child_does_not_follow_drive_cwd(self):
+        for value in ('D:\\', 'D:/', 'C:\\'):
+            with self.subTest(value=value):
+                actual = self.canonical_returned_by_windows(value)
+                self.assertTrue(actual.is_absolute())
+                self.assertEqual(str(actual), value[:2] + '\\')
+                self.assertEqual(str(actual / 'Telegram.exe'), value[:2] + '\\Telegram.exe')
+
+    def test_directory_trailing_separator_is_normalized_without_losing_anchor(self):
+        actual = self.canonical_returned_by_windows('D:\\Apps\\FishGram\\')
+        self.assertEqual(str(actual), 'D:\\Apps\\FishGram')
+        self.assertTrue(actual.is_absolute())
+
+    def test_unc_and_device_boundaries_remain_rejected(self):
+        for value in ('\\\\server\\share\\', '\\\\?\\D:\\', '\\\\.\\D:\\'):
+            with self.subTest(value=value), self.assertRaisesRegex(RecoveryError, '本地盘符'):
+                self.canonical_returned_by_windows(value)
+
+
 class ProgramRecoveryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="fishgram-program-test-")

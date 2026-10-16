@@ -604,11 +604,33 @@ def _verify_run_cli(argv: list[str]) -> int:
     return 0
 
 
+def _verify_trust_cli(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Verify public candidate trust before API credentials.")
+    parser.add_argument('--root', default='.')
+    options = parser.parse_args(argv)
+    root = Path(options.root).resolve()
+    channel = _read_json(root / 'fishgram.json').get('channel')
+    if channel not in ('stable', 'beta'):
+        raise SigningError('Product candidate channel must be stable or beta.')
+    manifest, issuer_raw, _, _ = _verify_trust(root, root / 'config/update-trust')
+    # The reviewed public PEM selects the same issuer key used by signing.
+    # Reject ambiguous IDs instead of choosing a less restrictive policy.
+    issuer_ids = [entry['id'] for entry in manifest['keys']
+                  if entry.get('alg') == 'Ed25519' and entry.get('x') == keys._b64url(issuer_raw)]
+    if len(issuer_ids) != 1:
+        raise SigningError('Configured public issuer must match exactly one trusted key.')
+    check_issuer_authorization(manifest, issuer_ids[0], channel, issuer_raw)
+    print('Candidate public trust and issuer authorized for ' + channel + '.')
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     try:
         if argv and argv[0] == "verify-run":
             return _verify_run_cli(argv[1:])
+        if argv and argv[0] == 'verify-trust':
+            return _verify_trust_cli(argv[1:])
         options = _parser().parse_args(argv)
         if bool(options.run_json) != bool(options.jobs_json) or bool(options.run_json) != bool(options.artifacts_json):
             raise SigningError("Candidate workflow provenance files must be supplied together.")
