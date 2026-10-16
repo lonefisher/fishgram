@@ -16,6 +16,8 @@ The Windows recipe pins `releaseDebugInformation: None`; the build record and th
 
 ## Signing preparation
 
+Signing also reads `config/update-trust/root-public.pem` from the candidate's immutable parent commit and requires it to match the current reviewed root before issuer secrets are consumed. A later QA commit may renew issuer metadata under that root; changing the root requires a new candidate build and fresh QA.
+
 The committed QA input uses schema 2 with only `schema`, `kind`, `approvedAt`, `candidate` and `checks`. Identity, machine descriptions and free-form notes are rejected; schema 1 is rejected rather than silently accepting private fields. Keep raw QA evidence in local private storage. Reviewed commits and protected-environment approvals establish human authorization, while this anonymous input binds all required passing conclusions to the exact candidate. Signing authorization and signing records no longer include an approver username.
 
 After a human has tested the exact downloaded artifact on clean Windows 11, completed all eight restricted-search acceptance cases and the full updater workflow matrix, and recorded the cloud conclusion for those same archive, source archive, and program hashes, generate the QA template from `candidate/candidate-record.json` and commit the completed file under `release/qa/`. The external `candidate-record.json` is the sole signing record: it binds the candidate ZIP and corresponding-source ZIP (`name`, `size`, and SHA256), program hashes, parent/source/recursive pins, and reviewed tools. Do not submit the package's embedded `build-manifest.json` as the signing record; it cannot authorize signing by itself. Every required QA check and the exact `sourceArchive` binding are mandatory.

@@ -293,6 +293,15 @@ def _verify_trust(root: Path, trust: Path) -> tuple[dict, bytes, bytes, bytes]:
     return manifest, issuer_der[-32:], root_pem, data
 
 
+def _check_candidate_root(root: Path, manifest: dict, root_pem: bytes) -> None:
+    try:
+        recorded = gate.git(root, "show", manifest["parentCommit"] + ":config/update-trust/root-public.pem")
+        if recorded.replace("\r\n", "\n").strip() != root_pem.decode("ascii").replace("\r\n", "\n").strip():
+            raise SigningError("Signing trust root differs from the root built into the candidate.")
+    except (gate.GateError, UnicodeError, KeyError) as error:
+        raise SigningError("Candidate build trust root could not be verified.") from error
+
+
 def _record_and_gates(root: Path, manifest_path: Path, package: Path, source: Path,
                       qa_path: Path, packer: Path, trust: Path, commit: str,
                       qa_name: str) -> tuple[dict, dict, dict, bytes, bytes, bytes]:
@@ -321,6 +330,7 @@ def _record_and_gates(root: Path, manifest_path: Path, package: Path, source: Pa
     finally:
         auth_path.unlink(missing_ok=True)
     trust_manifest, issuer_raw, root_pem, trust_data = _verify_trust(root, trust)
+    _check_candidate_root(root, manifest, root_pem)
     channel = authorization["packer"]["channel"]
     return manifest, authorization, trust_manifest, issuer_raw, root_pem, trust_data
 

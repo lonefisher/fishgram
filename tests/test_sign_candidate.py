@@ -87,6 +87,23 @@ class SigningEntryTests(unittest.TestCase):
                         sign._verify_trust(self.root, trust)
                     (trust / name).write_bytes(originals[name])
 
+    def test_signing_root_matches_immutable_candidate_commit_after_qa_changes(self):
+        for args in (('init', '-q'), ('config', 'user.name', 'Fixture'),
+                     ('config', 'user.email', 'fixture@example.invalid')):
+            subprocess.run(['git', '-C', str(self.root), *args], check=True, capture_output=True)
+        trust = self.root / 'config/update-trust'
+        trust.mkdir(parents=True)
+        root_path = trust / 'root-public.pem'
+        root_path.write_bytes(self.root_public.read_bytes())
+        subprocess.run(['git', '-C', str(self.root), 'add', 'config'], check=True)
+        subprocess.run(['git', '-C', str(self.root), 'commit', '-qm', 'candidate'], check=True)
+        candidate = subprocess.check_output(['git', '-C', str(self.root), 'rev-parse', 'HEAD']).decode().strip()
+        sign._check_candidate_root(self.root, {'parentCommit': candidate}, self.root_public.read_bytes())
+        root_path.write_bytes(self.issuer_public.read_bytes())
+        subprocess.run(['git', '-C', str(self.root), 'commit', '-qam', 'later QA and root change'], check=True)
+        with self.assertRaises(sign.SigningError):
+            sign._check_candidate_root(self.root, {'parentCommit': candidate}, root_path.read_bytes())
+
     def test_candidate_workflow_rejects_inactive_or_unauthorized_trust_before_api_secrets(self):
         workflow = (ROOT / '.github/workflows/product-candidate.yml').read_text()
         lines = [line.strip() for line in workflow.splitlines()
