@@ -36,7 +36,7 @@ Windows 最终发布目录改名遇到错误 5、32、33 时，最多尝试 11 �
 python tools/data_recovery.py restore --work-dir D:\FishGram\FishGramData --installation-dir D:\FishGram --installed-executable D:\FishGram\Telegram.exe --snapshot-root D:\FishGram-private-snapshots --snapshot <快照ID> --confirm-restore
 ```
 
-工具验证清单和全部内容，再建立私有恢复暂存区；在改动 `tdata` 前保存持久事务记录。当前数据通过同工作目录中的重命名保留为 `.fishgram-data-rollback-<随机ID>`，完整恢复后仍保留，避免丢失恢复前的状态。该目录不是自动保留两份的快照，暂不自动清理。普通替换失败恢复原数据；不会修改 exe、客户端配置文件或其他工作目录内容。
+工具验证清单和全部内容，在建立恢复暂存区前先保存 schema 2 的 `allocating` 事务记录：同目录临时 JSON 写入、flush、fsync 后，以不覆盖已有 journal 的原子硬链接发布。建立私有暂存目录后，读回卷与目录文件身份并持久化 `copying` 状态，之后才复制账户字节；完整复制校验通过后进入 `prepared`。当前数据通过同工作目录中的重命名保留为 `.fishgram-data-rollback-<随机ID>`，完整恢复后仍保留，避免丢失恢复前的状态。该目录不是自动保留两份的快照，暂不自动清理。普通替换失败恢复原数据；不会修改 exe、客户端配置文件或其他工作目录内容。
 
 普通清单哈希用于校验内容一致性，并不是发行签名或独立信任证明。能够以当前用户身份同时改写快照和清单的程序仍可能伪造一致内容；只从自己保管的私有快照恢复。
 
@@ -50,7 +50,13 @@ python tools/data_recovery.py recover --work-dir D:\FishGram\FishGramData --inst
 
 未完成事务恢复原数据；已提交事务核实新数据并完成清理。未知状态、损坏记录、缺少或不匹配的备份停止自动处理并保留现场。如果未完成替换时已有新 `tdata`，恢复会先把它保留为 `.fishgram-data-rejected-<随机ID>`，不会无声删除。
 
+复制中或复制后退出时，journal 已包含本次 stage 的目录身份。显式 `recover` 先确认原 `tdata` 未改变且未出现 rollback，再处理初始化事务；不会把部分副本恢复成账户数据。仅清理身份匹配、ACL 可信、无 reparse 且内容属于所选清单的 stage：允许缺少未复制条目与尚未写完的短文件，完整长度的文件仍须匹配哈希。删除前持有并验证全部现有条目，Windows 通过 no-share-delete 句柄删除已验证对象，避免目录身份替换后误删。未知条目、错误类型、超长或完整内容不匹配、原数据变化均停止并保留 journal 与现场。恢复仍兼容旧 schema 1 事务。
+
+若中断发生在 `allocating` 已持久化、stage 尚未建立时，显式恢复可核实原数据后清除空事务；若目录已建立但身份尚未持久化，则此时尚未复制账户字节，工具保留目录和 journal 并要求人工调查。预占同名目录也采用该拒绝策略，不猜测或删除其内容。没有 journal 的历史遗留 stage 不会被扫描或自动删除。
+
 ## 当前验证边界
+
+本轮合成回归以独立子进程 `os._exit` 分别中断实际 restore 的文件复制和完整复制返回，验证 journal 先于账户字节存在、原数据保全、再次 restore 拒绝绕过恢复、明确确认后仅清理本次 stage。另覆盖初始化发布失败与竞争 journal、mkdir 前中断、目录身份尚未持久化、同名目录竞争、未知内容、目录身份替换、reparse、原数据变化、普通 copy 失败、独立进程工作锁互斥、实际 Windows stage rename 返回错误 32，以及旧事务兼容。这些仅是合成数据与本机文件系统证据，不代表真实账户恢复或断电耐久性。
 
 已用合成文件树验证两份保留、内容与空目录、实际 Windows 进程识别、复制期间重新启动、变化检测、空间不足、链接、重叠、篡改、路径穿越、显式恢复、替换失败和模拟中断恢复；ACL 用例覆盖普通完整权限、native 提升时用户只读、可信所有者、继承 ACE 与拒绝型/额外/错误权限/不可信所有者。新增真实文件测试用合成 ACL 阻止数据写入，即使测试令牌启用了管理员组也需以只读句柄打开；在空文件上取得 Python 锁后，另一进程的 Python 锁被阻止，直接 LockFileEx 返回 ERROR_LOCK_VIOLATION（33），释放后两者均能取得锁，文件仍为 0 字节。该 ACL 含测试专用 deny ACE，不是生产快照信任夹具。另以模拟 TokenElevation 加真实 Win32 安全描述符解析验证 Python 请求 Administrators owner，没有执行实际提升的 owner 修改。
 

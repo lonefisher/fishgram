@@ -865,6 +865,260 @@ with open(sys.argv[1], 'rb') as file:
         self.assertEqual((self.work / backup / 'account' / 'map0').read_bytes(), b'newer state')
         self.assertFalse((self.work / '.fishgram-data-restore.json').exists())
 
+    def crash_restore_copy(self, name, point):
+        script = '''import importlib.util, os, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('data_recovery', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+real_copy = module._copy_tree
+def interrupt_file(source, target, *args, **kwargs):
+    with Path(target).open('wb') as output:
+        output.write(b'synthetic')
+        output.flush()
+        os.fsync(output.fileno())
+    os._exit(73)
+def interrupt_tree(*args, **kwargs):
+    real_copy(*args, **kwargs)
+    os._exit(74)
+if sys.argv[6] == 'during':
+    module.shutil.copyfile = interrupt_file
+else:
+    module._copy_tree = interrupt_tree
+module.restore_snapshot(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
+    confirm_restore=True, process_probe=lambda path: False)
+'''
+        result = subprocess.run([sys.executable, '-c', script, str(Path(recovery.__file__)),
+                                 str(self.work), str(self.snapshots), str(self.exe), name, point],
+                                capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 73 if point == 'during' else 74)
+
+    def assert_copy_crash_recoverable(self, point):
+        name = self.snapshot()
+        current = self.work / 'tdata' / 'account' / 'map0'
+        current.write_bytes(b'newer state')
+        self.crash_restore_copy(name, point)
+        stages = list(self.work.glob('.fishgram-data-stage-*'))
+        self.assertEqual(len(stages), 1)
+        self.assertTrue((stages[0] / 'account' / 'map0').is_file())
+        self.assertTrue((self.work / recovery.JOURNAL).is_file(),
+                        'A killed copy must leave a durable transaction before account bytes')
+        self.assertEqual(current.read_bytes(), b'newer state')
+        with self.assertRaisesRegex(recovery.RecoveryError, 'explicit recovery'):
+            self.restore(name)
+        with self.assertRaisesRegex(recovery.RecoveryError, 'explicit'):
+            recovery.recover_restore(self.work, self.exe, process_probe=lambda path: False)
+        self.assertTrue(stages[0].is_dir())
+        recovery.recover_restore(self.work, self.exe, confirm_restore=True,
+                                 process_probe=lambda path: False)
+        self.assertFalse(stages[0].exists())
+        self.assertFalse((self.work / recovery.JOURNAL).exists())
+        self.assertEqual(current.read_bytes(), b'newer state')
+        self.assertFalse(list(self.work.glob('.fishgram-data-rollback-*')))
+
+    def test_restore_copy_crashes_during_have_durable_journal_and_safe_cleanup(self):
+        self.assert_copy_crash_recoverable('during')
+
+    def test_restore_copy_crashes_after_have_durable_journal_and_safe_cleanup(self):
+        self.assert_copy_crash_recoverable('after')
+
+    def test_restore_initial_journal_publication_failure_never_copies_data(self):
+        name = self.snapshot()
+        real_link = recovery.os.link
+        def fail_journal(source, target, **kwargs):
+            if Path(target).name == recovery.JOURNAL:
+                raise OSError('synthetic journal publication failure')
+            return real_link(source, target, **kwargs)
+        with mock.patch.object(recovery.os, 'link', side_effect=fail_journal):
+            with self.assertRaises(recovery.RecoveryError):
+                self.restore(name)
+        self.assertFalse(list(self.work.glob('.fishgram-data-stage-*')))
+        self.assertFalse((self.work / recovery.JOURNAL).exists())
+        self.assertFalse(list(self.work.glob(recovery.JOURNAL + '-*.tmp')))
+        self.assertEqual((self.work / 'tdata' / 'account' / 'map0').read_bytes(), b'synthetic account state')
+
+    def test_restore_initial_journal_never_overwrites_racing_record(self):
+        name = self.snapshot()
+        real_link = recovery.os.link
+        def race(source, target, **kwargs):
+            if Path(target).name == recovery.JOURNAL:
+                Path(target).write_bytes(b'unknown competing transaction')
+            return real_link(source, target, **kwargs)
+        with mock.patch.object(recovery.os, 'link', side_effect=race):
+            with self.assertRaises(recovery.RecoveryError):
+                self.restore(name)
+        self.assertEqual((self.work / recovery.JOURNAL).read_bytes(), b'unknown competing transaction')
+        self.assertFalse(list(self.work.glob('.fishgram-data-stage-*')))
+
+    def test_restore_allocation_crash_before_mkdir_can_be_explicitly_recovered(self):
+        name = self.snapshot()
+        real_mkdir = Path.mkdir
+        def interrupt(path, *args, **kwargs):
+            if path.name.startswith('.fishgram-data-stage-'):
+                raise KeyboardInterrupt()
+            return real_mkdir(path, *args, **kwargs)
+        with mock.patch.object(Path, 'mkdir', interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.restore(name)
+        self.assertTrue((self.work / recovery.JOURNAL).exists())
+        self.assertFalse(list(self.work.glob('.fishgram-data-stage-*')))
+        recovery.recover_restore(self.work, self.exe, confirm_restore=True, process_probe=lambda path: False)
+        self.assertFalse((self.work / recovery.JOURNAL).exists())
+
+    def test_restore_unrecorded_allocation_or_racing_directory_is_preserved(self):
+        name = self.snapshot()
+        real_mkdir = Path.mkdir
+        def competing_directory(path, *args, **kwargs):
+            if path.name.startswith('.fishgram-data-stage-'):
+                real_mkdir(path)
+                (path / 'user-file').write_bytes(b'unknown directory')
+            return real_mkdir(path, *args, **kwargs)
+        with mock.patch.object(Path, 'mkdir', competing_directory):
+            with self.assertRaisesRegex(recovery.RecoveryError, 'explicit recovery'):
+                self.restore(name)
+        stage, = self.work.glob('.fishgram-data-stage-*')
+        with self.assertRaisesRegex(recovery.RecoveryError, 'ownership'):
+            recovery.recover_restore(self.work, self.exe, confirm_restore=True, process_probe=lambda path: False)
+        self.assertEqual((stage / 'user-file').read_bytes(), b'unknown directory')
+        self.assertTrue((self.work / recovery.JOURNAL).exists())
+
+    def test_restore_crash_before_stage_identity_is_persisted_preserves_empty_stage(self):
+        name = self.snapshot()
+        real_write = recovery._write_json
+        def interrupt(path, value, **kwargs):
+            if value.get('state') == 'copying':
+                raise KeyboardInterrupt()
+            real_write(path, value, **kwargs)
+        with mock.patch.object(recovery, '_write_json', side_effect=interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.restore(name)
+        stage, = self.work.glob('.fishgram-data-stage-*')
+        self.assertEqual(list(stage.iterdir()), [])
+        with self.assertRaisesRegex(recovery.RecoveryError, 'ownership'):
+            recovery.recover_restore(self.work, self.exe, confirm_restore=True, process_probe=lambda path: False)
+        self.assertTrue(stage.is_dir())
+        self.assertTrue((self.work / recovery.JOURNAL).exists())
+
+    def test_restore_copy_failure_cleans_only_owned_partial_and_preserves_original(self):
+        name = self.snapshot()
+        current = self.work / 'tdata' / 'account' / 'map0'
+        current.write_bytes(b'newer state')
+        def fail(source, target):
+            Path(target).write_bytes(b'synthetic')
+            raise OSError('synthetic partial copy failure')
+        with mock.patch.object(recovery.shutil, 'copyfile', side_effect=fail):
+            with self.assertRaisesRegex(recovery.RecoveryError, 'previous account data is preserved'):
+                self.restore(name)
+        self.assertEqual(current.read_bytes(), b'newer state')
+        self.assertFalse(list(self.work.glob('.fishgram-data-stage-*')))
+        self.assertFalse((self.work / recovery.JOURNAL).exists())
+
+    def test_restore_recovery_accepts_legacy_prepared_journal(self):
+        name = self.snapshot()
+        stage = self.work / ('.fishgram-data-stage-' + 'a' * 32)
+        manifest = json.loads((self.snapshots / name / 'manifest.json').read_bytes())
+        recovery._copy_tree(self.snapshots / name / 'tdata', stage, manifest['files'])
+        recovery._write_json(self.work / recovery.JOURNAL, {
+            'schema': 1, 'state': 'prepared', 'stage': stage.name,
+            'rollback': '.fishgram-data-rollback-' + 'a' * 32,
+            'old_files': recovery._inventory(self.work / 'tdata'), 'new_files': manifest['files']})
+        recovery.recover_restore(self.work, self.exe, confirm_restore=True, process_probe=lambda path: False)
+        self.assertFalse(stage.exists())
+        self.assertFalse((self.work / recovery.JOURNAL).exists())
+        self.assertEqual((self.work / 'tdata' / 'account' / 'map0').read_bytes(), b'synthetic account state')
+
+    def test_restore_copy_recovery_preserves_unknown_stage_content_and_current_data(self):
+        name = self.snapshot()
+        self.crash_restore_copy(name, 'during')
+        stage, = self.work.glob('.fishgram-data-stage-*')
+        (stage / 'user-file').write_bytes(b'unknown data')
+        with self.assertRaisesRegex(recovery.RecoveryError, 'Unknown'):
+            recovery.recover_restore(self.work, self.exe, confirm_restore=True, process_probe=lambda path: False)
+        self.assertEqual((stage / 'user-file').read_bytes(), b'unknown data')
+        self.assertEqual((stage / 'account' / 'map0').read_bytes(), b'synthetic')
+        self.assertTrue((self.work / recovery.JOURNAL).exists())
+        self.assertEqual((self.work / 'tdata' / 'account' / 'map0').read_bytes(), b'synthetic account state')
+
+    def test_restore_copy_recovery_rejects_stage_identity_substitution(self):
+        name = self.snapshot()
+        self.crash_restore_copy(name, 'during')
+        stage, = self.work.glob('.fishgram-data-stage-*')
+        preserved = self.work / 'preserved-original-stage'
+        stage.rename(preserved)
+        stage.mkdir()
+        (stage / 'user-file').write_bytes(b'replacement')
+        with self.assertRaisesRegex(recovery.RecoveryError, 'identity'):
+            recovery.recover_restore(self.work, self.exe, confirm_restore=True, process_probe=lambda path: False)
+        self.assertEqual((stage / 'user-file').read_bytes(), b'replacement')
+        self.assertEqual((preserved / 'account' / 'map0').read_bytes(), b'synthetic')
+        self.assertTrue((self.work / recovery.JOURNAL).exists())
+
+    def test_restore_copy_recovery_rejects_reparse_without_following(self):
+        name = self.snapshot()
+        self.crash_restore_copy(name, 'during')
+        stage, = self.work.glob('.fishgram-data-stage-*')
+        outside = self.root / 'unknown-outside'
+        outside.mkdir()
+        (outside / 'user-file').write_bytes(b'outside')
+        link = stage / 'linked'
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            self.skipTest('This Windows token cannot create symlinks')
+        with self.assertRaisesRegex(recovery.RecoveryError, 'link|reparse|Unknown'):
+            recovery.recover_restore(self.work, self.exe, confirm_restore=True, process_probe=lambda path: False)
+        self.assertEqual((outside / 'user-file').read_bytes(), b'outside')
+        self.assertTrue((stage / 'account' / 'map0').exists())
+        self.assertTrue((self.work / recovery.JOURNAL).exists())
+
+    def test_restore_copy_recovery_preserves_changed_original_data(self):
+        name = self.snapshot()
+        self.crash_restore_copy(name, 'during')
+        current = self.work / 'tdata' / 'account' / 'map0'
+        current.write_bytes(b'changed after crash')
+        with self.assertRaisesRegex(recovery.RecoveryError, 'Original data changed'):
+            recovery.recover_restore(self.work, self.exe, confirm_restore=True, process_probe=lambda path: False)
+        self.assertEqual(current.read_bytes(), b'changed after crash')
+        self.assertTrue((self.work / recovery.JOURNAL).exists())
+
+    @unittest.skipUnless(os.name == 'nt', 'Actual Windows staging ownership guard')
+    def test_restore_copy_guard_blocks_real_directory_rename(self):
+        name = self.snapshot()
+        real_copy = recovery._copy_tree
+        errors = []
+        def try_rename(source, target, files, **kwargs):
+            try:
+                target.rename(target.with_name('racing-stage'))
+            except OSError as error:
+                errors.append(error.winerror)
+            real_copy(source, target, files, **kwargs)
+        with mock.patch.object(recovery, '_copy_tree', side_effect=try_rename):
+            self.restore(name)
+        self.assertEqual(errors, [32])
+        self.assertFalse((self.work / 'racing-stage').exists())
+
+    def test_restore_copy_recovery_keeps_work_lock_against_another_process(self):
+        name = self.snapshot()
+        self.crash_restore_copy(name, 'during')
+        with recovery._lock(self.work, '.fishgram-data.lock'):
+            script = '''import importlib.util, sys
+spec = importlib.util.spec_from_file_location('data_recovery', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+try:
+    module.recover_restore(sys.argv[2], sys.argv[3], confirm_restore=True, process_probe=lambda path: False)
+except module.RecoveryError:
+    sys.exit(75)
+'''
+            result = subprocess.run([sys.executable, '-c', script, str(Path(recovery.__file__)),
+                                     str(self.work), str(self.exe)], capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 75)
+        self.assertTrue((self.work / recovery.JOURNAL).exists())
+        stage, = self.work.glob('.fishgram-data-stage-*')
+        self.assertEqual((stage / 'account' / 'map0').read_bytes(), b'synthetic')
+        recovery.recover_restore(self.work, self.exe, confirm_restore=True, process_probe=lambda path: False)
+        self.assertFalse(stage.exists())
+
     @unittest.skipUnless(os.name == 'nt', 'Actual Windows journal sharing violation')
     def test_locked_restore_journal_preserves_data_and_explicit_recovery(self):
         name = self.snapshot()
@@ -874,9 +1128,9 @@ with open(sys.argv[1], 'rb') as file:
         held = []
         errors = []
 
-        def hold_prepared_journal(path, value):
+        def hold_prepared_journal(path, value, **kwargs):
             try:
-                real_write(path, value)
+                real_write(path, value, **kwargs)
             except OSError as error:
                 errors.append(getattr(error, 'winerror', None))
                 raise

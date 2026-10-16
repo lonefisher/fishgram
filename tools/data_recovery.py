@@ -344,9 +344,10 @@ def _space(root: Path, files: dict) -> None:
         raise RecoveryError('Insufficient free space for a complete data copy.')
 
 
-def _copy_tree(source: Path, target: Path, files: dict) -> None:
-    target.mkdir()
-    _private_acl(target)
+def _copy_tree(source: Path, target: Path, files: dict, *, initialized=False) -> None:
+    if not initialized:
+        target.mkdir()
+        _private_acl(target)
     for relative, entry in files.items():
         source_file = source.joinpath(*_relative(relative).parts)
         target_file = target.joinpath(*_relative(relative).parts)
@@ -380,7 +381,7 @@ def _read_json(path: Path) -> dict:
         raise RecoveryError('Invalid recovery metadata.') from error
 
 
-def _write_json(path: Path, value: dict) -> None:
+def _write_json(path: Path, value: dict, *, exclusive=False) -> None:
     _reject_link(path)
     encoded = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
     if len(encoded) > MAX_MANIFEST:
@@ -392,7 +393,10 @@ def _write_json(path: Path, value: dict) -> None:
             output.write(encoded)
             output.flush()
             os.fsync(output.fileno())
-        os.replace(temporary, path)
+        if exclusive:
+            os.link(temporary, path, follow_symlinks=False)
+        else:
+            os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -707,24 +711,136 @@ def snapshot(work_dir, snapshot_root, installed_executable, version: str, *, ins
                                      f'winerror={getattr(cleanup_error, "winerror", None)}.')
 
 
+@contextlib.contextmanager
+def _restore_directory_guard(path: Path, identity=None, *, guard_parent=True):
+    """Pin owned staging during validation and cleanup without following reparse points."""
+    with (_snapshot_root_guard(path.parent) if guard_parent else contextlib.nullcontext()):
+        kernel, handle = None, None
+        try:
+            if os.name == 'nt':
+                kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+                kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong,
+                                              ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+                kernel.CreateFileW.restype = ctypes.c_void_p
+                kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+                handle = kernel.CreateFileW(str(path), 0x10000 | 0x20000 | 0x80 | 0x1,
+                                            3, None, 3, 0x02200000, None)
+                if handle == ctypes.c_void_p(-1).value:
+                    raise RecoveryError('Could not guard restore staging.')
+            actual = _directory_identity(path)
+            if identity is not None and actual != tuple(identity):
+                raise RecoveryError('Restore staging identity changed; existing data is preserved.')
+
+            def remove():
+                if kernel is None:
+                    if _directory_identity(path) != actual:
+                        raise RecoveryError('Restore staging identity changed.')
+                    path.rmdir()
+                else:
+                    _delete_owned_handle(kernel, handle)
+            yield actual, remove
+        finally:
+            if kernel is not None and handle != ctypes.c_void_p(-1).value:
+                kernel.CloseHandle(handle)
+
+
+def _delete_owned_handle(kernel, handle):
+    kernel.SetFileInformationByHandle.argtypes = [ctypes.c_void_p, ctypes.c_int,
+                                                 ctypes.c_void_p, ctypes.c_ulong]
+    disposition = ctypes.c_ubyte(1)
+    if not kernel.SetFileInformationByHandle(handle, 4, ctypes.byref(disposition), ctypes.sizeof(disposition)):
+        raise RecoveryError('Could not remove owned restore staging; explicit recovery is required.')
+
+
+def _remove_restore_stage(stage: Path, identity, files: dict, *, partial=False):
+    # Hold and validate every entry before deletion so replaced or unknown trees survive.
+    with contextlib.ExitStack() as held:
+        removals, seen = [], set()
+
+        def directory(path, expected_identity=None):
+            scope = contextlib.ExitStack()
+            held.callback(scope.close)
+            _, remove = scope.enter_context(_restore_directory_guard(path, expected_identity, guard_parent=path == stage))
+            _private_acl(path, validate_only=True, require_protected=path == stage)
+            for child in path.iterdir():
+                _reject_link(child)
+                relative = child.relative_to(stage).as_posix()
+                expected = files.get(relative)
+                if expected is None:
+                    raise RecoveryError('Unknown restore staging content; existing data is preserved.')
+                seen.add(relative)
+                if child.is_dir():
+                    if expected != {'directory': True}:
+                        raise RecoveryError('Restore staging entry type changed.')
+                    directory(child)
+                else:
+                    file_scope = contextlib.ExitStack()
+                    held.callback(file_scope.close)
+                    source = file_scope.enter_context(_snapshot_metadata_reader(child, delete_owned=True))
+                    _private_acl(child, validate_only=True, require_protected=False)
+                    size = os.fstat(source.fileno()).st_size
+                    if ('size' not in expected or size > expected['size']
+                            or (not partial and size != expected['size'])
+                            or (size == expected['size']
+                                and hashlib.file_digest(source, 'sha256').hexdigest() != expected['sha256'])):
+                        raise RecoveryError('Restore staging content changed; existing data is preserved.')
+
+                    def remove_file(source=source, child=child):
+                        if os.name == 'nt':
+                            import msvcrt
+                            _delete_owned_handle(ctypes.WinDLL('kernel32', use_last_error=True),
+                                                 msvcrt.get_osfhandle(source.fileno()))
+                        else:
+                            child.unlink()
+                    removals.append((remove_file, file_scope.close))
+            removals.append((remove, scope.close))
+
+        directory(stage, identity)
+        if not partial and seen != set(files):
+            raise RecoveryError('Restore staging content is incomplete; existing data is preserved.')
+        for remove, close in removals:
+            remove()
+            close()
+
+
 def _recover_locked(work: Path) -> str | None:
     path = work / JOURNAL
     if not path.exists():
         return None
     value = _read_json(path)
-    if (not isinstance(value, dict) or set(value) != {'schema', 'state', 'stage', 'rollback', 'old_files', 'new_files'}
-            or type(value['schema']) is not int or value['schema'] != 1
-            or value['state'] not in ('prepared', 'moving-old', 'replacing', 'committed')
+    fields = {'schema', 'state', 'stage', 'rollback', 'old_files', 'new_files'}
+    schema = value.get('schema') if isinstance(value, dict) else None
+    if (type(schema) is not int or schema not in (1, 2)
+            or set(value) != (fields if schema == 1 else fields | {'stage_identity'})
+            or value['state'] not in (('prepared', 'moving-old', 'replacing', 'committed') if schema == 1
+                                     else ('allocating', 'copying', 'prepared', 'moving-old', 'replacing', 'committed'))
             or not isinstance(value['stage'], str) or not LOCAL_FOLDER.fullmatch(value['stage'])
             or not value['stage'].startswith('.fishgram-data-stage-')
             or not isinstance(value['rollback'], str) or not LOCAL_FOLDER.fullmatch(value['rollback'])
             or not value['rollback'].startswith('.fishgram-data-rollback-')):
         raise RecoveryError('Invalid restore transaction; manual investigation is required.')
+    if schema == 2:
+        identity = value['stage_identity']
+        if ((value['state'] == 'allocating' and identity is not None)
+                or (value['state'] != 'allocating' and (not isinstance(identity, list) or len(identity) != 2
+                    or any(type(part) is not int or part < 0 for part in identity) or identity[1] == 0))
+                or value['stage'].removeprefix('.fishgram-data-stage-')
+                    != value['rollback'].removeprefix('.fishgram-data-rollback-')):
+            raise RecoveryError('Invalid restore staging ownership; manual investigation is required.')
     old_files = _valid_files(value['old_files'])
     new_files = _valid_files(value['new_files'])
     data, stage, old = work / 'tdata', work / value['stage'], work / value['rollback']
     for folder in [data, stage, old]:
         _reject_link(folder)
+    if value['state'] in ('allocating', 'copying'):
+        if old.exists() or not data.exists() or _inventory(data) != old_files:
+            raise RecoveryError('Original data changed during restore initialization; existing data is preserved.')
+        if stage.exists():
+            if value['state'] == 'allocating':
+                raise RecoveryError('Restore staging ownership was not recorded; manual investigation is required.')
+            _remove_restore_stage(stage, value['stage_identity'], new_files, partial=True)
+        path.unlink()
+        return None
     if value['state'] == 'committed':
         if _inventory(data) != new_files or _inventory(old) != old_files:
             raise RecoveryError('Committed restore verification failed; existing data is preserved.')
@@ -741,7 +857,10 @@ def _recover_locked(work: Path) -> str | None:
     elif not data.exists() or _inventory(data) != old_files:
         raise RecoveryError('Original data is unavailable; manual recovery is required.')
     if stage.exists():
-        _remove_tree(stage, work)
+        if schema == 2:
+            _remove_restore_stage(stage, value['stage_identity'], new_files)
+        else:
+            _remove_tree(stage, work)
     path.unlink()
     return None
 
@@ -773,14 +892,22 @@ def restore_snapshot(work_dir, snapshot_root, installed_executable, name: str, *
             identity = uuid.uuid4().hex
             stage = work / ('.fishgram-data-stage-' + identity)
             old = work / ('.fishgram-data-rollback-' + identity)
-            journal = {'schema': 1, 'state': 'prepared', 'stage': stage.name, 'rollback': old.name,
-                       'old_files': old_files, 'new_files': manifest['files']}
+            journal = {'schema': 2, 'state': 'allocating', 'stage': stage.name, 'rollback': old.name,
+                       'old_files': old_files, 'new_files': manifest['files'], 'stage_identity': None}
+            _write_json(work / JOURNAL, journal, exclusive=True)
             try:
-                _copy_tree(folder / 'tdata', stage, manifest['files'])
-                _closed(exe, process_probe)
-                if _inventory(stage) != manifest['files'] or _inventory(work / 'tdata') != old_files:
-                    raise RecoveryError('Data changed while preparing the restore.')
-                _write_json(work / JOURNAL, journal)
+                stage.mkdir()
+                _private_acl(stage)
+                with _restore_directory_guard(stage) as (stage_identity, _):
+                    journal['stage_identity'] = list(stage_identity)
+                    journal['state'] = 'copying'
+                    _write_json(work / JOURNAL, journal)
+                    _copy_tree(folder / 'tdata', stage, manifest['files'], initialized=True)
+                    _closed(exe, process_probe)
+                    if _inventory(stage) != manifest['files'] or _inventory(work / 'tdata') != old_files:
+                        raise RecoveryError('Data changed while preparing the restore.')
+                    journal['state'] = 'prepared'
+                    _write_json(work / JOURNAL, journal)
                 journal['state'] = 'moving-old'
                 _write_json(work / JOURNAL, journal)
                 os.replace(work / 'tdata', old)
@@ -803,9 +930,6 @@ def restore_snapshot(work_dir, snapshot_root, installed_executable, name: str, *
                     except Exception as recovery_error:
                         raise RecoveryError('Restore failed; a saved journal and rollback require explicit recovery.') from recovery_error
                 raise RecoveryError('Restore failed; previous account data is preserved.') from error
-            finally:
-                if stage.exists() and not (work / JOURNAL).exists():
-                    _remove_tree(stage, work)
 
 
 def main(argv=None) -> int:
