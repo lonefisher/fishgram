@@ -187,6 +187,8 @@ class CandidatePackagingTests(unittest.TestCase):
             self.assertEqual(bundle.read('LICENSE'), b'GPL fixture')
             self.assertEqual(bundle.read('LEGAL'), b'OpenSSL exception fixture')
             self.assertNotIn(b'-many', bundle.read('Start-FishGram.cmd'))
+            self.assertNotIn(b'not a public release', bundle.read('README.txt'))
+            self.assertIn(b'not Windows Authenticode', bundle.read('README.txt'))
 
     def test_release_debug_policy_survives_actual_zip_and_rejects_mismatch(self):
         self.recipe['releaseDebugInformation'] = 'None'

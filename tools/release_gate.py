@@ -364,7 +364,7 @@ def package_candidate(root, record_path, output):
             bundle.write(source / "LICENSE", "LICENSE")
             bundle.write(source / "LEGAL", "LEGAL")
             bundle.writestr("Start-FishGram.cmd", '@echo off\r\nsetlocal\r\nif not exist "%~dp0FishGramData" mkdir "%~dp0FishGramData"\r\nstart "" "%~dp0Telegram.exe" -workdir "%~dp0FishGramData"\r\n')
-            bundle.writestr("README.txt", "FishGram internal candidate for Windows 11 x64. This is not a public release. The FishGram updater signature is not Windows Authenticode.\r\n")
+            bundle.writestr("README.txt", "FishGram portable package for Windows 11 x64. FishGram update signatures are not Windows Authenticode; the Windows executable is not Authenticode-signed. Check the FishGram release page for this package's acceptance status and known limitations.\r\n")
             bundle.writestr("build-manifest.json", json.dumps(manifest, indent=2) + "\n")
         manifest["archive"] = {"name": archive_path.name, "sha256": sha256_file(archive_path), "size": archive_path.stat().st_size}
         (output / "build-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

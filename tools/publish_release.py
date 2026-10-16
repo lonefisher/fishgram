@@ -457,7 +457,7 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
         api.create_source_tag(plan.tag, source_commit)
     if not plan.reuse_release:
         api.create_release(plan.tag, plan.target_commit, plan.tag,
-                           "FishGram signed Windows x64 release. See attached corresponding source and QA records.",
+                           "FishGram portable release for Windows 11 x64. FishGram update packages use our own update signature, not Windows Authenticode. The Windows executable is not Authenticode-signed. See attached corresponding source, QA records and known limitations.",
                            prerelease=plan.package_channel == "beta")
     for asset in plan.assets:
         if not plan.reuse_release:

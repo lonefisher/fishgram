@@ -49,6 +49,7 @@ class FakeApi:
         return self.index
 
     def create_release(self, tag, target, title, body, *, prerelease=False):
+        self.release_body = body
         self.events.append(("create_release", tag, target))
         self.tags.add(tag)
         self.releases.add(tag)
@@ -143,6 +144,12 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_public_download_description_distinguishes_updater_and_authenticode_signatures(self):
+        api = FakeApi()
+        publish_plan(api)
+        self.assertIn('not Windows Authenticode', api.release_body)
+        self.assertIn('update packages', api.release_body)
+
     def test_reuse_resumes_beta_index_after_pages_failure_without_release_writes(self):
         from dataclasses import replace
         for channel in ('beta', 'stable'):
