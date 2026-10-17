@@ -69,6 +69,11 @@ class Stub:
                                         "source": {"branch": "gh-pages", "path": "/"}}).encode()
         if path.endswith('/git/ref/heads/gh-pages') and method == 'GET':
             return 200, {}, json.dumps({'object': {'type': 'commit', 'sha': 'a' * 40}}).encode()
+        if path.endswith('/git/ref/heads/custom/main') and method == 'GET':
+            return 200, {}, json.dumps({'object': {'type': 'commit', 'sha': 'e' * 40}}).encode()
+        if '/compare/' in path and method == 'GET':
+            return 200, {}, json.dumps({'status': 'ahead', 'base_commit': {'sha': 'c' * 40},
+                                       'merge_base_commit': {'sha': 'c' * 40}}).encode()
         if path.endswith('/git/commits/' + 'a' * 40) and method == 'GET':
             return 200, {}, json.dumps({'tree': {'sha': 'b' * 40}}).encode()
         if path.endswith('/git/blobs') and method == 'POST':
@@ -95,13 +100,16 @@ class Stub:
         if path.endswith("/git/ref/tags/v7.2.9-r1") and method == "GET":
             tag_set = self.tags if repo == transport_module.PRODUCT_REPOSITORY else getattr(self, "source_tags", set())
             exists = "v7.2.9-r1" in tag_set
-            return (200, {}, b'{"ref":"refs/tags/v7.2.9-r1"}') if exists else (404, {}, b"")
+            target = getattr(self, 'created_product_target', None) if repo == transport_module.PRODUCT_REPOSITORY else None
+            value = {'object': {'type': 'commit', 'sha': target}} if target else {'ref': 'refs/tags/v7.2.9-r1'}
+            return (200, {}, json.dumps(value).encode()) if exists else (404, {}, b"")
         if path.endswith("/releases/tags/v7.2.9-r1") and method == "GET":
             if "v7.2.9-r1" not in self.releases:
                 return 404, {}, b""
             return 200, {}, json.dumps(self.releases["v7.2.9-r1"]).encode()
         if path.endswith("/releases") and method == "POST":
             payload = json.loads(body)
+            self.created_product_target = payload['target_commitish']
             self.tags.add(payload["tag_name"])
             rid = self.next_id
             self.next_id += 1
@@ -140,6 +148,23 @@ class Stub:
 
 
 class GithubReleaseTransportTests(unittest.TestCase):
+    def test_source_main_ancestry_rejects_unmerged_or_wrong_merge_base(self):
+        for status, merge_base in (('diverged', 'd' * 40), ('behind', 'c' * 40),
+                                    ('ahead', 'd' * 40)):
+            stub = Stub()
+            original = stub.__call__
+            def request(method, url, headers, body, timeout):
+                if '/compare/' in url:
+                    return 200, {}, json.dumps({'status': status, 'base_commit': {'sha': 'c' * 40},
+                        'merge_base_commit': {'sha': merge_base}}).encode()
+                return original(method, url, headers, body, timeout)
+            api = transport_module.GitHubReleaseTransport(product_token='fixture',
+                source_token='source-fixture', request=request)
+            with self.subTest(status=status, merge_base=merge_base):
+                with self.assertRaises(transport_module.TransportError):
+                    api.verify_source_merged('c' * 40)
+                self.assertTrue(all(call[0] == 'GET' for call in stub.calls))
+
     def trust_bundle(self, version=2):
         return {"keys/root-public.pem": b"same-root", "keys/issuer-public.pem": b"issuer",
             "keys/manifest.min.json": json.dumps({"format": 1, "manifest_version": version}).encode(),

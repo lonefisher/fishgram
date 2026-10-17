@@ -163,6 +163,24 @@ class GitHubReleaseTransport:
             return True
         return False
 
+    def verify_source_merged(self, commit: str) -> None:
+        if not isinstance(commit, str) or not re.fullmatch('[a-f0-9]{40}', commit):
+            raise TransportError('Source candidate commit is malformed.')
+        _, _, body = self._api('GET', f'/repos/{SOURCE_REPOSITORY}/git/ref/heads/custom/main',
+                               repository=SOURCE_REPOSITORY)
+        value = self._json(body, 'Source main ref').get('object', {})
+        tip = value.get('sha') if isinstance(value, dict) else None
+        if (not isinstance(tip, str) or not re.fullmatch('[a-f0-9]{40}', tip)
+                or value.get('type') != 'commit'):
+            raise TransportError('Authoritative source main ref is malformed.')
+        _, _, body = self._api('GET', f'/repos/{SOURCE_REPOSITORY}/compare/{commit}...{tip}?per_page=1',
+                               repository=SOURCE_REPOSITORY)
+        comparison = self._json(body, 'Source ancestry')
+        if (comparison.get('status') not in ('ahead', 'identical')
+                or comparison.get('base_commit', {}).get('sha') != commit
+                or comparison.get('merge_base_commit', {}).get('sha') != commit):
+            raise TransportError('Source candidate is not an ancestor of authoritative custom/main.')
+
     def tag_commit(self, repository: str, tag: str) -> str:
         """Resolve a lightweight or annotated tag to a commit without trusting URLs."""
         repository = self._repository(repository)

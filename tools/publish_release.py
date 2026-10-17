@@ -233,6 +233,7 @@ class ReleaseTransport(Protocol):
     def pages_config(self) -> dict: ...
     def create_source_tag(self, tag: str, target: str) -> None: ...
     def publish_release(self, tag: str) -> None: ...
+    def verify_source_merged(self, commit: str) -> None: ...
 
 
 def supports_split_channel_feed(root: Path) -> bool:
@@ -453,12 +454,21 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
         api.preflight_pages({item.path: item.data for item in plan.page_files})
     except Exception as error:
         raise PublishError('Authoritative Pages trust rejected publication before release writes.') from error
+    try:
+        api.verify_source_merged(source_commit)
+    except Exception as error:
+        raise PublishError('Source candidate is not verified on authoritative custom/main; stopped before writes.') from error
     if not plan.reuse_release and not source_tag_exists:
         api.create_source_tag(plan.tag, source_commit)
     if not plan.reuse_release:
         api.create_release(plan.tag, plan.target_commit, plan.tag,
                            "FishGram portable release for Windows 11 x64. FishGram update packages use our own update signature, not Windows Authenticode. The Windows executable is not Authenticode-signed. See attached corresponding source, QA records and known limitations.",
                            prerelease=plan.package_channel == "beta")
+        try:
+            if api.tag_commit(PRODUCT_REPOSITORY, plan.tag) != parent_commit:
+                raise PublishError('Created product tag differs from the exact candidate commit.')
+        except Exception as error:
+            raise PublishError('Created product tag could not be verified; no assets were uploaded.') from error
     for asset in plan.assets:
         if not plan.reuse_release:
             try:

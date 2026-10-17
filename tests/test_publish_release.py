@@ -36,6 +36,9 @@ class FakeApi:
     def tag_commit(self, repository, tag):
         return "b" * 40 if repository == publish.PRODUCT_REPOSITORY else "c" * 40
 
+    def verify_source_merged(self, commit):
+        self.events.append(('source_merged', commit))
+
     def source_tag_exists(self, tag):
         self.events.append(("source_tag_exists", tag))
         return tag in self.source_tags
@@ -144,6 +147,22 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_unmerged_source_stops_before_any_publication_write(self):
+        api = FakeApi()
+        api.verify_source_merged = mock.Mock(side_effect=RuntimeError('unmerged source'))
+        with self.assertRaises(publish.PublishError):
+            publish_plan(api)
+        self.assertFalse(any(event[0] in {'source_tag', 'create_release', 'upload',
+                                          'publish_release', 'atomic_pages', 'page'} for event in api.events))
+
+    def test_racing_product_tag_target_stops_before_upload_or_publish(self):
+        api = FakeApi()
+        api.tag_commit = mock.Mock(return_value='d' * 40)
+        with self.assertRaises(publish.PublishError):
+            publish_plan(api)
+        self.assertFalse(any(event[0] in {'upload', 'publish_release', 'atomic_pages', 'page'}
+                             for event in api.events))
+
     def test_public_download_description_distinguishes_updater_and_authenticode_signatures(self):
         api = FakeApi()
         publish_plan(api)
