@@ -1,0 +1,94 @@
+schema: comet.native.v4
+name: fishgram-repository-architecture
+language: zh-CN
+phase: build
+status: active
+state_version: 3
+brief: brief.md
+document_constraints_version: 1
+shape_confirmation_hash: 236fd3a16bc026af3a0e231748a0d51fabad874db04245de0d79534db3de7a38
+spec_changes:
+  - capability: repository-architecture
+    operation: create
+    source: specs/repository-architecture/spec.md
+workspace:
+  isolation: worktree
+  change_branch: comet/fishgram-repository-architecture
+  target_branch: main
+  finish: null
+loop:
+  stage: building
+  goal_cycle: 1
+  iteration: 1
+  attempt: 0
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: submit-builder-candidate
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：迁移前已验证 Git bundle、工作树 patch、暂存
+      patch、所有新增源码与实际五组测试的哈希备份；运行数据快照仅在目标实例正常退出后创建，并验证文件完整性。
+    result: pending
+    reason: null
+  - id: A2
+    source: brief.md
+    text: A2：公开源码 fork 的 parent 是 telegramdesktop/tdesktop；custom/main
+      以固定官方提交与审查的定制源码为基础；所有实际测试被跟踪，AGENTS.md 与对应官方版本完全一致，私有本机文档提交不在公开分支祖先中。
+    result: pending
+    reason: null
+  - id: A3
+    source: brief.md
+    text: A3：公开父仓库 main 的 .gitmodules URL 指向源码 fork，tdesktop gitlink
+      模式为160000且提交在远端可取；全新递归克隆可取得预期源码与子模块，官方历史与当前功能文件保留。
+    result: pending
+    reason: null
+  - id: A4
+    source: brief.md
+    text: A4：定制指令仅在父 AGENTS.md，唯一更新维护正文在父 docs/UPDATING.md，源码 README 明确 FishGram
+      非官方身份并指向父仓库；维护指南覆盖修复、升级、回退、换机器和后续发行门槛。
+    result: pending
+    reason: null
+  - id: A5
+    source: brief.md
+    text: A5：两个公开仓库与待发布历史不含凭据、账户数据、原始日志/截图、真实查询词/私人频道名、机器私有配置；忽略规则覆盖运行时、缓存和暂存包。公开验证记录使用匿名结论与提交、哈希。
+    result: pending
+    reason: null
+  - id: A6
+    source: brief.md
+    text: A6：构建、测试、准备、打包工具读取固定配方并定位工具链，移除用户名、VS绝对路径、官方版本硬编码；依赖缺失、身份缺失、版本不一致和既有包路径均明确失败，不输出API参数。
+    result: pending
+    reason: null
+  - id: A7
+    source: brief.md
+    text: A7：干净打包暂存区与运行目录不同；包白名单检查拒绝账号数据、私有配置、日志及未批准文件；生成源码/子模块/工具链/产物哈希清单，父许可与依赖许可保留。
+    result: pending
+    reason: null
+  - id: A8
+    source: brief.md
+    text: A8：现有 restricted-global-search
+      的状态与八项验收未被重置或伪造通过，r7程序和账号数据未被替换；新增架构、云端发行和自动更新拥有独立 Comet
+      工作；只有完整发行门槛通过才允许公开安装包。
+    result: pending
+    reason: null
+builder_handoff: null
+blockers: []
+verification: null
+history: []
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-10-02T14:10:31.398Z

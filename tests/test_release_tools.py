@@ -10,6 +10,28 @@ spec.loader.exec_module(release)
 
 
 class PackageSafetyTests(unittest.TestCase):
+    def test_payload_must_match_hashes_recorded_at_build_time(self):
+        with tempfile.TemporaryDirectory() as temp:
+            program = Path(temp) / 'Telegram.exe'
+            program.write_bytes(b'cloud candidate')
+            record = {'files': {program.name: {'size': program.stat().st_size,
+                                               'sha256': release.sha256(program)}}}
+            release.verify_built_payload([program], record)
+            program.write_bytes(b'changed payload')
+            with self.assertRaisesRegex(ValueError, 'differs from the built candidate'):
+                release.verify_built_payload([program], record)
+
+    def test_missing_or_extra_build_hashes_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            program = Path(temp) / 'Telegram.exe'
+            program.write_bytes(b'candidate')
+            entry = {'size': program.stat().st_size, 'sha256': release.sha256(program)}
+            for files in (None, {}, {program.name: entry, 'extra.dll': entry},
+                          {program.name: {'size': True, 'sha256': entry['sha256']}},
+                          {program.name: {'size': entry['size'], 'sha256': 'bad'}}):
+                with self.assertRaises(ValueError):
+                    release.verify_built_payload([program], {'files': files})
+
     def test_numeric_version_handles_same_baseline_and_large_integers(self):
         first = release.update_version('7.2.9', 8)
         second = release.update_version('7.2.9', 9)

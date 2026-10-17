@@ -3,6 +3,9 @@ $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 $drive=Get-PSDrive -Name ([IO.Path]::GetPathRoot($root).Substring(0,1))
 $record=[ordered]@{ label=$Label; utc=[DateTime]::UtcNow.ToString('o'); freeBytes=$drive.Free; usedBytes=$drive.Used; logicalProcessors=[Environment]::ProcessorCount; directories=@{} }
+$memoryJson = & python (Join-Path $PSScriptRoot 'native_memory.py') --label build-context --output (Join-Path $root 'reports/memory-resource-diagnostics.json')
+if ($LASTEXITCODE -ne 0) { throw 'Windows memory measurement failed.' }
+$record.memory = ($memoryJson | ConvertFrom-Json).memory
 foreach ($directory in @('Libraries','ThirdParty','build-modified')) {
     $path=Join-Path $root $directory
     if (Test-Path -LiteralPath $path) {

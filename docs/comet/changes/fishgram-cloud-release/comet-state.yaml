@@ -1,0 +1,323 @@
+schema: comet.native.v4
+name: fishgram-cloud-release
+language: zh-CN
+phase: build
+status: active
+state_version: 24
+brief: brief.md
+document_constraints_version: 1
+shape_confirmation_hash: 5a8f359331a601d5770341733413ed4749514880755bea90494bea35e585b112
+spec_changes:
+  - capability: cloud-release
+    operation: create
+    source: specs/cloud-release/spec.md
+workspace:
+  isolation: worktree
+  change_branch: comet/fishgram-cloud-release-implementation
+  target_branch: main
+  finish: null
+loop:
+  stage: repairing
+  goal_cycle: 1
+  iteration: 6
+  attempt: 0
+  retry_epoch: 1
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids:
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  next_action: submit-builder-candidate
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：产品名称、独立图标、应用ID、默认数据目录统一FishGram，自己的API身份，非官方说明、基本功能与广告保留，无新增遥测/官方崩溃上报。
+    result: pending
+    reason: null
+  - id: A2
+    source: brief.md
+    text: A2：源码和子模块一致性、五组生产helper、脚本及测试身份编译对全部PR运行；外部PR无法访问发行API或签名密钥。
+    result: pending
+    reason: null
+  - id: A3
+    source: brief.md
+    text: A3：标准Windows
+      runner从固定父/源/递归依赖提交无缓存实际完成准备与客户端构建，记录空间、耗时、工具链和程序哈希；如失败报告实际瓶颈，不算本机成功。
+    result: pending
+    reason: null
+  - id: A4
+    source: brief.md
+    text: A4：可信依赖缓存按平台/工具链/准备内容精确绑定，实际缓存构建通过且不缓存或上传API配置/客户端编译目录。
+    result: pending
+    reason: null
+  - id: A5
+    source: brief.md
+    text: A5：受保护环境和分支检查有效，产品候选从已审查输入使用FishGram身份；所有发行前置门槛未通过时没有公开二进制或更新索引。
+    result: pending
+    reason: null
+  - id: A6
+    source: brief.md
+    text: A6：首次和重复官方检查、冲突、CI失败均正确；机器人使用仅两仓库GitHub App创建关联PR/去重记录，不能绕过检查、自动发布或更新客户端。
+    result: pending
+    reason: null
+  - id: A7
+    source: brief.md
+    text: A7：清单包含父/源/递归提交、工具链、平台渠道完整版本及产物SHA256；对应源码与构建脚本、GPLv3/OpenSSL例外/依赖许可完整。
+    result: pending
+    reason: null
+  - id: A8
+    source: brief.md
+    text: A8：实测同一云端候选后不重编译，人工签名对应程序哈希，发布附件并公开下载核验后最后更新索引；已发布标签附件不覆盖。
+    result: pending
+    reason: null
+builder_handoff:
+  candidate_id: e6ca863b-96e6-4971-80d4-e1fb8670dea3
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:4f2f5bf8-73de-4f3c-9bd5-1305cac20909
+  iteration: 5
+  summary:
+    text: "Frozen parent6222387/sourcee222 pushed. New publication findings fixed:
+      candidate tag C vs reviewed Q, global channel lock, protected reuse input,
+      exact existing tags, official ancestor at package/sign gates and complete
+      history. Independent review passed after P2 repair. 247 full Python
+      tests234pass13skip; current focused publication31/transport17/gate46 pass.
+      Prior cfac same-tree cloud success retained as historical only;
+      current38269383003 live. No production candidate or release."
+    truncated: false
+  addressed_acceptance_ids:
+    - A2
+    - A3
+    - A5
+    - A7
+    - A8
+  checks:
+    - name:
+        text: Affected publication and ancestor regression
+        truncated: false
+      result: passed
+      note:
+        text: Publication31 transport17 gate46, independent recheck pass; full
+          suite234passed13skipped not counted passed
+        truncated: false
+    - name:
+        text: Exact current source archive
+        truncated: false
+      result: passed
+      note:
+        text: '{"parentCommit":"6222387aad514b0024b88109d6e4aab0e1d9b82b","sourceCommit":"e222737896c041be450eaac251208d5e1eb76f8e","archive":"cloud-source-6222387.zip","archiveSha256":"e72a97440d81d749c47458521d60cc0cc5bf5953275041c5df14d1dc4ce85295","archiveBytes":85788898,"repositories":41,"verifiedFiles":15825,"licenseSummary":{"repositoryCount":41,"archiveFileCount":15825,"licensePathCount":93,"linkedOnlyRepositoryCount":40,"unresolvedRepositoryCount":0},"productionCandidateEvidence":false}'
+        truncated: false
+    - name:
+        text: Current full cloud and protected production acceptance
+        truncated: false
+      result: not-run
+      note:
+        text: Current38269383003/job114880382939 preparing; prior cfac success does not
+          replace622; product/Win11/account/recovery incomplete
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: Current cloud38269383003 is live; do not restart. Cache hit build remains
+        unverified. Prior cfac successful test identity no product hashes.
+      truncated: false
+    - text: User confirmed reboot; Sandbox exe and services present, actual GUI
+        start/product acceptance not performed. Original search and install
+        matrix incomplete.
+      truncated: false
+    - text: Upstream successful linked PR and CI failure flow remain unverified; daily
+        upgrade bot disabled. No public release approval.
+      truncated: false
+    - text: KeePass root/issuer restore verified; OneDrive full database restoration
+        unverified; user waived offline copy.
+      truncated: false
+  known_limits_truncated: false
+  review: null
+  submitted_at: 2026-10-12T15:23:02.858Z
+blockers: []
+verification: null
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: Independent read-only review of A1-A8 for parent b606bca/source e222737.
+        A2 passes from checked-in PR workflow configuration and the three bound
+        Runtime checks; A1 and A3-A8 remain blocked by missing production
+        identity/configuration, current-candidate cloud and cache runs,
+        authenticated GitHub metadata, exact product archive, and real
+        Windows/release evidence. Synthetic tests are reported only as synthetic
+        evidence. No release approval.
+      truncated: false
+    completed_at: 2026-10-08T15:49:36.229Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 用户明确要求继续独立核查，并补充15:52 UTC GitHub API状态：父run 37785610848 (head 7ba2169)
+        与源码run 37785578154 (head e222737) 均进入client
+        compile；这两个run不是冻结的本地候选b606bca。继续只读核查当前scope并以实际权威读回更新结论。
+      truncated: false
+    completed_at: 2026-10-08T15:50:29.691Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 2
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: A1、A3、A4、A5、A6、A7、A8 均缺少其完整验收所需的真实证据，全部保持 blocked。A2 已由既有 Runtime
+        状态通过，不在本轮 scope。当前没有首发或公开发布依据。
+      truncated: false
+    completed_at: 2026-10-08T16:08:52.951Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 2
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: User authorized completing the full plan. Preserve external blockers and
+        original independent reports; fix the same missing official-baseline
+        traceability in protected and internal package manifests, and restore
+        exact-source archive evidence using the authorized Git metadata path.
+      truncated: false
+    completed_at: 2026-10-08T16:15:49.599Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: 已逐项核验当前候选 A1-A8。A2 通过；A1、A3-A8 因自有 API/真实云端产品构建、缓存构建、GitHub App 或实际
+        Windows/签名发布证据缺失而阻塞。A7 源码与许可部分已真实验证，完整产品清单和 QA 仍缺。保留先前报告中的外部阻塞；不以合成程序、旧
+        CI 输入或回归夹具替代产品验收。
+      truncated: false
+    completed_at: 2026-10-08T16:39:37.261Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 实际父仓库冷缓存测试身份CI37785610848在链接阶段失败，脱敏诊断只有LNK1102，磁盘剩余82.85GB但缺少内存提交量与链接器宿主证据。按用户已批准完整范围修复云端诊断遗漏并重新验证；保持自有API/App/密钥和实机发行外部阻塞，绝不以重试或合成产物替代通过。
+      truncated: false
+    completed_at: 2026-10-08T17:49:55.715Z
+  - goal_cycle: 1
+    iteration: 3
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: "Independent read-only verification of frozen candidate
+        cd2d1f3330c3fa85983f041e009533a1b174f694 / source
+        e222737896c041be450eaac251208d5e1eb76f8e, iteration 3 attempt 1. A1 and
+        A2 pass: FishGram identity (name, AUMID FishGram.Desktop, own COM UUID,
+        icons, FishGramData, own update trust, own-API secrets provisioned) is
+        implemented in the verified source tree, and source e222737 passed full
+        CI on run 37785578154 with PR-level credential hygiene and clean
+        recursive pins. A3-A8 blocked: no cloud build exists for this candidate
+        (live run is on older 825a33f and still compiling); no product
+        candidate, build manifest, signing or publication sequence was ever
+        executed; A6 has real App conflict-and-dedup evidence but lacks the
+        successful linked-PR and CI-failure paths. Ruleset bypass actors are not
+        visible to app-scoped reads; maintainer authenticated readback confirms
+        the documented release-App-only tag creation and gh-pages rules are
+        correctly configured, and the earlier denial inference is retracted.
+        Four bound Runtime checks passed; builder-reported regressions
+        corroborated where logs exist. No acceptance relaxation; verdict
+        blocked."
+      truncated: false
+    completed_at: 2026-10-11T15:37:37.843Z
+  - goal_cycle: 1
+    iteration: 3
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 发现父PR五项具体发布审查阻塞；继续按已批准方案修正发布提交绑定、Pages异步读回、复用交接、目标平台及暂存清理，不更改验收标准。
+      truncated: false
+    completed_at: 2026-10-12T10:17:23.476Z
+  - goal_cycle: 1
+    iteration: 4
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: 独立Verifier已先通过同一当前Comet
+        CLI提交verifier-started并读回confirmed，再对精确父cfacb8c/源e222737的brief/spec
+        A1-A8各核验一次。A1/A2 passed，A3-A8
+        blocked，整体blocked；当前云端38236613947仍live准备依赖，不是失败也未完成。复用本候选1组Runtime70项无跳过收据及未失效源码证据；当前仓库CI成功但13跳过，当前对应源码/93项许可哈希匹配，不能替代生产云端和实机。所有缺证据、风险和配置读取限制如实保留；无委派、源码/Git修改、GUI、secret值读取、merge/push/公开写入或外发消息。只写.private检查/结果JSON，最终verifier-response留给主代理提交，未自行向Runtime提交final-result。
+      truncated: false
+    completed_at: 2026-10-12T11:07:30.337Z
+  - goal_cycle: 1
+    iteration: 4
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 按已批准完整方案继续修复当前提交新增审查问题：发行标签固定候选构建提交、所有渠道串行发布、受保护复用入口及官方基线祖先验证。当前cfacb8c无缓存云端成功，保留原证据，不放宽实机与发行验收。
+      truncated: false
+    completed_at: 2026-10-12T14:57:18.326Z
+  - goal_cycle: 1
+    iteration: 5
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: New publication recovery review4249715228 needs bounded repair; preserve
+        all acceptance requirements.
+      truncated: false
+    completed_at: 2026-10-12T15:38:39.665Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-10-02T14:46:14.908Z

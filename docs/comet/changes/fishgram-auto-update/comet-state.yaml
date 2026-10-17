@@ -1,0 +1,432 @@
+schema: comet.native.v4
+name: fishgram-auto-update
+language: zh-CN
+phase: verify
+status: await-user
+state_version: 10
+brief: brief.md
+document_constraints_version: 1
+shape_confirmation_hash: 6e6c9a7297145154d3e4e138b70f4f7d12da0d29c27be918e66fb9f469185e5a
+spec_changes:
+  - capability: auto-update
+    operation: create
+    source: specs/auto-update/spec.md
+workspace:
+  isolation: worktree
+  change_branch: comet/fishgram-auto-update
+  target_branch: main
+  finish: null
+loop:
+  stage: await-user
+  goal_cycle: 1
+  iteration: 2
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids:
+    - A3
+    - A7
+    - A8
+  next_action: resolve-verifier-blocker
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：FishGram发现源与v2-only实际有效，官方发现/RSA包不可作为回退，平台/渠道/完整版本绑定。
+    result: passed
+    reason:
+      text: 独立核对固定 FishGram feed 和 v2-only 验签/客户端发现路径；没有官方 HTTP/MTP 或 RSA 安装回退。候选绑定的
+        source-and-scripts、update-production 和 all-tool-tests Runtime 检查通过，生产
+        Windows 载荷/v2 验签及 feed 定向测试通过。
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：同基线r8→r9、跨基线、Beta主动选择/转稳定新修订、旧版本及JSON大整数均正确处理，客户端/Packer/ready/Updater一致。
+    result: passed
+    reason:
+      text: 核对完整 64 位版本在客户端、Packer、ready 标记和 Updater 的路径，以及十进制字符串/大整数解析；同基线修订、跨基线、Beta
+        opt-in 与从 Beta feed 接受稳定新修订均有生产实现测试。update-production、all-tool-tests
+        检查通过。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：根签名清单验证、单调版本、年度发行键过期/续期/吊销/回退拒绝、45天提醒、根离线加密备份及手动重装文档通过。
+    result: blocked
+    reason:
+      text: 签名 manifest 单调版本、续期/吊销/回退和 45 天提醒有实现及定向测试，密钥维护和手动重装文档存在；但当前无生产 root/issuer
+        trust 与签名环境，也无可核实的独立离线加密 root 备份。测试 fixture 不能证明生产密钥保管和恢复已经完成。
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：自动下载可禁用；完成仅提示下次重启，不退出/抢窗口，多个workdir和同安装单事务正确，启动器不默认-many。
+    result: passed
+    reason:
+      text: 核对稳定默认自动检查、Beta 显式选择、关闭自动更新、ready 后提示下次重启、按 workdir 隔离及安装事务互斥、启动器参数；候选绑定的
+        update-transactions、all-tool-tests 通过。
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：损坏/错误签名/官方/旧包、大小/哈希/目标/渠道错误、路径穿越及账户目录载荷被实际拒绝且当前客户端可继续。
+    result: passed
+    reason:
+      text: 实际 Windows 生产验签与事务测试和 Python/Packer
+        测试覆盖坏包、错误签名、官方/旧包、目标/渠道/版本/大小/哈希不匹配、路径穿越及账户目录载荷拒绝；Runtime 的
+        update-production、update-transactions、all-tool-tests
+        均通过，客户端失败后保留当前程序的路径已核对。
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：中断/断网/服务不可达重试和理解性错误；空间不足、权限失败、进程未退、文件占用均不破坏现有程序。
+    result: passed
+    reason:
+      text: 核对下载失败/重试及可理解错误、空间/权限/运行中进程/文件占用预检和事务恢复；本轮 Windows update-transactions 与
+        all-tool-tests 通过。该结论是当前候选的定向自动化验证，不代表未做的完整 Win11/UAC 实机矩阵。
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7：事务备份、替换失败/中断恢复、最近三程序版本、跨基线退出后两份数据快照、显式数据恢复和独立手动回退实测。
+    result: blocked
+    reason:
+      text: 候选原生 Windows 事务、替换失败/中断恢复、程序备份和 synthetic account snapshot/recovery
+        检查通过；但验收要求的跨官方基线真实账户退出后快照、显式数据恢复及独立手动程序回退未被接受。当前没有真实账户迁移/恢复验证，不能用合成测试替代。
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8：干净Windows11首次运行，实际云端同一候选签名/更新安装/恢复链路通过；搜索与云端门槛全过才首发，未通过不发布索引。
+    result: blocked
+    reason:
+      text: 没有干净 Windows 11 首次运行及同一候选实际云端签名、更新安装、故障恢复验收；当前精确候选完整 CI 仍待完成，FishGram API
+        identity、生产 trust/signing keys、发行/Pages 环境未配置。当前候选未公开发布索引，公开门槛未满足。
+      truncated: false
+builder_handoff:
+  candidate_id: 60ab531b-4d9e-414b-8986-3924b89c559c
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:806b4674-5af1-45a4-acaa-8e9e86a30d49
+  iteration: 2
+  summary:
+    text: Stable parent 7ba2169b5d95e2c8406d919e87ed82aef8cd6eeb/source
+      e222737896c041be450eaac251208d5e1eb76f8e pushed source-first to existing
+      draft PRs. Repairs fresh-runner temporary paths and elevated fixture
+      trust, validates native snapshot owner/DACL without modifying existing
+      snapshots, permits real read-only lock interoperability, and documents
+      production GitHub configuration. Upgrade environment now protected-branch
+      only; candidate/release reviewers preserved. No main merge, production
+      secrets, real account writes, tags, binary release or index promotion.
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+  checks:
+    - name:
+        text: Actual Windows native and Python interoperability
+        truncated: false
+      result: passed
+      note:
+        text: ".private/native-acl-integration-final.log: strict native and Updater
+          compilation, 36 data tests no skips, production v2 60/63 checks and
+          Packer11."
+        truncated: false
+    - name:
+        text: All tooling with mandatory compiled fixtures
+        truncated: false
+      result: passed
+      note:
+        text: .private/python-acl-candidate-final.log:198/198 no skips, actual compiled
+          snapshot/Packer/verifier configured.
+        truncated: false
+    - name:
+        text: Actual elevated cloud runner regression
+        truncated: false
+      result: passed
+      note:
+        text: GitHub source37784975830 at e222737 success; actual elevated=1;
+          helper/search/transactions and data35pass+1nativeinteropskip. This is
+          not full client compilation or actual UAC.
+        truncated: false
+    - name:
+        text: Clean public recursive clone
+        truncated: false
+      result: passed
+      note:
+        text: ".private/clone-check-74e3281: exact74e3281/6fed833 and40submodules
+          matched; scoped to that historical candidate, not newmain."
+        truncated: false
+    - name:
+        text: Exact current corresponding source and license inventory
+        truncated: false
+      result: passed
+      note:
+        text: 7ba2169 archive41repos15811files
+          SHA256739bf8766465ee00ec40a850b3b9ce3eb8fafa645bdfb3186191da14569c8f92;
+          private source-pin-check-7ba2169.zip and
+          source-license-inventory-7ba2169.json.
+        truncated: false
+    - name:
+        text: Production cloud and real account acceptance
+        truncated: false
+      result: not-run
+      note:
+        text: New exact source/parent full test-identity CI dispatched; productAPI,
+          productiontrust/keys, offline rootbackup/App and
+          Windows11/account/searchmatrix remain absent.
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: Own FishGram API identity absent locally and in candidate environment;
+        never reuse old other-app credentials.
+      truncated: false
+    - text: Independent offline root backup and production root/issuer trust/signing
+        secrets absent; encrypted OneDrive supplemental only.
+      truncated: false
+    - text: Upgrade/release Apps and Pages unconfigured; upgrade environment branch
+        restriction fixed. No real external release.
+      truncated: false
+    - text: Current full exact-commit CI still pending; earlier cold/warm successes
+        use older test identity and autoUpdateOFF.
+      truncated: false
+    - text: Real clean Windows11, UAC prompts, cross-token recovery, actual account
+        migration/recovery and installation matrix not accepted.
+      truncated: false
+    - text: Original restricted-global-search remains2/8; no
+        media/UI/settings/performance target changes.
+      truncated: false
+    - text: One historical native snapshot fixture exit3 cause remains unknown;
+        diagnostics improved, directed current native tests successful; no
+        unsupported antivirus/storage attribution.
+      truncated: false
+    - text: Original migration scene and r7 untouched; actual account migration backup
+        not accepted.
+      truncated: false
+  known_limits_truncated: false
+  review: null
+  submitted_at: 2026-10-08T13:40:26.980Z
+blockers:
+  - owner: user
+    reason:
+      text: 独立核对候选 parent 7ba2169b5d95e2c8406d919e87ed82aef8cd6eeb 与 source
+        e222737896c041be450eaac251208d5e1eb76f8e、brief/Spec、A1-A8、候选绑定的六组
+        Runtime 检查日志及 Git 提交身份。A1、A2、A4、A5、A6 passed；A3、A7、A8 blocked。六组 Runtime
+        检查均为 PASS 并与当前候选对应；没有重跑全套。结论保留生产密钥/备份、精确候选 CI、Windows
+        11、真实账户迁移恢复和发布门槛未完成状态。未修改源码、Git 或正式规格/状态。
+      truncated: false
+    acceptance_ids:
+      - A3
+      - A7
+      - A8
+    resolution_action: resolve-verifier-blocker
+verification:
+  candidate_id: 60ab531b-4d9e-414b-8986-3924b89c559c
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:43b974ad-1718-463c-abe5-e19cce7049b9
+  iteration: 2
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: blocked
+  checks:
+    - id: source-and-scripts
+      name:
+        text: Fixed source, official instructions and script syntax
+        truncated: false
+      argv_display:
+        - text: -NoProfile
+          truncated: false
+        - text: -Command
+          truncated: false
+        - text: . ./tools/common.ps1; $r=Get-FishGramRecipe; $null=Assert-FishGramSource
+            $PWD.Path $r; git -C tdesktop diff --exit-code $r.upstreamCommit --
+            AGENTS.md; if ($LASTEXITCODE) { exit $LASTEXITCODE }; foreach ($f in
+            Get-ChildItem tools -Filter '*.ps1') { $t=$null; $e=$null;
+            $null=[Management.Automation.Language.Parser]::ParseFile($f.FullName,[ref]$t,[ref]$e);
+            if ($e.Count) { throw $f.Name } }; git -c submodule.recurse=false
+            diff --check --ignore-submodules; exit $LASTEXITCODE
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 4166
+    - id: search-core
+      name:
+        text: Production search helpers and shared coordinator
+        truncated: false
+      argv_display:
+        - text: -NoProfile
+          truncated: false
+        - text: -Command
+          truncated: false
+        - text: ./tools/test-restricted-search.ps1;
+            ./tools/test-restricted-search-integration.ps1
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 16749
+    - id: update-production
+      name:
+        text: Actual verifier, Packer, Updater and native data interoperability
+        truncated: false
+      argv_display:
+        - text: -NoProfile
+          truncated: false
+        - text: -Command
+          truncated: false
+        - text: ./tools/test-update-verify.ps1 -DependencyRoot ../..
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 28548
+    - id: update-transactions
+      name:
+        text: Windows update policy and installation transactions
+        truncated: false
+      argv_display:
+        - text: -NoProfile
+          truncated: false
+        - text: -Command
+          truncated: false
+        - text: ./tools/test-update-policy.ps1; ./tools/test-update-transaction.ps1
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 14436
+    - id: all-tool-tests
+      name:
+        text: All candidate tooling tests with mandatory compiled production fixtures
+        truncated: false
+      argv_display:
+        - text: -NoProfile
+          truncated: false
+        - text: -Command
+          truncated: false
+        - text: $env:TEMP=Join-Path $PWD '.private/temp'; $env:TMP=$env:TEMP;
+            $env:FISHGRAM_PACKER=Join-Path $PWD
+            'build-update-verify-tests/packer_tests.exe';
+            $env:FISHGRAM_PACKAGE_VERIFY=Join-Path $PWD
+            'build-update-verify-tests/package_verify.exe';
+            $env:FISHGRAM_NATIVE_SNAPSHOT_TEST=Join-Path $PWD
+            'build-update-verify-tests/data_snapshot_tests.exe'; foreach ($f in
+            @($env:FISHGRAM_PACKER,$env:FISHGRAM_PACKAGE_VERIFY,$env:FISHGRAM_NATIVE_SNAPSHOT_TEST))
+            { if (-not (Test-Path -LiteralPath $f)) { throw 'Required production
+            fixture is absent' } }; python -m unittest discover -s tests -v;
+            exit $LASTEXITCODE
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 82204
+    - id: source-licenses
+      name:
+        text: Actual fixed source ZIP and pinned complete license evidence
+        truncated: false
+      argv_display:
+        - text: -NoProfile
+          truncated: false
+        - text: -Command
+          truncated: false
+        - text: python tools/license_inventory.py --archive
+            .private/source-pin-check-7ba2169.zip --config
+            config/license-sources.json --pre-export --output
+            .private/source-license-inventory-7ba2169.json; exit $LASTEXITCODE
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 23199
+  summary:
+    text: 独立核对候选 parent 7ba2169b5d95e2c8406d919e87ed82aef8cd6eeb 与 source
+      e222737896c041be450eaac251208d5e1eb76f8e、brief/Spec、A1-A8、候选绑定的六组 Runtime
+      检查日志及 Git 提交身份。A1、A2、A4、A5、A6 passed；A3、A7、A8 blocked。六组 Runtime 检查均为 PASS
+      并与当前候选对应；没有重跑全套。结论保留生产密钥/备份、精确候选 CI、Windows
+      11、真实账户迁移恢复和发布门槛未完成状态。未修改源码、Git 或正式规格/状态。
+    truncated: false
+  risks:
+    - text: FishGram API identity、生产 root/issuer trust 与签名 secrets 缺失；不得使用其他应用凭据代替。
+      truncated: false
+    - text: 独立离线加密 root-key 备份未确认，OneDrive 加密副本仅为补充。
+      truncated: false
+    - text: 当前精确候选完整云端 CI 尚待完成；较早 CI 使用旧测试身份且 autoUpdate 关闭。
+      truncated: false
+    - text: 未验收干净 Windows 11、真实 UAC、跨权限恢复、账户迁移/恢复和完整安装矩阵。
+      truncated: false
+    - text: A7 的合成数据验证不能证明真实账户数据与程序回退链路；A3 的测试密钥不能证明生产信任/备份可用。
+      truncated: false
+    - text: 发布与 Pages/App 配置尚未完成；无实际签名发布或索引晋升。
+      truncated: false
+    - text: 已有历史原生快照 fixture exit 3 原因仍未查明；本轮定向原生测试成功，不能推断为存储过滤驱动原因。
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-10-08T13:50:32.284Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A3
+      - A7
+      - A8
+    summary:
+      text: 已独立核对候选 parent 067028b26a25223fdf5d63c35fdb974e5d87fd4b 与 source
+        8f50676ba9b7da0c9a142e914f6d3ed9358306fd、A1-A8 全部场景、候选绑定的六组 Runtime
+        检查、当前 CI 失败日志及 Builder 交接。结论：A1、A2、A4、A5、A6 passed；A7 failed；A3、A8
+        blocked。整体 blocked。未重复完整测试，未改源码、Git、Spec 或正式状态；仅提交本正式 verifier-response。
+      truncated: false
+    completed_at: 2026-10-08T12:38:22.444Z
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: User has explicitly authorized implementing the approved plan and
+        continuing until complete in Goal mode. Repair only the CI test fixture
+        initialization and canonical short-path handling demonstrated by the
+        failed candidate; retain all acceptance targets and external
+        production/Win11 blockers. No requirement adjustment or pretend
+        resolution.
+      truncated: false
+    completed_at: 2026-10-08T12:41:57.273Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A3
+      - A7
+      - A8
+    summary:
+      text: 独立核对候选 parent 7ba2169b5d95e2c8406d919e87ed82aef8cd6eeb 与 source
+        e222737896c041be450eaac251208d5e1eb76f8e、brief/Spec、A1-A8、候选绑定的六组
+        Runtime 检查日志及 Git 提交身份。A1、A2、A4、A5、A6 passed；A3、A7、A8 blocked。六组 Runtime
+        检查均为 PASS 并与当前候选对应；没有重跑全套。结论保留生产密钥/备份、精确候选 CI、Windows
+        11、真实账户迁移恢复和发布门槛未完成状态。未修改源码、Git 或正式规格/状态。
+      truncated: false
+    completed_at: 2026-10-08T13:50:32.284Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: blocked
+verification_report: verification.md
+archived: false
+created_at: 2026-10-02T14:46:49.662Z
