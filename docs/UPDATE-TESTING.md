@@ -59,3 +59,7 @@ Comet 仍处于实现阶段。完整更新矩阵、干净 Windows 11、真实 UA
 Parent `b48576c1a5799c556502715f0aa647085908a815`, source `10df321519820764578dc42eca40ff1e6bed0dc5`: Python 3.13.16 with isolated private TEMP and existing compiled snapshot/Packer/package-verifier fixtures completed 358 tests, zero skips, exit 0 in 209.745 seconds. This covers strict public PEM contents, candidate-commit root binding, authoritative Pages trust preflight before release writes, download signing disclosures and journaling before restore copies.
 
 The native fixtures were not rebuilt in this run. Publisher messages about successful release/index verification come from simulated transports; no real release or channel update occurred. Real account recovery, power-loss durability, current product cloud candidates and complete Windows 11 acceptance remain unverified.
+
+## 7.3.1 Linux 更新兼容限制
+
+首版发行平台为Windows11 x64。7.3.1官方Linux启动器改用ready-package保护目录安装流程，FishGram当前下载暂存仍采用自己的事务路径，两者尚未适配；Linux保护目录的自动更新会失败。Linux产品构建和发行须先适配并验证这条流程。官方新增两处POSIX测试夹具问题保持官方源码，分别涉及GCC预编译头扩展名及echo处理-n参数，随Linux开发处理。
