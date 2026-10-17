@@ -566,6 +566,95 @@ with open(sys.argv[1], 'rb') as file:
                 self.snapshot()
         self.assertTrue((self.snapshots / prior / 'manifest.json').is_file())
 
+    def assert_snapshot_copy_crash_blocks_followup(self, point):
+        previous = [self.snapshot(), self.snapshot()]
+        current = self.work / 'tdata' / 'account' / 'map0'
+        current.write_bytes(b'synthetic current account state')
+        script = '''import importlib.util, os, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('data_recovery', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+real_copy = module._copy_tree
+def interrupt_file(source, target, *args, **kwargs):
+    with Path(source).open('rb') as source_file, Path(target).open('wb') as output:
+        output.write(source_file.read(9))
+        output.flush()
+        os.fsync(output.fileno())
+    os._exit(81)
+def interrupt_tree(*args, **kwargs):
+    real_copy(*args, **kwargs)
+    os._exit(82)
+if sys.argv[5] == 'during':
+    module.shutil.copyfile = interrupt_file
+else:
+    module._copy_tree = interrupt_tree
+module.snapshot(sys.argv[2], sys.argv[3], sys.argv[4], '7.2.9-r8', process_probe=lambda path: False)
+'''
+        result = subprocess.run([sys.executable, '-c', script, str(Path(recovery.__file__)),
+                                 str(self.work), str(self.snapshots), str(self.exe), point],
+                                capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 81 if point == 'during' else 82)
+        partial, = (path for path in self.snapshots.glob('.partial-*') if path.is_dir())
+        self.assertEqual((partial / 'tdata' / 'account' / 'map0').read_bytes(),
+                         b'synthetic' if point == 'during' else b'synthetic current account state')
+        before = recovery._inventory(self.snapshots)
+        for operation in (self.snapshot, lambda: self.restore(previous[-1])):
+            with self.assertRaisesRegex(recovery.RecoveryError, 'snapshot.*manual recovery'):
+                operation()
+            self.assertEqual(recovery._inventory(self.snapshots), before)
+            self.assertEqual(current.read_bytes(), b'synthetic current account state')
+            self.assertFalse((self.work / recovery.JOURNAL).exists())
+        self.assertEqual(sorted(path.name for path in self.snapshots.iterdir()
+                                if recovery.SNAPSHOT.fullmatch(path.name)), sorted(previous))
+
+    def test_snapshot_copy_crash_during_blocks_followup_and_preserves_data(self):
+        self.assert_snapshot_copy_crash_blocks_followup('during')
+
+    def test_snapshot_copy_crash_after_blocks_followup_and_preserves_data(self):
+        self.assert_snapshot_copy_crash_blocks_followup('after')
+
+    def test_snapshot_unknown_partial_directory_is_preserved_and_blocks_both_entries(self):
+        previous = self.snapshot()
+        partial = self.snapshots / ('.partial-' + 'a' * 32)
+        partial.mkdir()
+        recovery._private_acl(partial)
+        (partial / 'user-file').write_bytes(b'unknown private content')
+        before = recovery._inventory(self.snapshots)
+        for operation in (self.snapshot, lambda: self.restore(previous)):
+            with self.assertRaisesRegex(recovery.RecoveryError, 'snapshot.*manual recovery'):
+                operation()
+            self.assertEqual(recovery._inventory(self.snapshots), before)
+        self.assertEqual((partial / 'user-file').read_bytes(), b'unknown private content')
+        self.assertFalse((self.work / recovery.JOURNAL).exists())
+
+    def test_snapshot_partial_appearing_after_root_validation_is_checked_under_lock(self):
+        previous = self.snapshot()
+        real_lock = recovery._lock
+        partial = self.snapshots / ('.partial-' + 'b' * 32)
+        def inject_partial(root, name):
+            if root == self.snapshots and name == '.snapshot.lock':
+                partial.mkdir()
+                recovery._private_acl(partial)
+                (partial / 'user-file').write_bytes(b'competing private data')
+            return real_lock(root, name)
+        with mock.patch.object(recovery, '_lock', side_effect=inject_partial):
+            with self.assertRaisesRegex(recovery.RecoveryError, 'snapshot.*manual recovery'):
+                self.snapshot()
+        self.assertEqual((partial / 'user-file').read_bytes(), b'competing private data')
+        self.assertEqual([path for path in self.snapshots.glob('.partial-*') if path.is_dir()], [partial])
+        self.assertTrue((self.snapshots / previous / 'manifest.json').is_file())
+
+    def test_snapshot_marker_partial_file_remains_compatible_with_snapshot_and_restore(self):
+        previous = self.snapshot()
+        partial = self.snapshots / ('.partial-' + 'c' * 32)
+        partial.write_bytes(b'FishGram')
+        recovery._private_acl(partial)
+        name = self.snapshot()
+        self.restore(previous)
+        self.assertTrue((self.snapshots / name / 'manifest.json').is_file())
+        self.assertEqual(partial.read_bytes(), b'FishGram')
+
     @unittest.skipUnless(os.name == 'nt', 'Real Windows directory sharing')
     def test_snapshot_finalize_retries_real_directory_lock_until_thread_releases(self):
         prior = self.snapshot()

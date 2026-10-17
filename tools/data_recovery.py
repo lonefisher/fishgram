@@ -627,6 +627,15 @@ def _read_snapshot(root: Path, name: str):
     return folder, value
 
 
+def _require_no_snapshot_partials(root: Path) -> None:
+    # Under the shared root lock, directories may be interrupted Python/native copies, never owned by this call.
+    with _snapshot_root_guard(root):
+        for path in root.iterdir():
+            _reject_link(path)
+            if MARKER_STAGE.fullmatch(path.name) and path.is_dir():
+                raise RecoveryError('Incomplete snapshot staging requires manual recovery; private data is preserved.')
+
+
 def _directory_identity(path: Path):
     if _canonical(path) != path or not path.is_dir():
         raise RecoveryError('Snapshot directory path changed.')
@@ -673,6 +682,7 @@ def snapshot(work_dir, snapshot_root, installed_executable, version: str, *, ins
         _snapshot_root(root)
         partial = root / ('.partial-' + uuid.uuid4().hex)
         with _lock(root, '.snapshot.lock'), _lock(work, '.fishgram-data.lock'):
+            _require_no_snapshot_partials(root)
             partial.mkdir()
             _private_acl(partial)
             identities = (_directory_identity(root), _directory_identity(partial))
@@ -884,6 +894,7 @@ def restore_snapshot(work_dir, snapshot_root, installed_executable, name: str, *
         _closed(exe, process_probe)
         _snapshot_root(root)
         with _lock(root, '.snapshot.lock'), _lock(work, '.fishgram-data.lock'):
+            _require_no_snapshot_partials(root)
             if (work / JOURNAL).exists():
                 raise RecoveryError('An interrupted restore needs explicit recovery first.')
             folder, manifest = _read_snapshot(root, name)

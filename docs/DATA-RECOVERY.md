@@ -20,6 +20,10 @@ python tools/data_recovery.py snapshot --work-dir D:\FishGram\FishGramData --ins
 
 返回快照 ID。文件哈希、大小、完整版本、时间及目录结构记录在私有清单中；空目录也保留，文件修改时间复制到新文件。复制到全新暂存目录并验证后才完成快照，默认保留最近两份。只有工具管理且内容校验通过的旧快照才能清理。失败保留已有快照；清理失败可能暂时多于两份，需要排查后再操作。
 
+进程被强制终止时不会执行 Python 的 finally，断电也可能留下含账户副本的 `.partial-<ID>` 目录。Python 的 snapshot 与 restore 在取得共用的快照根锁和工作目录锁后，若仍发现这种目录就拒绝继续，提示需要人工恢复；不新增副本、不清理旧快照，也不删除或恢复遗留内容。无论目录来自 Python、native、竞争操作或未知来源，都不凭名称判定所有权。该检查保留 native 的 partial 命名与白名单，正常已发布的 native 快照仍可读取、恢复；不改 native 的行为或宣称 native 已具备相同的拒绝检查。marker 初始化遗留的普通 partial 文件仍按前述内容前缀与 ACL 规则处理，不作为账户复制目录。
+
+遇到此错误须保持目标客户端关闭，由维护者明确核对对应工作目录、已完成快照与遗留内容，再单独决定如何保全或处理；不要批量删除 partial 或将其作为完整快照恢复。`recover --confirm-restore` 只处理工作目录的恢复 journal，不会清理快照根的 partial，也不能解除此拒绝。工具未增加自动 partial 恢复或删除入口；仅在遗留目录已由明确的人工处理移出所选快照根后，才可重新运行。
+
 Windows 最终发布目录改名遇到错误 5、32、33 时，最多尝试 11 次，等待总预算为 1 秒。仅这一处改名重试，不重新复制、写清单或执行恢复事务。每次尝试都重新校验原 canonical root/partial 的文件身份及无链接目录链，目标须不存在，并使用不覆盖目标的 Windows rename；路径被替换、目标出现或其他错误立即停止。持久锁最终失败时不清理旧快照；工具安全清理本次 partial，若锁仍阻止清理，会保留原失败及附加提示，不掩盖原错误。释放锁并排查后才可处理残留 partial，不应把残留目录当成完整快照。
 
 快照包含可恢复登录的数据，内容没有额外加密。Windows ACL 按 native `TrustedPrincipals` 契约设置并逐 ACE、所有者及 DACL 保护位读回：普通令牌的当前用户可完全控制；提升令牌的当前用户仅有读取/执行权限；SYSTEM 与 Administrators 完全控制。当前用户完全控制时，所有者限当前用户、SYSTEM 或 Administrators；当前用户只读时，所有者限 SYSTEM 或 Administrators，避免当前用户通过 owner 隐含的 WRITE_DAC 改写 ACL。DACL 只能包含这三类允许 ACE，并校验目录继承标志和继承 ACE 标记；拒绝额外、拒绝型、未知类型或权限不匹配的 ACE。读取 native 提升快照时保留其只读 ACL，不尝试改写快照树；显式恢复只读取快照，并把恢复暂存与回滚数据写到调用者拥有的工作目录。清单 JSON 写入和读取均限制为 8 MiB，超限清单不会发布快照或触发旧快照清理。快照、清单及事务记录只放在本机私有目录，不提交 Git、贴到问题单或上传云端。控制台只显示状态和随机 ID，不输出账户内容或文件清单。
@@ -55,6 +59,8 @@ python tools/data_recovery.py recover --work-dir D:\FishGram\FishGramData --inst
 若中断发生在 `allocating` 已持久化、stage 尚未建立时，显式恢复可核实原数据后清除空事务；若目录已建立但身份尚未持久化，则此时尚未复制账户字节，工具保留目录和 journal 并要求人工调查。预占同名目录也采用该拒绝策略，不猜测或删除其内容。没有 journal 的历史遗留 stage 不会被扫描或自动删除。
 
 ## 当前验证边界
+
+本轮 snapshot 合成测试用独立子进程 `os._exit` 在文件复制中与完整复制返回后退出，分别读回短副本与完整副本，确认后续 snapshot/restore 拒绝且保留当前账户、全部原快照和 partial。另覆盖未知 partial 内容保全、根校验之后锁取得之前出现的竞争目录，以及 marker partial 普通文件仍兼容正常 snapshot/restore。这验证本机进程终止后的 fail-closed 行为，不模拟断电或证明自动恢复；native 本轮仅使用已有合成测试程序做互操作，没有重编译或改变其实现。
 
 本轮合成回归以独立子进程 `os._exit` 分别中断实际 restore 的文件复制和完整复制返回，验证 journal 先于账户字节存在、原数据保全、再次 restore 拒绝绕过恢复、明确确认后仅清理本次 stage。另覆盖初始化发布失败与竞争 journal、mkdir 前中断、目录身份尚未持久化、同名目录竞争、未知内容、目录身份替换、reparse、原数据变化、普通 copy 失败、独立进程工作锁互斥、实际 Windows stage rename 返回错误 32，以及旧事务兼容。这些仅是合成数据与本机文件系统证据，不代表真实账户恢复或断电耐久性。
 
