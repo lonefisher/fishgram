@@ -20,7 +20,7 @@ python tools/data_recovery.py snapshot --work-dir D:\FishGram\FishGramData --ins
 
 返回快照 ID。文件哈希、大小、完整版本、时间及目录结构记录在私有清单中；空目录也保留，文件修改时间复制到新文件。复制到全新暂存目录并验证后才完成快照，默认保留最近两份。只有工具管理且内容校验通过的旧快照才能清理。失败保留已有快照；清理失败可能暂时多于两份，需要排查后再操作。
 
-进程被强制终止时不会执行 Python 的 finally，断电也可能留下含账户副本的 `.partial-<ID>` 目录。Python 的 snapshot 与 restore 在取得共用的快照根锁和工作目录锁后，若仍发现这种目录就拒绝继续，提示需要人工恢复；不新增副本、不清理旧快照，也不删除或恢复遗留内容。无论目录来自 Python、native、竞争操作或未知来源，都不凭名称判定所有权。该检查保留 native 的 partial 命名与白名单，正常已发布的 native 快照仍可读取、恢复；不改 native 的行为或宣称 native 已具备相同的拒绝检查。marker 初始化遗留的普通 partial 文件仍按前述内容前缀与 ACL 规则处理，不作为账户复制目录。
+进程被强制终止时不会执行 Python 的 finally，断电也可能留下含账户副本的 `.partial-<ID>` 目录。Python 的 snapshot 与 restore 在取得共用的快照根锁和工作目录锁后，若仍发现这种目录就拒绝继续，提示需要人工恢复；不新增副本、不清理旧快照，也不删除或恢复遗留内容。无论目录来自 Python、native、竞争操作或未知来源，都不凭名称判定所有权。该检查保留 native 的 partial 命名与白名单，正常已发布的 native 快照仍可读取、恢复。源码 PR4 已为原生快照入口增加相同的目录拒绝检查，正在等待完整云端编译和合入；父仓库当前 gitlink 仍指向先前版本。marker 初始化遗留的普通 partial 文件仍按前述内容前缀与 ACL 规则处理，不作为账户复制目录。
 
 遇到此错误须保持目标客户端关闭，由维护者明确核对对应工作目录、已完成快照与遗留内容，再单独决定如何保全或处理；不要批量删除 partial 或将其作为完整快照恢复。`recover --confirm-restore` 只处理工作目录的恢复 journal，不会清理快照根的 partial，也不能解除此拒绝。工具未增加自动 partial 恢复或删除入口；仅在遗留目录已由明确的人工处理移出所选快照根后，才可重新运行。
 
@@ -60,7 +60,7 @@ python tools/data_recovery.py recover --work-dir D:\FishGram\FishGramData --inst
 
 ## 当前验证边界
 
-本轮 snapshot 合成测试用独立子进程 `os._exit` 在文件复制中与完整复制返回后退出，分别读回短副本与完整副本，确认后续 snapshot/restore 拒绝且保留当前账户、全部原快照和 partial。另覆盖未知 partial 内容保全、根校验之后锁取得之前出现的竞争目录，以及 marker partial 普通文件仍兼容正常 snapshot/restore。这验证本机进程终止后的 fail-closed 行为，不模拟断电或证明自动恢复；native 本轮仅使用已有合成测试程序做互操作，没有重编译或改变其实现。
+本轮 snapshot 合成测试用独立子进程 `os._exit` 在文件复制中与完整复制返回后退出，分别读回短副本与完整副本，确认后续 snapshot/restore 拒绝且保留当前账户、全部原快照和 partial。另覆盖未知 partial 内容保全、根校验之后锁取得之前出现的竞争目录，以及 marker partial 普通文件仍兼容正常 snapshot/restore。这验证本机进程终止后再次操作会停止并保留数据。后续原生修复已重新编译快照测试和 Updater，通过遗留目录保全场景；新夹具下 Python 数据恢复 68 项通过。完整 366 项回归、原生重编及后续云端结果分别记录在 UPDATE-TESTING.md。
 
 本轮合成回归以独立子进程 `os._exit` 分别中断实际 restore 的文件复制和完整复制返回，验证 journal 先于账户字节存在、原数据保全、再次 restore 拒绝绕过恢复、明确确认后仅清理本次 stage。另覆盖初始化发布失败与竞争 journal、mkdir 前中断、目录身份尚未持久化、同名目录竞争、未知内容、目录身份替换、reparse、原数据变化、普通 copy 失败、独立进程工作锁互斥、实际 Windows stage rename 返回错误 32，以及旧事务兼容。这些仅是合成数据与本机文件系统证据，不代表真实账户恢复或断电耐久性。
 
