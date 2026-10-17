@@ -122,3 +122,11 @@ run 38726743268 completed/success，head 3ab3ff1c444c80cec73e8a0eedd5338db4e4591
 [Run 38891184021](https://github.com/lonefisher/fishgram/actions/runs/38891184021) completed successfully for parent `abce3841b73848664cc260510bad1df023f6408a` and source `10df321519820764578dc42eca40ff1e6bed0dc5`. The compile job ran from 2026-10-16 11:04:41 to 14:54:14 UTC, including dependency preparation. Its exact dependency cache was absent. Logs confirm 38 recovery tests, 11 Packer tests and 60/60 plus 63/63 verification checks. System peak committed memory was 21,737,754,624 bytes, not a per-process peak.
 
 This was a non-releasable test identity build without client uploads. It does not establish product-candidate or Windows 11 acceptance, nor cloud success for later review fixes. Run 38920034465 for `03ddecb` remains separate.
+
+## 2026-10-17 父 PR 最终构建
+
+[运行 39016888761](https://github.com/lonefisher/fishgram/actions/runs/39016888761) 成功，父 head `4a5c33fefa4b87809adaafb66569d427684fbaa6`，源码 `3b392e8bb201461d5c5d0729d42896891d909404`。依赖缓存明确未命中；客户端编译步骤09:28:17–10:43:36 UTC，约75分钟。随后恢复68项、Packer11项、验签60/60和63/63通过，Windows事务、重启权限及原生账户快照测试均成功。
+
+资源附件读回：4逻辑核，物理内存17,174,360,064 bytes；编译前后可用磁盘213,337,833,472 / 195,486,273,536 bytes；客户端构建目录17,773,105,663 bytes。系统累计峰值提交内存22,683,623,424 bytes，结束提交上限32,263,475,200 bytes，链接器宿主x64。峰值为系统累计统计。
+
+父 PR1 全部必需检查通过后正常合入 main `68bc957d7bf2c94aa4c4be2ebb2b3da02ef813e6`。受保护产品候选运行39026170297和main冷构建39026221191使用该main提交，结果分别跟踪。
