@@ -4,13 +4,15 @@
 
 ## 2026-10-17 接续进度
 
-- 源码 PR3 已合入 `custom/main`，合并提交为 `0d29fca9f46615950bbb2707e08208d9a59a44a2`。原生快照新增中断暂存目录检查，由 [源码 PR4](https://github.com/lonefisher/tdesktop/pull/4) 继续合入，当前 head 为 `3b392e8bb201461d5c5d0729d42896891d909404`。
-- 父仓库远端 head 为 `a105b79246437e665e4236a500b220d8f9d6971e`；本地另有 `60cb280`、`e2e4623` 两项修复，分别处理发行源码合入检查、产品标签核对，以及快照中断暂存目录。固定 `e2e4623` 的本机 Python 回归 366 项通过，零跳过，229.044 秒。
-- 14:30（UTC+8）读回：[父仓库构建](https://github.com/lonefisher/fishgram/actions/runs/39001794615) 已完成依赖准备，正在编译客户端；[源码构建](https://github.com/lonefisher/tdesktop/actions/runs/39006732009) 的生产 helper 通过，完整编译任务正在准备依赖。两个 PR 等待必需检查。
-- 本机已重新编译原生快照测试和 Windows Updater，快照测试通过；使用新快照夹具的数据恢复 68 项通过。完整 366 项回归使用的是此前编译的夹具，两次结果分别记录在[更新验证](UPDATE-TESTING.md)。
+- 源码 PR3、PR4 和父 PR1 均已合入。父 main 为 `68bc957d7bf2c94aa4c4be2ebb2b3da02ef813e6`，源码指针 `3b392e8bb201461d5c5d0729d42896891d909404`。
+- [父 PR 完整构建 39016888761](https://github.com/lonefisher/fishgram/actions/runs/39016888761) 成功：测试身份 job 08:21:18–10:44:41 UTC；客户端编译从09:28:17 UTC开始，随后生产更新与恢复 helper 成功。两项 Repository checks 成功，全部审查讨论已解决，正常合入时 mergeStateStatus 为 CLEAN。
+- [正式产品候选 39026170297](https://github.com/lonefisher/fishgram/actions/runs/39026170297) 已从上述 main 启动；用户已批准 candidate 环境，任务正在运行。
+- [main 无缓存构建 39026221191](https://github.com/lonefisher/fishgram/actions/runs/39026221191) 已启动，`cold=true`，准备可信依赖缓存并在后续编译 job 验证恢复。
+- 本地 `db810f4` 保存独立公开内容审查结论，覆盖合入前的父、源码固定增量，详情见[公开源码审查](PUBLIC-SOURCE-AUDIT.md)。
+- 固定 `e2e4623` 的本机 Python 回归 366 项通过，零跳过，229.044 秒。本机新编译的原生快照测试通过，使用新夹具的数据恢复 68 项通过，详情见[更新验证](UPDATE-TESTING.md)。
 - Comet 当前进度：仓库架构 6/8、搜索 2/8、云端发行 2/8、自动更新 0/8。搜索性能按用户决定暂缓，消息及媒体对照样本仍缺；后续完成产品云端候选、可信缓存复测、同候选 Windows 11 和更新恢复实测。
 
-接续顺序：源码 PR4 检查通过并合入 → 更新父源码指针及待推送修复 → 父 PR 检查与合入 → main 冷/热缓存和产品候选 → 实机验收 → 签名、公开附件、下载核验、渠道索引。
+接续顺序：等待 main 无缓存及产品候选 → 缓存复测 → 同候选实机验收 → 签名、公开附件、下载核验、渠道索引。
 
 ## 2026-10-15 当前输入与未完成项
 
