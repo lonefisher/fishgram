@@ -49,3 +49,5 @@
 ## 2026-10-13 升级 App 冲突与重复检查
 
 本机使用已安装的独立升级 App，生成仅限 `fishgram`、`tdesktop` 的短期 installation token，运行当前 `tools/upstream_candidate.py` 两次。两次均退出 0 并报告冲突后停止推广；随后短期 token 已撤销。GitHub 读回官方 `v7.3.1` 的冲突记录仍只有[源码 issue #2](https://github.com/lonefisher/tdesktop/issues/2)，没有重复问题或强制覆盖。这证明当前 App 的真实认证、两仓范围检查、冲突停止与已有记录去重；首次成功创建关联 PR、非冲突重复复用及真实 CI 失败路径仍待实测，每日开关保持关闭。
+
+2026-10-17，父 main `68bc957d7bf2c94aa4c4be2ebb2b3da02ef813e6` 上的真实工作流 [39026493635](https://github.com/lonefisher/fishgram/actions/runs/39026493635) 成功，GitHub App 认证及候选脚本实际执行。日志结果为 `Conflicts recorded; candidate promotion stopped.`；读回 `v7.3.1` 冲突问题仍只有源码 issue #2。该运行补齐已合入 main 的真实工作流执行与重复冲突去重证据；成功关联 PR、非冲突复用及 CI 失败路径继续验收。

@@ -8,9 +8,11 @@ os.environ['GIT_CONFIG_VALUE_0'] = 'openssl'
 upstream = Path(__file__).resolve().parents[1] / 'tdesktop/Telegram/build/prepare/prepare.py'
 source = upstream.read_text(encoding='utf-8')
 old = 'mingw-w64-x86_64-diffutils'
-if source.count(old) != 1:
-    raise SystemExit('Expected one obsolete MSYS2 diffutils package reference; inspect upstream before updating.')
-source = source.replace(old, 'diffutils')
+ucrt = 'mingw-w64-ucrt-x86_64-diffutils'
+if source.count(old) == 1 and ucrt not in source:
+    source = source.replace(old, 'diffutils')
+elif source.count(ucrt) != 1 or old in source:
+    raise SystemExit('Unknown MSYS2 diffutils package layout; inspect upstream before updating.')
 clone_command = 'git clone https://chromium.googlesource.com/breakpad/breakpad\n'
 if source.count(clone_command) != 1:
     raise SystemExit('Expected one pinned breakpad clone command.')
