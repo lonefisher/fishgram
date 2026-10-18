@@ -54,9 +54,10 @@ try {
         & $toolchain.python (Join-Path $root 'tests/create_update_trust_fixture.py') $trust
         Assert-NativeSuccess 'Generate disposable public update trust for CI compilation'
     }
-    & $toolchain.cmake -S $source -B $build -G 'Ninja Multi-Config' -C $cache @releaseCmakeOptions -D "DESKTOP_APP_DISABLE_AUTOUPDATE=$disabled" -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON -D "FISHGRAM_REVISION=$($recipe.revision)" -D "TDESKTOP_UPDATE_CHANNEL=$($recipe.channel)" -D "FISHGRAM_UPDATE_TRUST_DIRECTORY=$trust" -D CMAKE_CONFIGURATION_TYPES=Release *> (Join-Path $root 'logs\configure.log')
+    $buildPacker = if ($ProductCandidate) { 'ON' } else { 'OFF' }
+    & $toolchain.cmake -S $source -B $build -G 'Ninja Multi-Config' -C $cache @releaseCmakeOptions -D "DESKTOP_APP_DISABLE_AUTOUPDATE=$disabled" -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON -D "FISHGRAM_BUILD_PACKER=$buildPacker" -D "FISHGRAM_REVISION=$($recipe.revision)" -D "TDESKTOP_UPDATE_CHANNEL=$($recipe.channel)" -D "FISHGRAM_UPDATE_TRUST_DIRECTORY=$trust" -D CMAKE_CONFIGURATION_TYPES=Release *> (Join-Path $root 'logs\configure.log')
     $configureExit = $LASTEXITCODE
-    if ($configureExit -ne 0 -and $TestIdentity) {
+    if ($configureExit -ne 0 -and ($TestIdentity -or $ProductCandidate)) {
         & $toolchain.python (Join-Path $PSScriptRoot 'build_diagnostics.py') (Join-Path $root 'logs/configure.log') (Join-Path $root 'reports/configure-diagnostics.json')
     }
     $global:LASTEXITCODE = $configureExit
@@ -69,7 +70,7 @@ try {
     $memoryLabel = if ($compileExit -ne 0) { 'build-failure' } else { 'build-complete' }
     $global:LASTEXITCODE = $compileExit
     Invoke-FishGramMemoryDiagnostics -Python $toolchain.python -Label $memoryLabel -Linker $linker -Output (Join-Path $root 'reports/memory-result-diagnostics.json')
-    if ($compileExit -ne 0 -and $TestIdentity) {
+    if ($compileExit -ne 0 -and ($TestIdentity -or $ProductCandidate)) {
         # Only codes and source basenames may leave the runner. Raw compiler
         # output and command lines can contain application identity settings.
         & $toolchain.python (Join-Path $PSScriptRoot 'build_diagnostics.py') (Join-Path $root 'logs/build.log') (Join-Path $root 'reports/build-diagnostics.json')
