@@ -128,6 +128,7 @@ jobs:
           path: |
             reports/runner-*.json
             reports/*-diagnostics.json
+            build-modified/build-record.json
           retention-days: 7
       # No executable, raw logs, CMake cache, API identity or signing material is
       # uploaded. Public binaries remain blocked by the complete release gates.
