@@ -47,7 +47,7 @@ try {
         foreach ($name in @('root-public.pem', 'issuer-public.pem', 'manifest.min.json', 'manifest.sig')) {
             if (-not (Test-Path -LiteralPath (Join-Path $trust $name) -PathType Leaf)) { throw ('Product update trust is incomplete: ' + $name) }
         }
-        if ((Get-ChildItem -LiteralPath $trust -Force | Where-Object { $_.Name -match 'test|fixture|private|secret' }).Count -gt 0) { throw 'Product update trust contains forbidden test or private material.' }
+        if (@(Get-ChildItem -LiteralPath $trust -Force | Where-Object { $_.Name -match 'test|fixture|private|secret' }).Count -gt 0) { throw 'Product update trust contains forbidden test or private material.' }
     }
     if ($TestUpdateSystem) {
         $trust = Join-Path $private ('build-test-trust-' + [guid]::NewGuid().ToString('N'))
