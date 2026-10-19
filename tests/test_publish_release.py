@@ -55,6 +55,7 @@ class FakeApi:
         return self.index
 
     def create_release(self, tag, target, title, body, *, prerelease=False):
+        self.prerelease = prerelease
         self.release_body = body
         self.events.append(("create_release", tag, target))
         self.tags.add(tag)
@@ -150,6 +151,57 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_beta_acceptance_proof_cannot_be_promoted_to_stable(self):
+        from dataclasses import replace
+        candidate = plan()
+        proof = publish.Asset('qa-proof.json', json.dumps({'releaseChannel': 'beta'}).encode())
+        candidate = replace(candidate, assets=(*candidate.assets, proof))
+        api = FakeApi()
+        with self.assertRaisesRegex(publish.PublishError, 'Beta acceptance'):
+            publish_plan(api, candidate)
+        self.assertFalse(any(e[0] in {'source_tag', 'create_release', 'upload', 'page'} for e in api.events))
+
+    def test_internal_signing_request_can_complete_as_beta_for_same_candidate(self):
+        import test_release_gate as fixture
+        manifest = fixture.manifest()
+        final = fixture.qa_for(manifest)
+        original = json.loads(json.dumps(final)); original['kind'] = 'fishgram-signing-qa'
+        original['checks']['searchEightAcceptance'] = False
+        original['checks']['updaterFullMatrix'] = False
+        final['kind'] = 'fishgram-beta-qa'
+        final['deferredSearch'] = ['largeScalePerformance', 'nativeOmissionControlSamples']
+        final['checks']['searchEightAcceptance'] = False
+        final['checks']['remainingSearchAcceptance'] = True
+        raw = json.dumps(original).encode()
+        signing = {'qa': {'file': 'qa.json', 'sha256': hashlib.sha256(raw).hexdigest(),
+                         'approvedAt': original['approvedAt'], 'document': base64.b64encode(raw).decode()},
+                   'signedAt': original['approvedAt']}
+        self.assertTrue(publish.verify_signing_approval(manifest, final, signing, 'qa.json', json.dumps(final).encode()))
+        proof, _ = publish.public_acceptance_records(json.dumps(final).encode(), signing, separate_approval=True)
+        self.assertEqual(json.loads(proof.data)['deferredSearch'], final['deferredSearch'])
+        self.assertEqual(json.loads(proof.data)['releaseChannel'], 'beta')
+        final['checks']['updaterFullMatrix'] = False
+        with self.assertRaises(publish.PublishError):
+            publish.verify_signing_approval(manifest, final, signing, 'qa.json', json.dumps(final).encode())
+
+    def test_beta_index_for_stable_signed_package_is_prerelease_with_limitations(self):
+        api = FakeApi()
+        publish_plan(api, plan(index_channel='beta', package_channel='stable'))
+        self.assertTrue(api.prerelease)
+        self.assertIn('search performance', api.release_body)
+        self.assertIn('control samples', api.release_body)
+        self.assertNotIn('stable.json', api.pages)
+
+    def test_beta_readme_discloses_search_gaps_without_modifying_payload(self):
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, 'w') as z:
+            z.writestr('README.txt', b'candidate'); z.writestr('Telegram.exe', b'cloud')
+        asset = publish.portable_package(data.getvalue(), '7.3.1-r9', beta=True)
+        with zipfile.ZipFile(io.BytesIO(asset.data)) as z:
+            self.assertEqual(z.read('Telegram.exe'), b'cloud')
+            self.assertIn(b'Beta', z.read('README.txt'))
+            self.assertIn(b'control samples', z.read('README.txt'))
+
     def test_signing_approval_is_bound_before_final_installation_acceptance(self):
         import test_release_gate as fixture
         manifest = fixture.manifest()

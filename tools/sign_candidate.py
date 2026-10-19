@@ -304,7 +304,7 @@ def _check_candidate_root(root: Path, manifest: dict, root_pem: bytes) -> None:
 
 def _record_and_gates(root: Path, manifest_path: Path, package: Path, source: Path,
                       qa_path: Path, packer: Path, trust: Path, commit: str,
-                      qa_name: str, *, for_signing=False) -> tuple[dict, dict, dict, bytes, bytes, bytes]:
+                      qa_name: str, *, for_signing=False, allow_beta=False) -> tuple[dict, dict, dict, bytes, bytes, bytes]:
     if Path(manifest_path).name != "candidate-record.json":
         raise SigningError("Signing requires the external candidate-record.json.")
     manifest = _read_json(manifest_path)
@@ -322,11 +322,11 @@ def _record_and_gates(root: Path, manifest_path: Path, package: Path, source: Pa
     gate.verify_tool(manifest, "Packer.exe", packer)
     gate.verify_source_archive(manifest, source)
     qa = _read_json(qa_path)
-    gate.verify_qa(manifest, qa, for_signing=for_signing)
+    gate.verify_qa(manifest, qa, for_signing=for_signing, allow_beta=allow_beta)
     auth_path = Path(tempfile.gettempdir()) / ("fishgram-authorization-" + os.urandom(16).hex() + ".json")
     qa_bytes = Path(qa_path).read_bytes()
     try:
-        authorization = gate.authorize(manifest, qa, Path(qa_path).name, qa_bytes, auth_path, for_signing=for_signing)
+        authorization = gate.authorize(manifest, qa, Path(qa_path).name, qa_bytes, auth_path, for_signing=for_signing, allow_beta=allow_beta)
     finally:
         auth_path.unlink(missing_ok=True)
     trust_manifest, issuer_raw, root_pem, trust_data = _verify_trust(root, trust)

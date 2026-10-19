@@ -3,10 +3,10 @@ name: fishgram-cloud-release
 language: zh-CN
 phase: build
 status: active
-state_version: 49
+state_version: 52
 brief: brief.md
 document_constraints_version: 1
-shape_confirmation_hash: 847cce875af12bf81ffb90324f4f2e65a2050f6710884e59a9ad90e005c5f267
+shape_confirmation_hash: 4d25b29c6587585a41e8881d4aed23c46aa46b18f14607bb33a45dc83c2e6812
 spec_changes:
   - capability: cloud-release
     operation: create
@@ -18,7 +18,7 @@ workspace:
   finish: null
 loop:
   stage: building
-  goal_cycle: 3
+  goal_cycle: 4
   iteration: 1
   attempt: 0
   retry_epoch: 0
@@ -390,6 +390,15 @@ history:
       text: Native Shape artifacts changed
       truncated: false
     completed_at: 2026-10-19T08:10:10.310Z
+  - goal_cycle: 3
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native Shape artifacts changed
+      truncated: false
+    completed_at: 2026-10-19T09:31:09.255Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null

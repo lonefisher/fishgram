@@ -303,6 +303,24 @@ class PackageTests(unittest.TestCase):
 
 
 class QaTests(unittest.TestCase):
+    def test_beta_defers_only_approved_search_gaps_and_requires_remaining_checks(self):
+        record = manifest()
+        qa = qa_for(record)
+        qa['kind'] = 'fishgram-beta-qa'
+        qa['deferredSearch'] = ['largeScalePerformance', 'nativeOmissionControlSamples']
+        qa['checks']['searchEightAcceptance'] = False
+        qa['checks']['remainingSearchAcceptance'] = True
+        gate.verify_qa(record, qa, allow_beta=True)
+        with self.assertRaises(gate.GateError):
+            gate.verify_qa(record, qa)
+        for name in ('updaterFullMatrix', 'remainingSearchAcceptance', 'localWindows11'):
+            other = json.loads(json.dumps(qa)); other['checks'][name] = False
+            with self.subTest(name=name), self.assertRaises(gate.GateError):
+                gate.verify_qa(record, other, allow_beta=True)
+        qa['deferredSearch'].append('updaterSafety')
+        with self.assertRaises(gate.GateError):
+            gate.verify_qa(record, qa, allow_beta=True)
+
     def test_signing_request_allows_pending_installation_but_cannot_authorize_publication(self):
         record = manifest()
         qa = qa_for(record)

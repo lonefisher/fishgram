@@ -575,13 +575,18 @@ def qa_template(manifest, output):
     return template
 
 
-def verify_qa(manifest, qa, *, for_signing=False):
+def verify_qa(manifest, qa, *, for_signing=False, allow_beta=False):
     """Validate anonymous reviewed QA and exact candidate binding."""
     signing_request = for_signing and isinstance(qa, dict) and qa.get('kind') == 'fishgram-signing-qa'
+    beta = allow_beta and isinstance(qa, dict) and qa.get('kind') == 'fishgram-beta-qa'
     if not isinstance(qa, dict) or qa.get("schema") != 2 or (
-            qa.get("kind") != "fishgram-candidate-qa" and not signing_request):
+            qa.get("kind") != "fishgram-candidate-qa" and not signing_request and not beta):
         raise GateError("Not a FishGram candidate QA approval.")
     allowed = {"schema", "kind", "approvedAt", "candidate", "checks"}
+    if beta:
+        allowed.add('deferredSearch')
+        if qa.get('deferredSearch') != ['largeScalePerformance', 'nativeOmissionControlSamples']:
+            raise GateError('Beta may defer only the two approved search gaps.')
     if set(qa) != allowed:
         raise GateError("QA approval has missing or unknown fields.")
     stamp = qa["approvedAt"]
@@ -608,17 +613,20 @@ def verify_qa(manifest, qa, *, for_signing=False):
     if candidate["files"] != expected_files:
         raise GateError("QA approval was issued for different candidate payload hashes.")
     checks = qa["checks"]
-    if not isinstance(checks, dict) or set(checks) != set(REQUIRED_CHECKS):
+    expected_checks = set(REQUIRED_CHECKS) | ({'remainingSearchAcceptance'} if beta else set())
+    if not isinstance(checks, dict) or set(checks) != expected_checks:
         raise GateError("QA checks must cover exactly the required items.")
-    required = set(REQUIRED_CHECKS) - ({'searchEightAcceptance', 'updaterFullMatrix'} if signing_request else set())
+    required = expected_checks - ({'searchEightAcceptance', 'updaterFullMatrix'} if signing_request else {'searchEightAcceptance'} if beta else set())
+    if beta and checks['searchEightAcceptance'] is not False:
+        raise GateError('Beta deferred search acceptance must remain incomplete.')
     if any(type(value) is not bool for value in checks.values()) or any(checks[name] is not True for name in required):
         raise GateError("Every required QA check must be explicitly passed.")
 
 
-def authorize(manifest, qa, qa_name, qa_bytes, output, *, for_signing=False):
+def authorize(manifest, qa, qa_name, qa_bytes, output, *, for_signing=False, allow_beta=False):
     """Emit the release authorization consumed by signing; never compiles."""
     info = validate_manifest(manifest)
-    verify_qa(manifest, qa, for_signing=for_signing)
+    verify_qa(manifest, qa, for_signing=for_signing, allow_beta=allow_beta)
     tools = manifest.get("tools") or {}
     if "Packer.exe" not in tools:
         raise GateError("Signing requires the reviewed Packer tool recorded at build time.")

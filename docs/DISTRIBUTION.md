@@ -12,6 +12,8 @@ Release 顶部说明首先链接 Windows 11 x64 便携 ZIP。解压后运行 `St
 
 ## Scoop
 
+首版先发 Beta，使用 `bucket/fishgram-beta.json`，下载说明标注两项搜索限制，检查 GitHub Releases 列表；稳定版后续使用下述 `fishgram` 清单。Beta 不使用排除 prerelease 的 `/releases/latest`。首次 Beta 安装命令为 `scoop install lonefisher/fishgram-beta`。
+
 目标仓库为 `lonefisher/scoop-bucket`，主分支 `master`，清单路径 `bucket/fishgram.json`。正式 Release 公开下载读回成功后提交清单，下载 URL 指向 Release 的便携 ZIP，SHA256 来自该公开附件。版本使用完整 `7.3.1-r9`，检查新版本时保留修订号。
 
 清单仅支持 `64bit`，创建 FishGram 快捷方式和 `fishgram` 命令，`persist` 使用 `FishGramData`。安装及升级时创建该目录；升级前要求目标实例正常退出，随后验证持久化目录和登录状态保留。
