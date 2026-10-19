@@ -18,7 +18,7 @@
 
 首版 Beta 按 [Beta 发行](BETA-RELEASE.md)使用 schema 2 `fishgram-beta-qa`：`deferredSearch` 只能是 `largeScalePerformance` 与 `nativeOmissionControlSamples`，`searchEightAcceptance` 保留 false，新增 `remainingSearchAcceptance` 必须 true，其余检查（包括 `updaterFullMatrix`）全部 true。只有显式 `index_channel=beta` 接受该 QA；离线 promotion 的公开 proof 也记录 Beta 渠道，不能推广稳定索引。GitHub prerelease 标志按索引渠道设置，签名包渠道仍保留真实值。包内 README 与 Release 说明公开相同限制。
 
-真实安装恢复验收使用先前已签名的内部候选包。签名前的 `fishgram-signing-qa` 与完成后的 `fishgram-candidate-qa` 保存在同一 QA 路径；最终文档须所有验收为 true。签名记录保存原文档的 base64、哈希和批准时间，发布前核对原文档、Git 历史和最终文档都绑定同一候选，仅允许申请类型、批准时间及待验检查完成。发布默认门槛不接受内部签名申请。公开 signing record 只保留原申请哈希和时间，完整最终验收另见 qa-proof.json。
+真实安装恢复验收使用先前已签名的内部候选包。签名前的 `fishgram-signing-qa` 与完成后的 `fishgram-candidate-qa` 或上述首版 `fishgram-beta-qa` 保存在同一 QA 路径；最终文档须满足所选发行渠道的全部必需验收。签名记录保存原文档的 base64、哈希和批准时间，发布前核对原文档、Git 历史和最终文档都绑定同一候选，仅允许申请类型、批准时间及待验检查完成。发布默认门槛不接受内部签名申请。公开 signing record 只保留原申请哈希和时间，完整最终验收另见 qa-proof.json。
 
 `.github/workflows/publish-release.yml` 仅响应 `workflow_dispatch` 且 job 仅允许 `main`，绑定 `release` environment。默认 `publish_externally=false`，只在已签名 artifact provenance 和完整本地 gate 成功后上传可审查的离线 promotion artifact；该 artifact 明确标记 `prepared-only`，不代表已发行。只有人工明确选中 `publish_externally=true`，环境审批完成且 `RELEASE_APP_CLIENT_ID` / `RELEASE_APP_PRIVATE_KEY` 配置齐全，workflow 才请求两个各自限定到单一仓库的 App token 并调用外部写入入口。发布和准备两条路径都从 run API 重验候选 workflow 的成功 run/job/唯一 artifact，并对签名 workflow 的成功 run/job/`fishgram-signed-candidate-<candidate_run_id>` artifact 做同样 provenance 校验；下载后还会重复 QA、candidate、source、trust 和签名 gate。
 
@@ -28,7 +28,7 @@
 
 发布附件至少包括签名更新包、便携 ZIP、对应源码 ZIP、candidate record、`qa-proof.json` 和脱敏的 `signing-record.json`。便携 ZIP 命名为 `FishGram-<version>-windows-x64.zip`，由已验证的候选 ZIP 确定性转换，仅替换内部候选 README；其余文件逐字节保留。ZIP 使用 stored 条目，排除宿主压缩库差异。Release 同时发布 distribution-record.json，绑定最终便携 ZIP 名称、大小、SHA256、原候选归档、程序哈希及审核发布提交。候选 record 继续绑定原云端 ZIP，promotion manifest 单独记录最终便携 ZIP 的大小和 SHA256。QA proof 仅包含批准时间、候选绑定、检查结论和原始 QA SHA256，不包含 approver、环境描述、原始备注或 QA 文件名；公开 signing record 使用白名单字段，QA 部分只保留原始哈希、批准时间及 proof 哈希。原始签名记录仍用于发布前的完整绑定校验，不能拿公开投影替代原始输入。公开包不包含密钥、原始日志、账户数据或构建缓存。
 
-可提交的 QA 使用 schema 2，固定字段只有 `schema`、`kind`、`approvedAt`、`candidate` 和 `checks`；不接受 approver、environment、notes 或其他自由文本字段，旧 schema 1 在签名前拒绝。人工身份及批准由受审查提交、受保护 release 环境和 GitHub 审批记录证明，匿名 JSON 本身不是身份认证。候选哈希绑定及所有必需检查仍必须通过；完整实测环境、原始 QA 备注、日志和截图留在本机私有区，不能提交到公开 Git。匿名 QA 与 Release proof 都仍须提交前内容审查。
+可提交的 QA 使用 schema 2，完整验收和内部签名申请的字段为 `schema`、`kind`、`approvedAt`、`candidate` 和 `checks`；首版 Beta 另有上述固定 `deferredSearch` 字段。不接受 approver、environment、notes 或其他自由文本字段，旧 schema 1 在签名前拒绝。人工身份及批准由受审查提交、受保护 release 环境和 GitHub 审批记录证明，匿名 JSON 本身不是身份认证。候选哈希绑定及所有必需检查仍必须通过；完整实测环境、原始 QA 备注、日志和截图留在本机私有区，不能提交到公开 Git。匿名 QA 与 Release proof 都仍须提交前内容审查。
 
 上传中断可能留下 tag、draft 或部分附件；不自动删除、追加或覆盖，需人工检查。release 已发布且附件完整，仅 Pages 推广失败时，可显式复用同一候选续跑；缺失或不匹配的附件不能通过此路径修补。索引始终是最后的公开推广点。
 

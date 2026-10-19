@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "kind": "fishgram-signing-qa",
+  "approvedAt": "2026-10-19T10:17:00Z",
+  "candidate": {
+    "version": "7.3.1-r9",
+    "parentCommit": "5e366dad8d5667d24fe705c1d22bd05503a9eda3",
+    "sourceCommit": "1ab89eccc15daae4603a8777585bdc1d934eabab",
+    "archive": {
+      "name": "FishGram-7.3.1-r9-windows-x64-candidate.zip",
+      "sha256": "464841f199ce60c196fb07e09d5a8b6383df2cff79f70443826b5ac206a7ea51",
+      "size": 82099078
+    },
+    "files": {
+      "Telegram.exe": {
+        "sha256": "e26433cd440194563d4a88bd7fb3bfd0dedc7776e06527656e633e9bb46d8b23"
+      },
+      "Updater.exe": {
+        "sha256": "f9a455a9e046a8dfb3df27d644d07316b6d51a6273ef763cbbcab4cd7364259e"
+      }
+    },
+    "sourceArchive": {
+      "name": "FishGram-corresponding-source.zip",
+      "size": 89923251,
+      "sha256": "53c990c7a51de4470a7bd108e0ba5b174c99c1686971da9c4cbc3f6112b030d0"
+    }
+  },
+  "checks": {
+    "searchEightAcceptance": false,
+    "updaterFullMatrix": false,
+    "sameCandidateCloudConclusion": true,
+    "hashVerification": true,
+    "noAccountData": true,
+    "localWindows11": true
+  }
+}
