@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -20,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -422,9 +424,9 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
     if any(not path.startswith("keys/") or "\\" in path or str(PurePosixPath(path)) != path
            or ".." in PurePosixPath(path).parts for path in paths):
         raise PublishError("Only reviewed public trust files under Pages keys/ may be promoted.")
-    if (f"FishGram-{plan.tag[1:]}-windows-x64-candidate.zip" not in names
+    if (f"FishGram-{plan.tag[1:]}-windows-x64.zip" not in names
             or not {"candidate-record.json", "signing-record.json"}.issubset(names)
-            or sum(name.endswith(".zip") and name != f"FishGram-{plan.tag[1:]}-windows-x64-candidate.zip"
+            or sum(name.endswith(".zip") and name != f"FishGram-{plan.tag[1:]}-windows-x64.zip"
                    for name in names) != 1
             or set(paths) != {"keys/root-public.pem", "keys/issuer-public.pem",
                               "keys/manifest.min.json", "keys/manifest.sig"}):
@@ -436,6 +438,24 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
             raise PublishError("Existing release asset set could not be verified; promotion stopped before writes.") from error
         if existing_assets != set(names):
             raise PublishError("Existing release asset set differs from the reviewed promotion plan.")
+        # A later index promotion has a new reviewed main commit. Preserve the
+        # original publication record while checking every candidate/package field.
+        for asset in plan.assets:
+            if asset.name != 'distribution-record.json':
+                continue
+            original = api.download_asset(plan.tag, asset.name)
+            try:
+                previous = json.loads(original)
+                expected = json.loads(asset.data)
+                publisher = previous.pop('reviewedPublisherCommit')
+                expected.pop('reviewedPublisherCommit')
+                if not isinstance(publisher, str) or not COMMIT.fullmatch(publisher) or previous != expected:
+                    raise ValueError('Distribution record differs')
+            except (ValueError, TypeError, KeyError, AttributeError) as error:
+                raise PublishError('Existing distribution record does not bind the verified candidate and portable ZIP.') from error
+            plan = replace(plan, assets=tuple(
+                Asset(item.name, original) if item.name == asset.name else item
+                for item in plan.assets))
     if not plan.reuse_release:
         pages_config = getattr(api, "pages_config", None)
         if not callable(pages_config):
@@ -462,7 +482,7 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
         api.create_source_tag(plan.tag, source_commit)
     if not plan.reuse_release:
         api.create_release(plan.tag, plan.target_commit, plan.tag,
-                           "FishGram portable release for Windows 11 x64. FishGram update packages use our own update signature, not Windows Authenticode. The Windows executable is not Authenticode-signed. See attached corresponding source, QA records and known limitations.",
+                           f"Download [FishGram {plan.tag[1:]} for Windows 11 x64](https://github.com/{PRODUCT_REPOSITORY}/releases/download/{plan.tag}/FishGram-{plan.tag[1:]}-windows-x64.zip). Extract the ZIP and run Start-FishGram.cmd. Accounts and settings are kept in FishGramData.\n\nCorresponding source is a separate ZIP attachment; it is not needed to run the client.\n\nFishGram update packages use our own update signature, not Windows Authenticode. The Windows executable is not Authenticode-signed. Build and acceptance records are attached.",
                            prerelease=plan.package_channel == "beta")
         try:
             if api.tag_commit(PRODUCT_REPOSITORY, plan.tag) != parent_commit:
@@ -545,6 +565,37 @@ def _promotion_file(root: Path, relative: str) -> bytes:
     return resolved.read_bytes()
 
 
+def portable_package(candidate_bytes: bytes, version: str) -> Asset:
+    """Wrap an already-verified candidate for users without changing programs."""
+    result = io.BytesIO()
+    readme = (
+        f"FishGram {version} - Windows 11 x64 portable\r\n"
+        "Extract all files, then run Start-FishGram.cmd.\r\n"
+        "Accounts and settings are stored in FishGramData beside the program.\r\n"
+        "Close FishGram before replacing program files; keep FishGramData.\r\n"
+        "Corresponding source: the separate source ZIP in this GitHub Release.\r\n"
+        "FishGram update packages use our own signature, not Windows Authenticode.\r\n"
+    ).encode('utf-8')
+    with zipfile.ZipFile(io.BytesIO(candidate_bytes)) as source, zipfile.ZipFile(
+            result, 'w', compression=zipfile.ZIP_STORED) as target:
+        for name in sorted(source.namelist()):
+            entry = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
+            entry.compress_type = zipfile.ZIP_STORED
+            entry.external_attr = 0o100644 << 16
+            target.writestr(entry, readme if name == 'README.txt' else source.read(name))
+    return Asset(f'FishGram-{version}-windows-x64.zip', result.getvalue())
+
+
+def distribution_record(portable: Asset, manifest: dict, commit: str) -> Asset:
+    return Asset('distribution-record.json', json.dumps({
+        'schema': 1, 'kind': 'fishgram-portable-distribution',
+        'archive': {'name': portable.name, 'size': len(portable.data), 'sha256': portable.sha256},
+        'candidateArchive': manifest['archive'],
+        'parentCommit': manifest['parentCommit'], 'sourceCommit': manifest['sourceCommit'],
+        'reviewedPublisherCommit': commit, 'files': manifest['files'],
+    }, sort_keys=True, indent=2).encode('utf-8') + b'\n')
+
+
 def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_release: bool,
                     record_path: Path, qa_path: Path,
                     signing_record_path: Path, candidate_zip: Path, source_zip: Path,
@@ -617,9 +668,11 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
     if Path(qa_path.name).name != qa_path.name or "\\" in qa_path.name:
         raise PublishError("QA approval filename is unsafe for a public attachment.")
     public_qa, public_signing = public_acceptance_records(qa_path.read_bytes(), signing)
+    portable = portable_package(candidate_zip.read_bytes(), manifest['version'])
     assets = (
         Asset(update_name, signed_package.read_bytes()),
-        Asset(manifest["archive"]["name"], candidate_zip.read_bytes()),
+        portable,
+        distribution_record(portable, manifest, commit),
         Asset(manifest["sourceArchive"]["name"], source_zip.read_bytes()),
         Asset("candidate-record.json", record_path.read_bytes()),
         public_qa,

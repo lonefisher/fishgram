@@ -22,7 +22,7 @@
 
 2026-10-11 配置读回：`candidate` 与 `release` 均保留维护者人工审批，Selected branches and tags 只允许 branch `main`，禁止管理员绕过。Pages API 为公开 `https://lonefisher.github.io/fishgram/`，来源 `gh-pages` 根目录；独立开发说明页已有公开读回证据，更新索引尚未推广。两个 App 已安装、认证及权限读回，发布 App 仅在受保护 release 环境使用。配置接续及 refs 保护见 [GitHub 配置](GITHUB-CONFIGURATION.md)。GitHub Git/Contents API 接受变更不证明 Pages 部署完成；只以公开 URL 的逐文件 HTTP 200 和 SHA256 读回为成功。索引 write 成功但读回失败会报告失败，不能据此宣称客户端已收到新索引。真实生产候选/签名 workflow provenance 及端到端公开发布仍未验收。
 
-发布附件至少包括签名更新包、候选 ZIP、对应源码 ZIP、candidate record、`qa-proof.json` 和脱敏的 `signing-record.json`。QA proof 仅包含批准时间、候选绑定、检查结论和原始 QA SHA256，不包含 approver、环境描述、原始备注或 QA 文件名；公开 signing record 使用白名单字段，QA 部分只保留原始哈希、批准时间及 proof 哈希。原始签名记录仍用于发布前的完整绑定校验，不能拿公开投影替代原始输入。公开包不包含密钥、原始日志、账户数据或构建缓存。
+发布附件至少包括签名更新包、便携 ZIP、对应源码 ZIP、candidate record、`qa-proof.json` 和脱敏的 `signing-record.json`。便携 ZIP 命名为 `FishGram-<version>-windows-x64.zip`，由已验证的候选 ZIP 确定性转换，仅替换内部候选 README；其余文件逐字节保留。ZIP 使用 stored 条目，排除宿主压缩库差异。Release 同时发布 distribution-record.json，绑定最终便携 ZIP 名称、大小、SHA256、原候选归档、程序哈希及审核发布提交。候选 record 继续绑定原云端 ZIP，promotion manifest 单独记录最终便携 ZIP 的大小和 SHA256。QA proof 仅包含批准时间、候选绑定、检查结论和原始 QA SHA256，不包含 approver、环境描述、原始备注或 QA 文件名；公开 signing record 使用白名单字段，QA 部分只保留原始哈希、批准时间及 proof 哈希。原始签名记录仍用于发布前的完整绑定校验，不能拿公开投影替代原始输入。公开包不包含密钥、原始日志、账户数据或构建缓存。
 
 可提交的 QA 使用 schema 2，固定字段只有 `schema`、`kind`、`approvedAt`、`candidate` 和 `checks`；不接受 approver、environment、notes 或其他自由文本字段，旧 schema 1 在签名前拒绝。人工身份及批准由受审查提交、受保护 release 环境和 GitHub 审批记录证明，匿名 JSON 本身不是身份认证。候选哈希绑定及所有必需检查仍必须通过；完整实测环境、原始 QA 备注、日志和截图留在本机私有区，不能提交到公开 Git。匿名 QA 与 Release proof 都仍须提交前内容审查。
 
@@ -46,3 +46,5 @@ Pages 每次写入后按公开字节进行有界轮询，轮询预算为 180 秒
 # Authoritative trust preflight
 
 Before creating either repository tag or the release, the publisher reads the Pages trust bundle at a fixed branch commit. It rejects an incomplete bundle, a changed root, or a changed bundle with a nonincreasing manifest version. The atomic Pages update repeats the same checks against its current branch parent and never forces the ref. This preflight avoids known conflicts before immutable release writes; it is not a cross-service transaction and cannot prevent an unrelated writer changing Pages after the check.
+
+便携 ZIP 使用 ZIP_STORED，Python/压缩库升级不改变包装字节。复用既有发行时，读取并保留首次发布的 distribution-record.json，校验其原候选、最终 ZIP 和程序记录与本次已验证输入一致；当前审核提交继续保存在本次 promotion 中。

@@ -303,6 +303,16 @@ class PackageTests(unittest.TestCase):
 
 
 class QaTests(unittest.TestCase):
+    def test_local_windows_acceptance_is_required_instead_of_clean_system(self):
+        record = manifest()
+        qa = qa_for(record)
+        qa['checks'].pop('cleanWindows11', None)
+        qa['checks']['localWindows11'] = True
+        gate.verify_qa(record, qa)
+        qa['checks']['localWindows11'] = False
+        with self.assertRaises(gate.GateError):
+            gate.verify_qa(record, qa)
+
     def test_template_binds_candidate_and_rejects_overwrite(self):
         record = manifest()
         with tempfile.TemporaryDirectory() as temp:
@@ -336,7 +346,7 @@ class QaTests(unittest.TestCase):
 
     def test_incomplete_or_forged_qa_fails(self):
         record = manifest()
-        qa = qa_for(record, checks={'cleanWindows11': True})
+        qa = qa_for(record, checks={'localWindows11': True})
         with self.assertRaises(gate.GateError):
             gate.verify_qa(record, qa)
         qa = qa_for(record)

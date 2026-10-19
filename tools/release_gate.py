@@ -36,7 +36,7 @@ REQUIRED_CHECKS = (
     "searchEightAcceptance",
     "updaterFullMatrix",
     "sameCandidateCloudConclusion",
-    "cleanWindows11",
+    "localWindows11",
     "hashVerification",
     "noAccountData",
 )

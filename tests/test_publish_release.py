@@ -1,6 +1,8 @@
 import hashlib
 import importlib.util
 import json
+import io
+import zipfile
 from pathlib import Path
 import sys
 import subprocess
@@ -106,7 +108,7 @@ def plan(*, index_channel="stable", package_channel="stable", reuse_release=Fals
     update_name = "fishgram-update-win-x64-7002009-r1" + ("-beta" if package_channel == "beta" else "")
     assets = (
         publish.Asset(update_name, b"signed-update"),
-        publish.Asset("FishGram-7.2.9-r1-windows-x64-candidate.zip", b"candidate-zip"),
+        publish.Asset("FishGram-7.2.9-r1-windows-x64.zip", b"portable-zip"),
         publish.Asset("FishGram-corresponding-source.zip", b"source-zip"),
         publish.Asset("candidate-record.json", json.dumps({
             "parentCommit": "b" * 40, "sourceCommit": "c" * 40}).encode()),
@@ -147,6 +149,64 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_portable_package_preserves_programs_and_replaces_internal_readme(self):
+        source = io.BytesIO()
+        files = {'Telegram.exe': b'tested-client', 'Updater.exe': b'tested-updater',
+                 'Start-FishGram.cmd': b'launcher', 'LICENSE': b'license',
+                 'LEGAL': b'exceptions', 'build-manifest.json': b'{}',
+                 'README.txt': b'internal candidate; not a public release'}
+        with zipfile.ZipFile(source, 'w') as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        asset = publish.portable_package(source.getvalue(), '7.3.1-r9')
+        self.assertEqual(asset.name, 'FishGram-7.3.1-r9-windows-x64.zip')
+        with zipfile.ZipFile(io.BytesIO(asset.data)) as archive:
+            self.assertEqual(set(archive.namelist()), set(files))
+            for name in set(files) - {'README.txt'}:
+                self.assertEqual(archive.read(name), files[name])
+            self.assertIn(b'Start-FishGram.cmd', archive.read('README.txt'))
+            self.assertNotIn(b'internal candidate', archive.read('README.txt'))
+        self.assertEqual(asset.data, publish.portable_package(source.getvalue(), '7.3.1-r9').data)
+        # Stored entries make the final bytes independent of zlib implementations.
+        with mock.patch('zipfile.zlib', None):
+            self.assertEqual(asset.data, publish.portable_package(source.getvalue(), '7.3.1-r9').data)
+
+    def test_public_distribution_record_binds_final_zip_to_candidate_and_publisher(self):
+        portable = publish.Asset('FishGram-7.3.1-r9-windows-x64.zip', b'final-zip')
+        manifest = {'archive': {'sha256': hashlib.sha256(b'original').hexdigest()},
+                    'parentCommit': 'b' * 40, 'sourceCommit': 'c' * 40,
+                    'files': {'Telegram.exe': {'sha256': hashlib.sha256(b'client').hexdigest()}}}
+        asset = publish.distribution_record(portable, manifest, 'd' * 40)
+        public = json.loads(asset.data)
+        self.assertEqual(public['archive']['sha256'], hashlib.sha256(portable.data).hexdigest())
+        self.assertEqual(public['archive']['size'], len(portable.data))
+        self.assertEqual(public['candidateArchive'], manifest['archive'])
+        self.assertEqual(public['reviewedPublisherCommit'], 'd' * 40)
+        candidate = plan()
+        from dataclasses import replace
+        candidate = replace(candidate, assets=(*candidate.assets, asset))
+        api = FakeApi()
+        publish_plan(api, candidate)
+        self.assertEqual(api.assets[asset.name], asset.data)
+        self.assertIn(('download', asset.name), api.events)
+
+    def test_reuse_preserves_original_distribution_when_reviewed_main_advances(self):
+        from dataclasses import replace
+        candidate = plan(index_channel='beta', package_channel='stable')
+        portable = candidate.assets[1]
+        manifest = {'archive': {'sha256': hashlib.sha256(b'original').hexdigest()},
+                    'parentCommit': 'b' * 40, 'sourceCommit': 'c' * 40, 'files': {}}
+        original = publish.distribution_record(portable, manifest, 'd' * 40)
+        candidate = replace(candidate, assets=(*candidate.assets, original), reviewed_commit='d' * 40)
+        api = FakeApi()
+        publish_plan(api, candidate)
+        before = dict(api.assets)
+        current = publish.distribution_record(portable, manifest, 'e' * 40)
+        current_assets = tuple(current if a.name == current.name else a for a in candidate.assets)
+        publish_plan(api, replace(candidate, assets=current_assets, reviewed_commit='e' * 40, reuse_release=True))
+        self.assertEqual(api.assets, before)
+        self.assertEqual(json.loads(api.assets[original.name])['reviewedPublisherCommit'], 'd' * 40)
+
     def test_unmerged_source_stops_before_any_publication_write(self):
         api = FakeApi()
         api.verify_source_merged = mock.Mock(side_effect=RuntimeError('unmerged source'))
