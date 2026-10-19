@@ -1,4 +1,5 @@
 import hashlib
+import base64
 import importlib.util
 import json
 import io
@@ -149,6 +150,35 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_signing_approval_is_bound_before_final_installation_acceptance(self):
+        import test_release_gate as fixture
+        manifest = fixture.manifest()
+        final = fixture.qa_for(manifest)
+        preliminary = fixture.qa_for(manifest)
+        preliminary['kind'] = 'fishgram-signing-qa'
+        preliminary['checks']['searchEightAcceptance'] = False
+        preliminary['checks']['updaterFullMatrix'] = False
+        raw = json.dumps(preliminary).encode()
+        signing = {'qa': {'file': 'approved.json', 'sha256': hashlib.sha256(raw).hexdigest(),
+                         'approvedAt': preliminary['approvedAt'],
+                         'document': base64.b64encode(raw).decode()}}
+        self.assertTrue(publish.verify_signing_approval(manifest, final, signing, 'approved.json', b'final'))
+        changed = json.loads(json.dumps(final))
+        changed['candidate']['sourceCommit'] = 'f' * 40
+        with self.assertRaises(publish.PublishError):
+            publish.verify_signing_approval(manifest, changed, signing, 'approved.json', b'final')
+        earlier = json.loads(json.dumps(final))
+        earlier['approvedAt'] = '2026-10-01T00:00:00Z'
+        with self.assertRaises(publish.PublishError):
+            publish.verify_signing_approval(manifest, earlier, signing, 'approved.json', b'final')
+        corrupt = json.loads(json.dumps(signing))
+        corrupt['qa']['document'] = 'invalid-base64'
+        with self.assertRaises(publish.PublishError):
+            publish.verify_signing_approval(manifest, final, corrupt, 'approved.json', b'final')
+        signing['qa']['sha256'] = '0' * 64
+        with self.assertRaises(publish.PublishError):
+            publish.verify_signing_approval(manifest, final, signing, 'approved.json', b'final')
+
     def test_portable_package_preserves_programs_and_replaces_internal_readme(self):
         source = io.BytesIO()
         files = {'Telegram.exe': b'tested-client', 'Updater.exe': b'tested-updater',
@@ -562,6 +592,29 @@ class PublishReleaseTests(unittest.TestCase):
             git("commit", "-m", "changed QA")
             with self.assertRaisesRegex(publish.PublishError, "QA differs"):
                 publish.verify_signing_history(root, signer, candidate, git("rev-parse", "HEAD"), "release/qa/approved.json")
+
+    def test_signer_history_allows_only_completion_of_same_candidate_signing_request(self):
+        import test_release_gate as fixture
+        with tempfile.TemporaryDirectory(dir=MODULE.parent.parent) as temp:
+            root = Path(temp)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', temp, *args], stderr=subprocess.DEVNULL).decode().strip()
+            git('init', '-b', 'main'); git('config', 'user.email', 'fixture@example.invalid')
+            git('config', 'user.name', 'Fixture'); git('commit', '--allow-empty', '-m', 'candidate')
+            candidate = git('rev-parse', 'HEAD')
+            final = fixture.qa_for(fixture.manifest())
+            preliminary = json.loads(json.dumps(final)); preliminary['kind'] = 'fishgram-signing-qa'
+            preliminary['checks']['updaterFullMatrix'] = False
+            preliminary['checks']['searchEightAcceptance'] = False
+            qa = root/'release/qa/approved.json'; qa.parent.mkdir(parents=True)
+            qa.write_text(json.dumps(preliminary)); git('add', '.'); git('commit', '-m', 'signing request')
+            signer = git('rev-parse', 'HEAD')
+            qa.write_text(json.dumps(final)); git('commit', '-am', 'completed installation acceptance')
+            publish.verify_signing_history(root, signer, candidate, git('rev-parse', 'HEAD'), 'release/qa/approved.json')
+            final['candidate']['sourceCommit'] = 'f' * 40
+            qa.write_text(json.dumps(final)); git('commit', '-am', 'different candidate')
+            with self.assertRaises(publish.PublishError):
+                publish.verify_signing_history(root, signer, candidate, git('rev-parse', 'HEAD'), 'release/qa/approved.json')
 
     def test_reuse_release_survives_offline_handoff_and_cleans_staging(self):
         with tempfile.TemporaryDirectory(dir=MODULE.parent.parent) as temp:

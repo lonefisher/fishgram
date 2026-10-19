@@ -2,6 +2,12 @@
 
 This workflow prepares internal candidates and a fail-closed signing request. It does not make a public release, tag, upload, or index change. The root `fishgram.json` remains `autoUpdate: false` and `releaseReady: false`; only the explicit protected product-candidate build enables the updater.
 
+## Internal signing before installation acceptance
+
+An update package must exist before its installation and recovery can be tested. A reviewed schema 2 QA document may therefore use `kind: fishgram-signing-qa` to request an internal signed candidate. It still binds the exact cloud ZIP, source, programs, and commits; `sameCandidateCloudConclusion`, `localWindows11`, `hashVerification`, and `noAccountData` must be true. `searchEightAcceptance` and `updaterFullMatrix` remain their actual boolean results. The protected release environment still requires human approval.
+
+This request is accepted only by the signing path. The publisher requires `kind: fishgram-candidate-qa` with all checks true. After testing the signed package, complete the same committed QA file for the same candidate. The signing record retains the original request bytes and hash; the publication gate checks that only the request kind, approval time, and completed checks changed. The signed package is reused rather than rebuilt or signed again.
+
 ## Protected product candidate
 
 `product-candidate.yml` is manually dispatched from protected `main`, with the configured protected `candidate` environment. It checks out the exact dispatch commit and recursive pins, requires a clean tracked and untracked workspace, and verifies that the reviewed FishGram public trust bundle is present and root-signed before exposing `FISHGRAM_API_ID` and `FISHGRAM_API_HASH`. The secrets belong only to that protected environment. PR workflows do not receive these secrets.

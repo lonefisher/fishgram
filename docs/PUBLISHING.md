@@ -16,6 +16,8 @@
 
 ## 人工 workflow
 
+真实安装恢复验收使用先前已签名的内部候选包。签名前的 `fishgram-signing-qa` 与完成后的 `fishgram-candidate-qa` 保存在同一 QA 路径；最终文档须所有验收为 true。签名记录保存原文档的 base64、哈希和批准时间，发布前核对原文档、Git 历史和最终文档都绑定同一候选，仅允许申请类型、批准时间及待验检查完成。发布默认门槛不接受内部签名申请。公开 signing record 只保留原申请哈希和时间，完整最终验收另见 qa-proof.json。
+
 `.github/workflows/publish-release.yml` 仅响应 `workflow_dispatch` 且 job 仅允许 `main`，绑定 `release` environment。默认 `publish_externally=false`，只在已签名 artifact provenance 和完整本地 gate 成功后上传可审查的离线 promotion artifact；该 artifact 明确标记 `prepared-only`，不代表已发行。只有人工明确选中 `publish_externally=true`，环境审批完成且 `RELEASE_APP_CLIENT_ID` / `RELEASE_APP_PRIVATE_KEY` 配置齐全，workflow 才请求两个各自限定到单一仓库的 App token 并调用外部写入入口。发布和准备两条路径都从 run API 重验候选 workflow 的成功 run/job/唯一 artifact，并对签名 workflow 的成功 run/job/`fishgram-signed-candidate-<candidate_run_id>` artifact 做同样 provenance 校验；下载后还会重复 QA、candidate、source、trust 和签名 gate。
 
 发布 gate 除复用 signer pins 外，还单独要求受保护 main 中提交发布脚本、GitHub REST transport、许可 inventory/config、发布测试、发布文档、workflow 及所选 QA 文件；这样发布专用输入也绑定到候选批准的精确父仓 commit。

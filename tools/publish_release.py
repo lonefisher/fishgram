@@ -8,6 +8,7 @@ be tested without contacting GitHub.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 from dataclasses import dataclass, replace
 import hashlib
@@ -83,6 +84,22 @@ class PublishError(ValueError):
     """An input or promotion condition is unsafe or incomplete."""
 
 
+def signing_approval_matches(original: dict, final: dict) -> bool:
+    """Only pending search/install checks may advance between signing and release."""
+    if (original.get('kind') != 'fishgram-signing-qa'
+            or final.get('kind') != 'fishgram-candidate-qa'
+            or original.get('schema') != 2 or final.get('schema') != 2
+            or original.get('candidate') != final.get('candidate')):
+        return False
+    checks = original.get('checks')
+    required = {'searchEightAcceptance', 'updaterFullMatrix', 'sameCandidateCloudConclusion',
+                'localWindows11', 'hashVerification', 'noAccountData'}
+    return (isinstance(checks, dict) and set(checks) == required
+            and all(type(v) is bool for v in checks.values())
+            and all(checks[n] for n in required - {'searchEightAcceptance', 'updaterFullMatrix'})
+            and final.get('checks') == dict.fromkeys(required, True))
+
+
 def verify_signing_history(root: Path, signing_sha: str, candidate_sha: str,
                            reviewed_sha: str, qa_path: str) -> None:
     """Bind the signer to reviewed main history and the exact committed QA."""
@@ -98,7 +115,14 @@ def verify_signing_history(root: Path, signing_sha: str, candidate_sha: str,
     git("merge-base", "--is-ancestor", candidate_sha, signing_sha)
     git("merge-base", "--is-ancestor", signing_sha, reviewed_sha)
     if git("rev-parse", f"{signing_sha}:{qa_path}") != git("rev-parse", f"{reviewed_sha}:{qa_path}"):
-        raise PublishError("Signing run QA differs from the reviewed publication QA.")
+        try:
+            original = json.loads(git('show', f'{signing_sha}:{qa_path}'))
+            final = json.loads(git('show', f'{reviewed_sha}:{qa_path}'))
+            matches = signing_approval_matches(original, final)
+        except (ValueError, TypeError, AttributeError):
+            matches = False
+        if not matches:
+            raise PublishError("Signing run QA differs from the reviewed publication QA.")
 
 
 def verify_package_identity(envelope, version: str, channel: str) -> None:
@@ -154,7 +178,7 @@ class PageFile:
         return hashlib.sha256(self.data).hexdigest()
 
 
-def public_acceptance_records(qa_bytes: bytes, signing: dict) -> tuple[Asset, Asset]:
+def public_acceptance_records(qa_bytes: bytes, signing: dict, *, separate_approval=False) -> tuple[Asset, Asset]:
     """Project already-verified private records onto an explicit public schema."""
     qa = json.loads(qa_bytes)
     for value in (qa.get('approvedAt'), signing.get('signedAt'), signing.get('qa', {}).get('approvedAt')):
@@ -164,7 +188,7 @@ def public_acceptance_records(qa_bytes: bytes, signing: dict) -> tuple[Asset, As
             dt.datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ')
         except ValueError as error:
             raise PublishError('Public acceptance timestamp is invalid.') from error
-    if signing['qa']['approvedAt'] != qa['approvedAt']:
+    if not separate_approval and signing['qa']['approvedAt'] != qa['approvedAt']:
         raise PublishError('Signing approval time differs from verified QA.')
     proof_value = {
         'schema': 1, 'kind': 'fishgram-public-qa-proof',
@@ -192,6 +216,33 @@ def public_acceptance_records(qa_bytes: bytes, signing: dict) -> tuple[Asset, As
         'approvedAt': signing['qa']['approvedAt'], 'publicProofSha256': proof.sha256,
     }
     return proof, Asset('signing-record.json', encode(public_signing))
+
+
+def verify_signing_approval(manifest, final, signing, qa_name, final_bytes):
+    """Bind an immutable signing request while final QA completes after installation."""
+    try:
+        import release_gate as gate
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import release_gate as gate
+    approval = signing.get('qa')
+    if not isinstance(approval, dict) or approval.get('file') != qa_name:
+        raise PublishError('Signing approval filename differs from final QA.')
+    if (approval.get('sha256') == hashlib.sha256(final_bytes).hexdigest()
+            and approval.get('approvedAt') == final.get('approvedAt')):
+        return False
+    try:
+        original_bytes = base64.b64decode(approval['document'], validate=True)
+        original = json.loads(original_bytes)
+        if (hashlib.sha256(original_bytes).hexdigest() != approval['sha256']
+                or original['approvedAt'] != approval['approvedAt']
+                or original['approvedAt'] > final['approvedAt']
+                or not signing_approval_matches(original, final)):
+            raise ValueError('Signing request differs')
+        gate.verify_qa(manifest, original, for_signing=True)
+    except (ValueError, KeyError, TypeError, gate.GateError) as error:
+        raise PublishError('Original signing approval is not bound to the accepted candidate.') from error
+    return True
 
 
 @dataclass(frozen=True)
@@ -620,6 +671,7 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
     signing = _load_json(signing_record_path, "Signing record")
     qa = _load_json(qa_path, "QA approval")
     signing_qa = signing.get("qa")
+    separate_approval = verify_signing_approval(manifest, qa, signing, qa_path.name, qa_path.read_bytes())
     signing_issuer = signing.get("issuer")
     signed_entry = signing.get("package")
     if (signing.get("schema") != 1 or signing.get("kind") != "fishgram-signed-candidate"
@@ -632,8 +684,6 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
             or signing.get("sourceArchive") != manifest["sourceArchive"]
             or not isinstance(signing_qa, dict)
             or signing_qa.get("file") != qa_path.name
-            or signing_qa.get("sha256") != gate.sha256_file(qa_path)
-            or signing_qa.get("approvedAt") != qa.get("approvedAt")
             or not isinstance(signing_issuer, dict)
             or signing_issuer.get("id") != issuer_id
             or signing_issuer.get("alg") != "Ed25519"
@@ -667,7 +717,7 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
                                gate.sha256_file(signed_package), update_url)
     if Path(qa_path.name).name != qa_path.name or "\\" in qa_path.name:
         raise PublishError("QA approval filename is unsafe for a public attachment.")
-    public_qa, public_signing = public_acceptance_records(qa_path.read_bytes(), signing)
+    public_qa, public_signing = public_acceptance_records(qa_path.read_bytes(), signing, separate_approval=separate_approval)
     portable = portable_package(candidate_zip.read_bytes(), manifest['version'])
     assets = (
         Asset(update_name, signed_package.read_bytes()),

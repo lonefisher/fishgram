@@ -575,9 +575,11 @@ def qa_template(manifest, output):
     return template
 
 
-def verify_qa(manifest, qa):
+def verify_qa(manifest, qa, *, for_signing=False):
     """Validate anonymous reviewed QA and exact candidate binding."""
-    if not isinstance(qa, dict) or qa.get("schema") != 2 or qa.get("kind") != "fishgram-candidate-qa":
+    signing_request = for_signing and isinstance(qa, dict) and qa.get('kind') == 'fishgram-signing-qa'
+    if not isinstance(qa, dict) or qa.get("schema") != 2 or (
+            qa.get("kind") != "fishgram-candidate-qa" and not signing_request):
         raise GateError("Not a FishGram candidate QA approval.")
     allowed = {"schema", "kind", "approvedAt", "candidate", "checks"}
     if set(qa) != allowed:
@@ -608,14 +610,15 @@ def verify_qa(manifest, qa):
     checks = qa["checks"]
     if not isinstance(checks, dict) or set(checks) != set(REQUIRED_CHECKS):
         raise GateError("QA checks must cover exactly the required items.")
-    if any(value is not True for value in checks.values()):
+    required = set(REQUIRED_CHECKS) - ({'searchEightAcceptance', 'updaterFullMatrix'} if signing_request else set())
+    if any(type(value) is not bool for value in checks.values()) or any(checks[name] is not True for name in required):
         raise GateError("Every required QA check must be explicitly passed.")
 
 
-def authorize(manifest, qa, qa_name, qa_bytes, output):
+def authorize(manifest, qa, qa_name, qa_bytes, output, *, for_signing=False):
     """Emit the release authorization consumed by signing; never compiles."""
     info = validate_manifest(manifest)
-    verify_qa(manifest, qa)
+    verify_qa(manifest, qa, for_signing=for_signing)
     tools = manifest.get("tools") or {}
     if "Packer.exe" not in tools:
         raise GateError("Signing requires the reviewed Packer tool recorded at build time.")

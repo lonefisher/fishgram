@@ -303,6 +303,27 @@ class PackageTests(unittest.TestCase):
 
 
 class QaTests(unittest.TestCase):
+    def test_signing_request_allows_pending_installation_but_cannot_authorize_publication(self):
+        record = manifest()
+        qa = qa_for(record)
+        qa['kind'] = 'fishgram-signing-qa'
+        qa['checks']['searchEightAcceptance'] = False
+        qa['checks']['updaterFullMatrix'] = False
+        gate.verify_qa(record, qa, for_signing=True)
+        with tempfile.TemporaryDirectory() as temp:
+            raw = json.dumps(qa).encode()
+            result = gate.authorize(record, qa, 'approved.json', raw,
+                                    Path(temp)/'request.json', for_signing=True)
+            self.assertEqual(result['qa']['sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertEqual(result['updateVersion'], record['updateVersion'])
+        with self.assertRaises(gate.GateError):
+            gate.verify_qa(record, qa)
+        for required in ('sameCandidateCloudConclusion', 'localWindows11', 'hashVerification', 'noAccountData'):
+            pending = json.loads(json.dumps(qa))
+            pending['checks'][required] = False
+            with self.subTest(required=required), self.assertRaises(gate.GateError):
+                gate.verify_qa(record, pending, for_signing=True)
+
     def test_local_windows_acceptance_is_required_instead_of_clean_system(self):
         record = manifest()
         qa = qa_for(record)

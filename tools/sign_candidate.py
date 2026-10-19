@@ -304,7 +304,7 @@ def _check_candidate_root(root: Path, manifest: dict, root_pem: bytes) -> None:
 
 def _record_and_gates(root: Path, manifest_path: Path, package: Path, source: Path,
                       qa_path: Path, packer: Path, trust: Path, commit: str,
-                      qa_name: str) -> tuple[dict, dict, dict, bytes, bytes, bytes]:
+                      qa_name: str, *, for_signing=False) -> tuple[dict, dict, dict, bytes, bytes, bytes]:
     if Path(manifest_path).name != "candidate-record.json":
         raise SigningError("Signing requires the external candidate-record.json.")
     manifest = _read_json(manifest_path)
@@ -322,11 +322,11 @@ def _record_and_gates(root: Path, manifest_path: Path, package: Path, source: Pa
     gate.verify_tool(manifest, "Packer.exe", packer)
     gate.verify_source_archive(manifest, source)
     qa = _read_json(qa_path)
-    gate.verify_qa(manifest, qa)
+    gate.verify_qa(manifest, qa, for_signing=for_signing)
     auth_path = Path(tempfile.gettempdir()) / ("fishgram-authorization-" + os.urandom(16).hex() + ".json")
     qa_bytes = Path(qa_path).read_bytes()
     try:
-        authorization = gate.authorize(manifest, qa, Path(qa_path).name, qa_bytes, auth_path)
+        authorization = gate.authorize(manifest, qa, Path(qa_path).name, qa_bytes, auth_path, for_signing=for_signing)
     finally:
         auth_path.unlink(missing_ok=True)
     trust_manifest, issuer_raw, root_pem, trust_data = _verify_trust(root, trust)
@@ -492,7 +492,8 @@ def _embed_and_record(packer: Path, trust: Path, unsigned: Path, signature: byte
         "parentCommit": manifest["parentCommit"], "sourceCommit": manifest["sourceCommit"],
         "candidateArchive": manifest["archive"], "sourceArchive": manifest["sourceArchive"],
         "qa": {"file": Path(qa["_file"]).name, "sha256": qa["_sha256"],
-               "approvedAt": qa["approvedAt"]},
+               "approvedAt": qa["approvedAt"],
+               "document": qa['_document']},
         "issuer": {"id": issuer_id, "alg": "Ed25519", "publicKeySha256": sha256(issuer_raw)},
         "package": {"name": output_package.name, "size": output_package.stat().st_size,
                     "sha256": sha256_file(output_package)},
@@ -516,12 +517,13 @@ def _preflight(options) -> tuple[dict, dict, dict, bytes, bytes, bytes, dict]:
     manifest, auth, trust_manifest, issuer_raw, root_pem, trust_data = _record_and_gates(
         root, Path(options.manifest), Path(options.package), Path(options.source),
         Path(options.qa), Path(options.packer), Path(options.trust), commit,
-        "release/qa/" + Path(options.qa).name)
+        "release/qa/" + Path(options.qa).name, for_signing=True)
     if run_sha is not None and manifest.get("parentCommit") != run_sha:
         raise SigningError("External candidate record does not match its successful candidate workflow SHA.")
     _check_record_trust(manifest, trust_manifest, options.issuer_id, auth["packer"]["channel"], issuer_raw)
     qa = _read_json(Path(options.qa))
     qa["_file"], qa["_sha256"] = Path(options.qa).name, sha256_file(Path(options.qa))
+    qa['_document'] = base64.b64encode(Path(options.qa).read_bytes()).decode('ascii')
     return manifest, auth, trust_manifest, issuer_raw, root_pem, trust_data, qa
 
 
