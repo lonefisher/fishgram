@@ -41,7 +41,7 @@ python -m unittest discover -s tests -v
 
 云端开发候选使用 `build-telegram.ps1 -TestIdentity -TestUpdateSystem`；该开关只为测试身份构建生成一次性根信任，不能与生产身份组合。正式产品仅走受保护候选 workflow，需自有 API 身份、生产根授权信任和实际云端验收。
 
-Comet 仍处于实现阶段。完整更新矩阵、干净 Windows 11、真实 UAC/账户迁移、全部搜索验收及正式签名/公开下载链路尚未完成，r7 不发布。
+Comet 处于实现阶段。用户于 2026-10-19 将系统验收改为本机 Windows 11 独立测试目录，首版 Beta 的两项搜索延期见 [Beta 范围](BETA-RELEASE.md)。继续完成更新矩阵、真实 UAC/账户迁移、其余搜索验收及正式签名和公开下载链路，r7 保留为本机历史版本。
 
 ## 2026-10-13 当前工具回归
 

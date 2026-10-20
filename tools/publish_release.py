@@ -247,9 +247,12 @@ def verify_signing_approval(manifest, final, signing, qa_name, final_bytes):
     try:
         original_bytes = base64.b64decode(approval['document'], validate=True)
         original = json.loads(original_bytes)
+        final_time = dt.datetime.strptime(final['approvedAt'], '%Y-%m-%dT%H:%M:%SZ')
+        signed_time = dt.datetime.strptime(signing['signedAt'], '%Y-%m-%dT%H:%M:%SZ')
         if (hashlib.sha256(original_bytes).hexdigest() != approval['sha256']
                 or original['approvedAt'] != approval['approvedAt']
                 or original['approvedAt'] > final['approvedAt']
+                or final_time < signed_time
                 or not signing_approval_matches(original, final)):
             raise ValueError('Signing request differs')
         gate.verify_qa(manifest, original, for_signing=True)
@@ -285,6 +288,7 @@ class ReleaseTransport(Protocol):
     def tag_exists(self, repository: str, tag: str) -> bool: ...
     def tag_commit(self, repository: str, tag: str) -> str: ...
     def release_exists(self, tag: str) -> bool: ...
+    def release_prerelease(self, tag: str) -> bool: ...
     def source_tag_exists(self, tag: str) -> bool: ...
     def asset_names(self, tag: str) -> set[str]: ...
     def get_index(self, path: str) -> dict | None: ...
@@ -455,12 +459,30 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
         raise PublishError("Candidate record has invalid pinned parent/source commits.")
     if plan.target_commit != parent_commit:
         raise PublishError("Release tag must point to the exact candidate build commit.")
+    try:
+        portable = next(asset for asset in plan.assets
+                        if asset.name == f'FishGram-{plan.tag[1:]}-windows-x64.zip')
+        distribution = json.loads(next(asset.data for asset in plan.assets
+                                       if asset.name == 'distribution-record.json'))
+        reviewed_commit = plan.reviewed_commit or plan.target_commit
+        if (not isinstance(reviewed_commit, str) or not COMMIT.fullmatch(reviewed_commit)
+                or distribution != json.loads(distribution_record(portable, record, reviewed_commit).data)):
+            raise ValueError('Distribution record differs')
+    except (StopIteration, ValueError, KeyError, TypeError) as error:
+        raise PublishError('Distribution record must bind the portable ZIP, candidate record and reviewed publisher commit.') from error
     tag_exists = api.tag_exists(PRODUCT_REPOSITORY, plan.tag)
     source_tag_exists = api.source_tag_exists(plan.tag)
     release_exists = api.release_exists(plan.tag)
     if plan.reuse_release:
         if not tag_exists or not source_tag_exists or not release_exists:
             raise PublishError("Index-only promotion requires both immutable repository tags and the release.")
+        if plan.index_channel == 'stable':
+            try:
+                prerelease = api.release_prerelease(plan.tag)
+            except Exception as error:
+                raise PublishError('Existing release prerelease status could not be verified.') from error
+            if prerelease is not False:
+                raise PublishError('A prerelease cannot be reused for the stable index; publish a new revision.')
     elif release_exists:
         raise PublishError("Release already exists; published objects are immutable.")
     # Interrupted creation may leave either immutable tag without a release.
@@ -649,8 +671,13 @@ def portable_package(candidate_bytes: bytes, version: str, *, beta=False) -> Ass
     ).encode('utf-8')
     with zipfile.ZipFile(io.BytesIO(candidate_bytes)) as source, zipfile.ZipFile(
             result, 'w', compression=zipfile.ZIP_STORED) as target:
+        target.comment = b''
         for name in sorted(source.namelist()):
             entry = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
+            entry.create_system = 3  # Unix creator, including on Windows publishers.
+            entry.create_version = entry.extract_version = 20
+            entry.reserved = entry.flag_bits = entry.volume = entry.internal_attr = 0
+            entry.extra = entry.comment = b''
             entry.compress_type = zipfile.ZIP_STORED
             entry.external_attr = 0o100644 << 16
             target.writestr(entry, readme if name == 'README.txt' else source.read(name))

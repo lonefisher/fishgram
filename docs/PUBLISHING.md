@@ -36,7 +36,7 @@
 
 签名提交可晚于候选提交：发布器验证 candidate → signer → 当前受保护 main 的祖先关系，以及 signer 和当前 main 中 QA 文件的 Git blob 一致。签名 run 的来源仍要求 main、人工触发、成功 job 与唯一候选 artifact；候选本身继续绑定原构建提交。
 
-产品发行标签固定到候选记录的 `parentCommit`，不指向后续 QA 或发布审核提交；后者单独保存在 promotion 的 `repositoryInputs` 中 `lonefisher/fishgram` 项的 `reviewedCommit`。stable 与 beta 共用一个发布并发组，串行写入共享 Pages 信任文件。受保护 workflow 的 `reuse_release` 默认关闭，只有显式开启时传递复用选项；支持 beta 包进入 beta 索引、stable 包先进入 beta 索引及随后进入 stable 索引。每次均核对两仓标签、完整附件集合及逐件公开下载 SHA256，候选 record 也必须一致，不创建或覆盖 release、标签和附件；stable 索引仍拒绝 beta 包。
+产品发行标签固定到候选记录的 `parentCommit`，不指向后续 QA 或发布审核提交；后者单独保存在 promotion 的 `repositoryInputs` 中 `lonefisher/fishgram` 项的 `reviewedCommit`。stable 与 beta 共用一个发布并发组，串行写入共享 Pages 信任文件。受保护 workflow 的 `reuse_release` 默认关闭，只有显式开启时传递复用选项；支持 beta 包进入 beta 索引、stable 包进入 beta 索引及同渠道发行的中断续跑。已标为 prerelease 的发行不能复用到 stable 索引；Beta 转稳定须使用新修订号。每次均核对两仓标签、完整附件集合及逐件公开下载 SHA256，候选 record 也必须一致，不创建或覆盖 release、标签和附件；stable 索引仍拒绝 beta 包。
 
 Pages 每次写入后按公开字节进行有界轮询，轮询预算为 180 秒，每 5 秒读回一次，单次 HTTP 请求还受 transport 的 30 秒超时约束；旧内容、404 和临时 HTTP 错误均继续等待，超时明确失败，不把 Contents API 写入成功当成公开推广成功。离线 promotion 显式保存并校验布尔 `reuseRelease`。源分支索引已是同版本同内容时，复用仅重新核对附件及公开索引部署，不重写索引；同版本不同内容和版本回退仍拒绝。准备成功会清理暂存副本。
 

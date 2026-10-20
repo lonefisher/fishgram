@@ -20,11 +20,11 @@ Release 顶部说明首先链接 Windows 11 x64 便携 ZIP。解压后运行 `St
 
 Scoop 版由 `scoop update fishgram` 管理版本。客户端已有 `externalupdater.d` 机制：在程序目录内写入文件，内容为当前版本实际解析后的 `Telegram.exe` 绝对路径，即可禁用内置更新。每次 Scoop 安装和升级都重新生成该路径，不持久化旧版本的标记。`-noupdate` 只抑制启动时安装，不能单独用来禁用整个自动更新功能。实测须确认快捷方式、命令启动都读取正确数据目录，且设置中内置更新已禁用。
 
-首次发布后执行：
+首次 Beta 发布后执行：
 
 ```powershell
 scoop bucket add lonefisher https://github.com/lonefisher/scoop-bucket
-scoop install lonefisher/fishgram
+scoop install lonefisher/fishgram-beta
 ```
 
 后续更新顺序：发布并核验 FishGram Release → 更新清单版本、URL 和 SHA256 → 验证首次安装及升级 → 提交并推送 bucket。账户数据只留在本机，卸载时保留 Scoop persist 数据，用户明确要求清除时才另行处理。

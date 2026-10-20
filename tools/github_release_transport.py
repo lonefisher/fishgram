@@ -163,6 +163,17 @@ class GitHubReleaseTransport:
             return True
         return False
 
+    def release_prerelease(self, tag: str) -> bool:
+        release = self._release_by_tag.get(tag)
+        if release is None:
+            if not self.release_exists(tag):
+                raise TransportError('Release does not exist.')
+            release = self._release_by_tag[tag]
+        prerelease = release.get('prerelease')
+        if type(prerelease) is not bool:
+            raise TransportError('Release prerelease status is missing or malformed.')
+        return prerelease
+
     def verify_source_merged(self, commit: str) -> None:
         if not isinstance(commit, str) or not re.fullmatch('[a-f0-9]{40}', commit):
             raise TransportError('Source candidate commit is malformed.')
