@@ -341,7 +341,8 @@ class PublishReleaseTests(unittest.TestCase):
                 ('beta', None, True, True), ('beta', 'beta', True, True),
                 ('stable', 'beta', True, True), ('stable', None, True, False),
                 ('stable', 'stable', True, False), ('beta', 'stable', True, False),
-                ('beta', None, False, True)):
+                ('beta', None, False, True), ('stable', 'beta', False, True),
+                ('stable', None, False, True)):
             with self.subTest(package=package_channel, index=index_channel, deferred=deferred), \
                     tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
                 root = Path(temp)
@@ -395,6 +396,7 @@ class PublishReleaseTests(unittest.TestCase):
                     portable = next(a for a in prepared.assets if a.name.startswith('FishGram-') and a.name.endswith('windows-x64.zip'))
                     with zipfile.ZipFile(io.BytesIO(portable.data)) as archive:
                         self.assertEqual(b'remain pending' in archive.read('README.txt'), deferred)
+                        self.assertEqual(b'Beta' in archive.read('README.txt'), prepared.index_channel == 'beta')
                 else:
                     with self.assertRaises((gate.GateError, publish.PublishError)):
                         publish.validate_inputs(*args)

@@ -830,7 +830,7 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
         raise PublishError("QA approval filename is unsafe for a public attachment.")
     public_qa, public_signing = public_acceptance_records(qa_path.read_bytes(), signing, separate_approval=separate_approval)
     portable = portable_package(candidate_zip.read_bytes(), manifest['version'],
-                                beta=manifest['channel'] == 'beta',
+                                beta=index_channel == 'beta',
                                 deferred_search=qa['kind'] == 'fishgram-beta-qa')
     assets = (
         Asset(update_name, signed_package.read_bytes()),
