@@ -522,7 +522,7 @@ class GithubReleaseTransportTests(unittest.TestCase):
         publisher = importlib.util.module_from_spec(p_spec)
         sys.modules[p_spec.name] = publisher
         p_spec.loader.exec_module(publisher)
-        stub = Stub(fail_upload="qa.json")
+        stub = Stub(fail_upload="qa-proof.json")
         with self.assertRaises(publisher.PublishError):
             publisher.promote(plan(), self.transport(stub), enabled=True, context=allowed_context())
         self.assertFalse(any(call[0] == "PATCH" or urlsplit(call[1]).hostname == "lonefisher.github.io"

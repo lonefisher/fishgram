@@ -16,7 +16,7 @@
 
 ## 人工 workflow
 
-首版 Beta 按 [Beta 发行](BETA-RELEASE.md)使用 schema 2 `fishgram-beta-qa`：`deferredSearch` 只能是 `largeScalePerformance` 与 `nativeOmissionControlSamples`，`searchEightAcceptance` 保留 false，新增 `remainingSearchAcceptance` 必须 true，其余检查（包括 `updaterFullMatrix`）全部 true。只有显式 `index_channel=beta` 接受该 QA；离线 promotion 的公开 proof 也记录 Beta 渠道，不能推广稳定索引。GitHub prerelease 标志按索引渠道设置，签名包渠道仍保留真实值。包内 README 与 Release 说明公开相同限制。
+首版 Beta 按 [Beta 发行](BETA-RELEASE.md)使用 schema 2 `fishgram-beta-qa`：`deferredSearch` 只能是 `largeScalePerformance` 与 `nativeOmissionControlSamples`，`searchEightAcceptance` 保留 false，新增 `remainingSearchAcceptance` 必须 true，其余检查（包括 `updaterFullMatrix`）全部 true。只有最终解析出的索引渠道为 beta 时接受该 QA；省略渠道时使用候选包渠道，stable 包的首版 Beta 仍须显式选择 beta 索引。离线 promotion 的公开 proof 也记录 Beta 渠道，不能推广稳定索引。GitHub prerelease 标志按索引渠道设置，签名包渠道仍保留真实值。包内 README 与 Release 说明公开相同限制；完整搜索验收通过的 Beta 不再声称这两项待验。发布前必须有唯一 qa-proof.json，核对其候选、检查结果、渠道、时间及公开 signing-record.json 中的证明哈希。
 
 真实安装恢复验收使用先前已签名的内部候选包。签名前的 `fishgram-signing-qa` 与完成后的 `fishgram-candidate-qa` 或上述首版 `fishgram-beta-qa` 保存在同一 QA 路径；最终文档须满足所选发行渠道的全部必需验收。签名记录保存原文档的 base64、哈希和批准时间，发布前核对原文档、Git 历史和最终文档都绑定同一候选，仅允许申请类型、批准时间及待验检查完成。发布默认门槛不接受内部签名申请。公开 signing record 只保留原申请哈希和时间，完整最终验收另见 qa-proof.json。
 
