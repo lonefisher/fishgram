@@ -118,9 +118,12 @@ def plan(*, index_channel="stable", package_channel="stable", reuse_release=Fals
         "version": "7.2.9-r1", "channel": package_channel,
         "parentCommit": "b" * 40, "sourceCommit": "c" * 40,
         "archive": {"name": "candidate.zip", "size": 123, "sha256": "a" * 64},
+        "sourceArchive": {"name": "FishGram-corresponding-source.zip", "size": len(b"source-zip"),
+                          "sha256": hashlib.sha256(b"source-zip").hexdigest()},
         "files": {"Telegram.exe": {"size": 6, "sha256": hashlib.sha256(b"client").hexdigest()}},
     }
     qa = fixture.qa_for(manifest)
+    qa['candidate']['sourceArchive'] = dict(manifest['sourceArchive'])
     if deferred_search:
         qa['kind'] = 'fishgram-beta-qa'
         qa['deferredSearch'] = ['largeScalePerformance', 'nativeOmissionControlSamples']
@@ -176,6 +179,26 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_source_zip_must_match_candidate_before_release_writes(self):
+        from dataclasses import replace
+        original = plan()
+        for change in ('missing', 'name', 'size', 'same-size-content'):
+            with self.subTest(change=change):
+                assets = []
+                for asset in original.assets:
+                    if asset.name == 'FishGram-corresponding-source.zip':
+                        if change == 'missing':
+                            continue
+                        asset = publish.Asset('unrelated.zip' if change == 'name' else asset.name,
+                            b'other--zip' if change == 'same-size-content' else
+                            asset.data + b'changed' if change == 'size' else asset.data)
+                    assets.append(asset)
+                api = FakeApi()
+                with self.assertRaisesRegex(publish.PublishError, '[Ss]ource archive'):
+                    publish_plan(api, replace(original, assets=tuple(assets)))
+                self.assertFalse(any(e[0] in {'source_tag', 'create_release', 'upload',
+                    'publish_release', 'atomic_pages', 'page'} for e in api.events))
+
     def test_proof_is_required_and_bound_before_publication(self):
         from dataclasses import replace
         for reuse in (False, True):

@@ -529,6 +529,16 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
     except (StopIteration, ValueError, KeyError, TypeError) as error:
         raise PublishError('Distribution record must bind the portable ZIP, candidate record and reviewed publisher commit.') from error
     proof = _verify_public_acceptance(plan, record)
+    try:
+        expected_source = record['sourceArchive']
+        source = [asset for asset in plan.assets if asset.name == expected_source['name']]
+        if (len(source) != 1 or not source[0].name.endswith('.zip')
+                or source[0].name == portable.name
+                or len(source[0].data) != expected_source['size']
+                or source[0].sha256 != expected_source['sha256']):
+            raise ValueError('Source archive differs')
+    except (KeyError, TypeError, ValueError) as error:
+        raise PublishError('Source archive must match the candidate record name, size and SHA256.') from error
     tag_exists = api.tag_exists(PRODUCT_REPOSITORY, plan.tag)
     source_tag_exists = api.source_tag_exists(plan.tag)
     release_exists = api.release_exists(plan.tag)
