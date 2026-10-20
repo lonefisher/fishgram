@@ -218,6 +218,16 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertFalse(any(e[0] in {'source_tag', 'create_release', 'upload',
             'publish_release', 'atomic_pages', 'page'} for e in api.events))
 
+    def test_beta_reuse_rejects_stable_release_before_pages_writes(self):
+        candidate = plan(index_channel='beta', package_channel='stable', reuse_release=True)
+        api = FakeApi(tags={candidate.tag}, releases={candidate.tag})
+        api.source_tags.add(candidate.tag)
+        api.assets = {a.name: a.data for a in candidate.assets}
+        with self.assertRaisesRegex(publish.PublishError, 'prerelease'):
+            publish_plan(api, candidate)
+        self.assertFalse(any(e[0] in {'source_tag', 'create_release', 'upload',
+            'publish_release', 'atomic_pages', 'page'} for e in api.events))
+
     def test_two_stage_final_qa_must_follow_signing_for_stable_and_beta(self):
         import test_release_gate as fixture
         manifest = fixture.manifest()
@@ -458,6 +468,7 @@ class PublishReleaseTests(unittest.TestCase):
                     current['update']['version'] = '30073399661297666'
                     current['update']['url'] = current['update']['url'].replace('-r1', '-r2')
                 api = FakeApi(index=current, tags={candidate.tag}, releases={candidate.tag})
+                api.prerelease = True
                 api.pages[candidate.index_path] = candidate.index_bytes
                 api.source_tags.add(candidate.tag)
                 api.assets = {a.name: a.data for a in candidate.assets}

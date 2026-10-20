@@ -476,13 +476,12 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
     if plan.reuse_release:
         if not tag_exists or not source_tag_exists or not release_exists:
             raise PublishError("Index-only promotion requires both immutable repository tags and the release.")
-        if plan.index_channel == 'stable':
-            try:
-                prerelease = api.release_prerelease(plan.tag)
-            except Exception as error:
-                raise PublishError('Existing release prerelease status could not be verified.') from error
-            if prerelease is not False:
-                raise PublishError('A prerelease cannot be reused for the stable index; publish a new revision.')
+        try:
+            prerelease = api.release_prerelease(plan.tag)
+        except Exception as error:
+            raise PublishError('Existing release prerelease status could not be verified.') from error
+        if type(prerelease) is not bool or prerelease != (plan.index_channel == 'beta'):
+            raise PublishError('Existing release prerelease status differs from the index channel; publish a new revision.')
     elif release_exists:
         raise PublishError("Release already exists; published objects are immutable.")
     # Interrupted creation may leave either immutable tag without a release.
