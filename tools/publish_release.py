@@ -230,6 +230,7 @@ def public_acceptance_records(qa_bytes: bytes, signing: dict, *, separate_approv
     }
     if separate_approval:
         public_signing['qa']['publicProofApprovedAt'] = qa['approvedAt']
+        public_signing['qa']['finalQaSha256'] = hashlib.sha256(qa_bytes).hexdigest()
     return proof, Asset('signing-record.json', encode(public_signing))
 
 
@@ -461,6 +462,7 @@ def _verify_public_acceptance(plan: PromotionPlan, record: dict) -> dict:
             raise PublishError('Beta acceptance cannot promote the stable index.')
         approval = signing['qa']
         if (approval['publicProofSha256'] != proofs[0].sha256
+                or proof['originalSha256'] != approval.get('finalQaSha256', approval['originalSha256'])
                 or approval.get('publicProofApprovedAt', approval['approvedAt']) != proof['approvedAt']):
             raise ValueError('Public QA hash or approval time differs')
         if 'publicProofApprovedAt' in approval:
@@ -529,6 +531,30 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
     except (StopIteration, ValueError, KeyError, TypeError) as error:
         raise PublishError('Distribution record must bind the portable ZIP, candidate record and reviewed publisher commit.') from error
     proof = _verify_public_acceptance(plan, record)
+    try:
+        expected = set(record['files']) | {'LICENSE', 'LEGAL', 'Start-FishGram.cmd', 'README.txt', 'build-manifest.json'}
+        with zipfile.ZipFile(io.BytesIO(portable.data)) as bundle:
+            entries = bundle.infolist()
+            if len(entries) != len(expected) or {e.filename for e in entries} != expected:
+                raise ValueError('Portable entries differ')
+            for entry in entries:
+                mode = (entry.external_attr >> 16) & 0o170000
+                if entry.is_dir() or entry.flag_bits & 1 or mode not in (0, 0o100000):
+                    raise ValueError('Unsafe portable entry')
+            for name, bound in record['files'].items():
+                data = bundle.read(name)
+                if len(data) != bound['size'] or hashlib.sha256(data).hexdigest() != bound['sha256']:
+                    raise ValueError('Portable program differs')
+            embedded = json.loads(bundle.read('build-manifest.json').decode('utf-8-sig'))
+            if embedded != {k: v for k, v in record.items() if k not in ('archive', 'sourceArchive')}:
+                raise ValueError('Portable build manifest differs')
+            rebuilt = portable_package(portable.data, record['version'], beta=plan.index_channel == 'beta',
+                                       deferred_search=proof.get('releaseChannel') == 'beta')
+            with zipfile.ZipFile(io.BytesIO(rebuilt.data)) as canonical:
+                if bundle.read('README.txt') != canonical.read('README.txt'):
+                    raise ValueError('Portable README differs')
+    except (ValueError, KeyError, TypeError, UnicodeDecodeError, zipfile.BadZipFile) as error:
+        raise PublishError('Portable archive contents differ from the verified candidate.') from error
     try:
         expected_source = record['sourceArchive']
         source = [asset for asset in plan.assets if asset.name == expected_source['name']]

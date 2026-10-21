@@ -110,18 +110,42 @@ class FakeApi:
         return self.pages.get(path)
 
 
+def zip_bytes(entries):
+    result = io.BytesIO()
+    with zipfile.ZipFile(result, 'w') as archive:
+        for name, data in entries:
+            archive.writestr(name if isinstance(name, zipfile.ZipInfo) else zipfile.ZipInfo(name), data)
+    return result.getvalue()
+
+
+def replace_portable(candidate, data):
+    from dataclasses import replace
+    portable = publish.Asset(candidate.assets[1].name, data)
+    record = json.loads(next(a.data for a in candidate.assets if a.name == 'candidate-record.json'))
+    distribution = publish.distribution_record(portable, record, candidate.reviewed_commit)
+    return replace(candidate, assets=tuple(portable if a.name == portable.name else
+        distribution if a.name == distribution.name else a for a in candidate.assets))
+
+
 def plan(*, index_channel="stable", package_channel="stable", reuse_release=False,
-         reviewed_commit="b" * 40, deferred_search=False):
+         reviewed_commit="b" * 40, deferred_search=False, separate_approval=False):
     import test_release_gate as fixture
     update_name = "fishgram-update-win-x64-7002009-r1" + ("-beta" if package_channel == "beta" else "")
-    manifest = {
-        "version": "7.2.9-r1", "channel": package_channel,
+    payload = {'Telegram.exe': b'client', 'Updater.exe': b'updater'}
+    manifest = fixture.manifest(**{
+        "version": "7.2.9-r1", "channel": package_channel, "updateVersion": "30073399661297665",
         "parentCommit": "b" * 40, "sourceCommit": "c" * 40,
-        "archive": {"name": "candidate.zip", "size": 123, "sha256": "a" * 64},
         "sourceArchive": {"name": "FishGram-corresponding-source.zip", "size": len(b"source-zip"),
                           "sha256": hashlib.sha256(b"source-zip").hexdigest()},
-        "files": {"Telegram.exe": {"size": 6, "sha256": hashlib.sha256(b"client").hexdigest()}},
-    }
+        "files": {name: {'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+                  for name, data in payload.items()},
+    })
+    embedded = {k: v for k, v in manifest.items() if k not in ('archive', 'sourceArchive')}
+    candidate_zip = zip_bytes([*payload.items(), ('LICENSE', b'gpl'), ('LEGAL', b'openssl exception'),
+        ('Start-FishGram.cmd', b'run'), ('README.txt', b'internal candidate'),
+        ('build-manifest.json', json.dumps(embedded).encode())])
+    manifest['archive'] = {'name': 'FishGram-7.2.9-r1-windows-x64-candidate.zip',
+        'size': len(candidate_zip), 'sha256': hashlib.sha256(candidate_zip).hexdigest()}
     qa = fixture.qa_for(manifest)
     qa['candidate']['sourceArchive'] = dict(manifest['sourceArchive'])
     if deferred_search:
@@ -130,14 +154,26 @@ def plan(*, index_channel="stable", package_channel="stable", reuse_release=Fals
         qa['checks']['searchEightAcceptance'] = False
         qa['checks']['remainingSearchAcceptance'] = True
     raw = json.dumps(qa).encode()
-    proof, signing = publish.public_acceptance_records(raw, {
+    private_signing = {
         'schema': 1, 'kind': 'fishgram-signed-candidate', 'channel': package_channel,
-        'qa': {'sha256': hashlib.sha256(raw).hexdigest(), 'approvedAt': qa['approvedAt']},
+        'qa': {'file': 'qa.json', 'sha256': hashlib.sha256(raw).hexdigest(), 'approvedAt': qa['approvedAt']},
         'signedAt': qa['approvedAt'],
-    })
+    }
+    if separate_approval:
+        preliminary = fixture.qa_for(manifest, approvedAt='2026-10-06T00:00:00Z')
+        preliminary['candidate']['sourceArchive'] = dict(manifest['sourceArchive'])
+        preliminary['kind'] = 'fishgram-signing-qa'
+        preliminary['checks']['searchEightAcceptance'] = preliminary['checks']['updaterFullMatrix'] = False
+        preliminary_bytes = json.dumps(preliminary).encode()
+        private_signing['qa'].update(sha256=hashlib.sha256(preliminary_bytes).hexdigest(),
+            approvedAt=preliminary['approvedAt'], document=base64.b64encode(preliminary_bytes).decode())
+        private_signing['signedAt'] = '2026-10-07T00:00:00Z'
+        assert publish.verify_signing_approval(manifest, qa, private_signing, 'qa.json', raw)
+    proof, signing = publish.public_acceptance_records(raw, private_signing, separate_approval=separate_approval)
     assets = (
         publish.Asset(update_name, b"signed-update"),
-        publish.Asset("FishGram-7.2.9-r1-windows-x64.zip", b"portable-zip"),
+        publish.portable_package(candidate_zip, manifest['version'], beta=index_channel == 'beta',
+                                 deferred_search=deferred_search),
         publish.Asset("FishGram-corresponding-source.zip", b"source-zip"),
         publish.Asset("candidate-record.json", json.dumps(manifest).encode()),
         proof,
@@ -179,6 +215,61 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_rehashed_portable_must_contain_only_the_verified_candidate_files(self):
+        original = plan()
+        with zipfile.ZipFile(io.BytesIO(original.assets[1].data)) as archive:
+            entries = [(info.filename, archive.read(info)) for info in archive.infolist()]
+        for change in ('bytes', 'program', 'size', 'missing', 'extra', 'duplicate', 'path',
+                       'backslash', 'alias', 'directory', 'symlink', 'embedded', 'readme'):
+            with self.subTest(change=change):
+                modified = list(entries)
+                if change in ('program', 'size', 'embedded', 'readme'):
+                    name = {'program': 'Telegram.exe', 'size': 'Updater.exe',
+                            'embedded': 'build-manifest.json', 'readme': 'README.txt'}[change]
+                    modified = [(key, b'evil!!' if change == 'program' else b'changed'
+                                 if key == name else data) if key == name else (key, data)
+                                for key, data in modified]
+                elif change == 'missing':
+                    modified = [(key, data) for key, data in modified if key != 'LEGAL']
+                else:
+                    name = {'extra': 'evil.exe', 'duplicate': 'Telegram.exe', 'path': '../evil.exe',
+                            'backslash': 'sub\\evil.exe', 'alias': 'telegram.exe',
+                            'directory': 'extra/', 'symlink': 'link'} .get(change, 'extra')
+                    if change == 'symlink':
+                        name = zipfile.ZipInfo(name)
+                        name.create_system = 3
+                        name.external_attr = 0o120777 << 16
+                    modified.append((name, b'evil'))
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore', UserWarning)
+                    data = b'portable-zip' if change == 'bytes' else zip_bytes(modified)
+                api = FakeApi()
+                with self.assertRaises(publish.PublishError):
+                    publish_plan(api, replace_portable(original, data))
+                self.assertEqual(api.events, [])
+
+    def test_rehashed_proof_original_hash_is_checked_for_both_approval_flows(self):
+        from dataclasses import replace
+        for separate in (False, True):
+            for reuse in (False, True):
+                with self.subTest(separate=separate, reuse=reuse):
+                    candidate = plan(separate_approval=separate, reuse_release=reuse)
+                    proof = next(a for a in candidate.assets if a.name == 'qa-proof.json')
+                    signing = next(a for a in candidate.assets if a.name == 'signing-record.json')
+                    value = json.loads(proof.data)
+                    value['originalSha256'] = 'd' * 64
+                    proof = publish.Asset(proof.name, json.dumps(value).encode())
+                    record = json.loads(signing.data)
+                    record['qa']['publicProofSha256'] = proof.sha256
+                    signing = publish.Asset(signing.name, json.dumps(record).encode())
+                    assets = tuple(proof if a.name == proof.name else signing if a.name == signing.name
+                                   else a for a in candidate.assets)
+                    api = FakeApi()
+                    with self.assertRaises(publish.PublishError):
+                        publish_plan(api, replace(candidate, assets=assets))
+                    self.assertEqual(api.events, [])
+
     def test_source_zip_must_match_candidate_before_release_writes(self):
         from dataclasses import replace
         original = plan()
