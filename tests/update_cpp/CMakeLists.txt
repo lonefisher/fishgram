@@ -3,6 +3,19 @@ project(FishGramUpdateTests LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 string(REPLACE "/DNDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+# Official Windows Qt6 uses the separately built static zlib. Let Qt's
+# imported Core target supply its remaining static and Windows dependencies.
+set(ZLIB_INCLUDE_DIR "${DEPENDENCY_ROOT}/Libraries/win64/zlib" CACHE PATH "")
+set(ZLIB_LIBRARY_RELEASE "${DEPENDENCY_ROOT}/Libraries/win64/zlib/Release/libzs.lib" CACHE FILEPATH "")
+set(ZLIB_LIBRARY_DEBUG "${DEPENDENCY_ROOT}/Libraries/win64/zlib/Debug/libzsd.lib" CACHE FILEPATH "")
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
+if(FISHGRAM_QT_VERSION)
+    find_package(Qt${QT_VERSION_MAJOR} ${FISHGRAM_QT_VERSION} EXACT REQUIRED COMPONENTS Core)
+else()
+    find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core)
+endif()
+# These helpers have no Q_OBJECT, .ui or .qrc inputs. Keep plain CMake
+# executables; Qt's application resource/finalization setup is not required.
 add_executable(restart_tests "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/restart_tests.cpp")
 target_include_directories(restart_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles")
 target_compile_options(restart_tests PRIVATE /W4 /WX /UNDEBUG)
@@ -11,9 +24,8 @@ add_executable(data_snapshot_tests
     "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/data_snapshot_tests.cpp"
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/fishgram_data_snapshot.cpp")
 target_include_directories(data_snapshot_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles")
-target_link_libraries(data_snapshot_tests PRIVATE Qt5::Core advapi32)
+target_link_libraries(data_snapshot_tests PRIVATE Qt${QT_VERSION_MAJOR}::Core advapi32)
 target_compile_options(data_snapshot_tests PRIVATE /W4 /WX /UNDEBUG)
-find_package(Qt5 REQUIRED COMPONENTS Core)
 add_executable(failure_tests
     "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/failure_tests.cpp")
 target_include_directories(failure_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles")
@@ -25,7 +37,7 @@ add_executable(feed_tests
     "${SOURCE_ROOT}/Telegram/Tests/fishgram_update/feed_tests.cpp"
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/fishgram_update_feed.cpp")
 target_include_directories(feed_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles")
-target_link_libraries(feed_tests PRIVATE Qt5::Core)
+target_link_libraries(feed_tests PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 target_compile_options(feed_tests PRIVATE /W4 /WX /UNDEBUG)
 set(OPENSSL_ROOT "${DEPENDENCY_ROOT}/Libraries/win64/openssl3")
 add_executable(payload_tests
@@ -35,7 +47,7 @@ add_executable(payload_tests
 target_include_directories(payload_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles"
     "${OPENSSL_ROOT}/include"
     "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C")
-target_link_libraries(payload_tests PRIVATE Qt5::Core
+target_link_libraries(payload_tests PRIVATE Qt${QT_VERSION_MAJOR}::Core
     "${OPENSSL_ROOT}/out/libcrypto.lib" crypt32 ws2_32
     "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C/Util/LzmaLib/x64/Release/LzmaLib.lib")
 target_compile_options(payload_tests PRIVATE /W4 /WX /UNDEBUG)
@@ -45,14 +57,14 @@ add_executable(verify_tests
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/update_verify.cpp"
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/update_keys.cpp")
 target_include_directories(verify_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles" "${OPENSSL_ROOT}/include" "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(verify_tests PRIVATE Qt5::Core "${OPENSSL_ROOT}/out/libcrypto.lib" crypt32 ws2_32)
+target_link_libraries(verify_tests PRIVATE Qt${QT_VERSION_MAJOR}::Core "${OPENSSL_ROOT}/out/libcrypto.lib" crypt32 ws2_32)
 target_compile_options(verify_tests PRIVATE /W4 /WX /UNDEBUG)
 add_executable(packer_tests
     "${SOURCE_ROOT}/Telegram/SourceFiles/_other/packer.cpp"
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/update_verify.cpp")
 target_include_directories(packer_tests PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles" "${OPENSSL_ROOT}/include"
     "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C" "${DEPENDENCY_ROOT}/Libraries/win64/zlib")
-target_link_libraries(packer_tests PRIVATE Qt5::Core "${OPENSSL_ROOT}/out/libcrypto.lib"
+target_link_libraries(packer_tests PRIVATE Qt${QT_VERSION_MAJOR}::Core "${OPENSSL_ROOT}/out/libcrypto.lib"
     "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C/Util/LzmaLib/x64/Release/LzmaLib.lib" crypt32 ws2_32)
 target_compile_options(packer_tests PRIVATE /W4 /WX /wd4996 /wd4100 /wd4244 /wd4267)
 add_executable(package_verify
@@ -61,7 +73,7 @@ add_executable(package_verify
     "${SOURCE_ROOT}/Telegram/SourceFiles/core/update_verify.cpp")
 target_include_directories(package_verify PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles"
     "${OPENSSL_ROOT}/include" "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C")
-target_link_libraries(package_verify PRIVATE Qt5::Core "${OPENSSL_ROOT}/out/libcrypto.lib"
+target_link_libraries(package_verify PRIVATE Qt${QT_VERSION_MAJOR}::Core "${OPENSSL_ROOT}/out/libcrypto.lib"
     "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C/Util/LzmaLib/x64/Release/LzmaLib.lib" crypt32 ws2_32)
 target_compile_options(package_verify PRIVATE /W4 /WX /UNDEBUG)
 add_executable(updater_compile WIN32
@@ -85,7 +97,7 @@ math(EXPR fishgram_base "${fishgram_major} * 1000000 + ${fishgram_minor} * 1000 
 target_compile_definitions(updater_compile PRIVATE FISHGRAM_BASE_VERSION=${fishgram_base} FISHGRAM_REVISION=${fishgram_revision}
     TDESKTOP_UPDATE_CHANNEL=0 NOMINMAX UNICODE _UNICODE)
 target_compile_options(updater_compile PRIVATE /W4 /WX /wd4100 /wd4244 /wd4267 /wd4996 /wd4456 /wd4505)
-target_link_libraries(updater_compile PRIVATE Qt5::Core dbghelp shlwapi shell32 ole32 advapi32 user32 uuid
+target_link_libraries(updater_compile PRIVATE Qt${QT_VERSION_MAJOR}::Core dbghelp shlwapi shell32 ole32 advapi32 user32 uuid
     "${OPENSSL_ROOT}/out/libcrypto.lib" "${DEPENDENCY_ROOT}/Libraries/win64/lzma/C/Util/LzmaLib/x64/Release/LzmaLib.lib" crypt32 ws2_32)
 set_source_files_properties("${SOURCE_ROOT}/Telegram/lib_base/base/platform/win/base_windows_safe_library.cpp"
     PROPERTIES COMPILE_OPTIONS /wd4459)
@@ -104,6 +116,6 @@ if(TEST_TRUST_DIRECTORY)
     target_include_directories(verify_embedded PRIVATE "${SOURCE_ROOT}/Telegram/SourceFiles"
         "${OPENSSL_ROOT}/include" "${CMAKE_CURRENT_BINARY_DIR}/embedded")
     target_compile_definitions(verify_embedded PRIVATE FISHGRAM_UPDATE_TRUST_CONFIGURED=1)
-    target_link_libraries(verify_embedded PRIVATE Qt5::Core "${OPENSSL_ROOT}/out/libcrypto.lib" crypt32 ws2_32)
+    target_link_libraries(verify_embedded PRIVATE Qt${QT_VERSION_MAJOR}::Core "${OPENSSL_ROOT}/out/libcrypto.lib" crypt32 ws2_32)
     target_compile_options(verify_embedded PRIVATE /W4 /WX /UNDEBUG)
 endif()

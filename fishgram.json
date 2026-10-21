@@ -10,7 +10,7 @@
   "channel": "stable",
   "msvc": "14.44",
   "windowsSdk": "10.0.26100.0",
-  "qt": "5.15.19",
+  "qt": "6.11.2",
   "releaseDebugInformation": "None",
   "autoUpdate": false,
   "releaseReady": false,

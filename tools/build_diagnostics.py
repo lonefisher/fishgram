@@ -8,14 +8,23 @@ _MSVC = re.compile(r"(?:^|[\\/])(?P<file>[A-Za-z0-9_.-]+\.(?:cpp|cc|c|h|hpp))\((
 _LINK = re.compile(r"\b(?:fatal\s+)?error\s+(?P<code>LNK\d{4})\b")
 _CMAKE = re.compile(r"CMake Error at (?:[^\r\n]*[\\/])?(?P<file>(?:[A-Za-z0-9_.-]+\.cmake|CMakeLists\.txt)):(?P<line>\d+)")
 _MISSING = re.compile(r"Could NOT find (?P<package>[A-Za-z0-9_]+)\s*\(missing:\s*(?P<variables>[^)]{0,2048})\)")
+_CONFIG_MISSING = re.compile(r'Could not find a package configuration file provided by\s+"(?P<package>[A-Za-z0-9_]+)"')
+_CONFIG_REJECTED = re.compile(r'\bset\s+(?P<package>[A-Za-z0-9_]+)_FOUND\s+to\s+FALSE\b')
 _FAILED = re.compile(r'^FAILED:[^\r\n]*', re.MULTILINE)
 _TARGET = re.compile(r'(?:^|[\\/\s"])(Telegram\.exe|Updater\.exe|Packer\.exe)(?=[\s"]|$)')
 # Values are a fixed public vocabulary, never copied from arbitrary log text.
 _DEPENDENCIES = {
     "OpenSSL": {"OPENSSL_CRYPTO_LIBRARY", "OPENSSL_SSL_LIBRARY", "OPENSSL_INCLUDE_DIR"},
+    "QT": {"QT_DIR"},
     "Qt5": {"Qt5_DIR"}, "Qt5Core": {"Qt5Core_DIR"},
+    "Qt6": {"Qt6_DIR"}, "Qt6Core": {"Qt6Core_DIR"},
+    "Qt6CoreTools": {"Qt6CoreTools_DIR"},
+    "Qt6ZlibPrivate": {"Qt6ZlibPrivate_DIR"},
+    "WrapZLIB": {"WrapZLIB_FOUND"},
+    "WrapPCRE2": {"WrapPCRE2_FOUND"},
+    "WrapAtomic": {"WrapAtomic_FOUND"},
     "Python3": {"Python3_EXECUTABLE", "Python3_INCLUDE_DIRS", "Python3_LIBRARIES", "Interpreter", "Development"},
-    "ZLIB": {"ZLIB_LIBRARY", "ZLIB_INCLUDE_DIR"},
+    "ZLIB": {"ZLIB_LIBRARY", "ZLIB_LIBRARY_RELEASE", "ZLIB_LIBRARY_DEBUG", "ZLIB_INCLUDE_DIR"},
     "Threads": {"Threads_FOUND"}, "PkgConfig": {"PKG_CONFIG_EXECUTABLE"},
 }
 
@@ -32,6 +41,16 @@ def extract(data: str) -> dict:
             item = {"package": package, "variables": variables}
             if item not in missing:
                 missing.append(item)
+    for pattern in (_CONFIG_MISSING, _CONFIG_REJECTED):
+        for match in pattern.finditer(data):
+            package = match["package"]
+            if package in _DEPENDENCIES:
+                directory = package + "_DIR"
+                variables = ([directory] if pattern is _CONFIG_MISSING
+                             and directory in _DEPENDENCIES[package] else [])
+                item = {"package": package, "variables": variables}
+                if item not in missing:
+                    missing.append(item)
     errors = []
     cmake = []
     seen = set()
