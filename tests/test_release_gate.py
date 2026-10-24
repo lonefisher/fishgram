@@ -303,6 +303,55 @@ class PackageTests(unittest.TestCase):
 
 
 class QaTests(unittest.TestCase):
+    def test_beta_defers_only_approved_search_gaps_and_requires_remaining_checks(self):
+        record = manifest()
+        qa = qa_for(record)
+        qa['kind'] = 'fishgram-beta-qa'
+        qa['deferredSearch'] = ['largeScalePerformance', 'nativeOmissionControlSamples']
+        qa['checks']['searchEightAcceptance'] = False
+        qa['checks']['remainingSearchAcceptance'] = True
+        gate.verify_qa(record, qa, allow_beta=True)
+        with self.assertRaises(gate.GateError):
+            gate.verify_qa(record, qa)
+        for name in ('updaterFullMatrix', 'remainingSearchAcceptance', 'localWindows11'):
+            other = json.loads(json.dumps(qa)); other['checks'][name] = False
+            with self.subTest(name=name), self.assertRaises(gate.GateError):
+                gate.verify_qa(record, other, allow_beta=True)
+        qa['deferredSearch'].append('updaterSafety')
+        with self.assertRaises(gate.GateError):
+            gate.verify_qa(record, qa, allow_beta=True)
+
+    def test_signing_request_allows_pending_installation_but_cannot_authorize_publication(self):
+        record = manifest()
+        qa = qa_for(record)
+        qa['kind'] = 'fishgram-signing-qa'
+        qa['checks']['searchEightAcceptance'] = False
+        qa['checks']['updaterFullMatrix'] = False
+        gate.verify_qa(record, qa, for_signing=True)
+        with tempfile.TemporaryDirectory() as temp:
+            raw = json.dumps(qa).encode()
+            result = gate.authorize(record, qa, 'approved.json', raw,
+                                    Path(temp)/'request.json', for_signing=True)
+            self.assertEqual(result['qa']['sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertEqual(result['updateVersion'], record['updateVersion'])
+        with self.assertRaises(gate.GateError):
+            gate.verify_qa(record, qa)
+        for required in ('sameCandidateCloudConclusion', 'localWindows11', 'hashVerification', 'noAccountData'):
+            pending = json.loads(json.dumps(qa))
+            pending['checks'][required] = False
+            with self.subTest(required=required), self.assertRaises(gate.GateError):
+                gate.verify_qa(record, pending, for_signing=True)
+
+    def test_local_windows_acceptance_is_required_instead_of_clean_system(self):
+        record = manifest()
+        qa = qa_for(record)
+        qa['checks'].pop('cleanWindows11', None)
+        qa['checks']['localWindows11'] = True
+        gate.verify_qa(record, qa)
+        qa['checks']['localWindows11'] = False
+        with self.assertRaises(gate.GateError):
+            gate.verify_qa(record, qa)
+
     def test_template_binds_candidate_and_rejects_overwrite(self):
         record = manifest()
         with tempfile.TemporaryDirectory() as temp:
@@ -336,7 +385,7 @@ class QaTests(unittest.TestCase):
 
     def test_incomplete_or_forged_qa_fails(self):
         record = manifest()
-        qa = qa_for(record, checks={'cleanWindows11': True})
+        qa = qa_for(record, checks={'localWindows11': True})
         with self.assertRaises(gate.GateError):
             gate.verify_qa(record, qa)
         qa = qa_for(record)

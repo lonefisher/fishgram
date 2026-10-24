@@ -107,15 +107,15 @@ jobs:
       - name: Measure runner resources
         shell: pwsh
         run: ./tools/measure-runner.ps1 -Label before-compile
-      - name: Build non-releasable test identity
-        shell: pwsh
-        run: ./tools/build-telegram.ps1 -TestIdentity -TestUpdateSystem -Parallel 4
       - name: Test production update and recovery helpers
         shell: pwsh
         run: |
           ./tools/test-update-policy.ps1
           ./tools/test-update-transaction.ps1
           ./tools/test-update-verify.ps1
+      - name: Build non-releasable test identity
+        shell: pwsh
+        run: ./tools/build-telegram.ps1 -TestIdentity -TestUpdateSystem -Parallel 4
       - name: Record actual build result
         if: always()
         shell: pwsh

@@ -198,6 +198,15 @@ def main():
         else:
             candidate = resume_source_candidate(source, branch, target)
             if not candidate:
+                if git(source, 'merge-base', '--is-ancestor', target, 'origin/custom/main', check=False).returncode == 0:
+                    head = git(source, 'rev-parse', 'origin/custom/main').stdout.strip()
+                    issue_once(PRODUCT, f'Upstream {tag}: parent needs synchronization',
+                               f'Official target `{target}` is already included in source custom/main `{head}`. '
+                               f'The parent main recipe still names `{recipe["upstreamTag"]}`. '
+                               'Complete the existing parent upgrade PR with the reviewed source pointer and recipe, '
+                               'then validate it before merging.')
+                    print('Source already upgraded; parent synchronization requires review.')
+                    return
                 git(source, 'switch', '-c', branch)
                 merged = git(source, 'merge', '--no-ff', '--no-commit', target, check=False)
                 if merged.returncode:

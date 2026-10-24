@@ -29,6 +29,57 @@ def temporary_git_workspace(prefix):
 
 
 class UpgradePolicyTests(unittest.TestCase):
+    def test_source_already_upgraded_reports_parent_sync(self):
+        import base64
+        import json
+        actual_git = bot.git
+        actual_run = subprocess.run
+        recipe = {'upstreamTag': 'v7.2.9', 'revision': 9}
+        with temporary_git_workspace(prefix='fishgram-upgrade-integrated-') as directory:
+            root = Path(directory)
+            origin = root / 'origin'
+            origin.mkdir()
+            def git(*args):
+                return actual_git(origin, *args).stdout.strip()
+            git('init', '--initial-branch=custom/main')
+            git('config', 'user.name', 'FishGram fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            (origin / 'source').write_text('already upgraded source')
+            git('add', '.')
+            git('commit', '-m', 'integrated official version')
+            target = git('rev-parse', 'HEAD')
+            git('tag', 'v7.3.0')
+            parent = root / 'parent'
+            parent.mkdir()
+            (parent / 'fishgram.json').write_text(json.dumps(recipe))
+
+            def local_clone(arguments, **kwargs):
+                arguments = list(arguments)
+                url = 'https://github.com/lonefisher/tdesktop.git'
+                if url in arguments:
+                    arguments[arguments.index(url)] = str(origin)
+                return actual_run(arguments, **kwargs)
+
+            def local_git(checkout, *args, **kwargs):
+                if args[:2] == ('fetch', '--filter=blob:none'):
+                    args = ('fetch', '--filter=blob:none', str(origin), *args[3:])
+                return actual_git(checkout, *args, **kwargs)
+
+            responses = [
+                {'repositories': [{'full_name': bot.PRODUCT}, {'full_name': bot.SOURCE}]},
+                {'encoding': 'base64', 'content': base64.b64encode(json.dumps(recipe).encode()).decode()},
+                {'tag_name': 'v7.3.0'}, [], []]
+            with mock.patch.object(bot, 'api', side_effect=responses), \
+                    mock.patch.object(bot, 'clone_parent_candidate', return_value=parent), \
+                    mock.patch.object(bot.subprocess, 'run', side_effect=local_clone), \
+                    mock.patch.object(bot, 'git', side_effect=local_git), \
+                    mock.patch.object(bot, 'issue_once') as issue:
+                bot.main()
+            self.assertEqual(issue.call_args.args[0], bot.PRODUCT)
+            self.assertIn('parent needs synchronization', issue.call_args.args[1])
+            self.assertIn(target, issue.call_args.args[2])
+            self.assertEqual(json.loads((parent / 'fishgram.json').read_text()), recipe)
+
     def test_link_patch_failure_can_be_retried_without_duplicates(self):
         source = {'number': 3, 'body': None}
         parent = {'html_url': 'https://github.com/lonefisher/fishgram/pull/4'}

@@ -6,6 +6,10 @@ import sys
 import struct
 import os
 import subprocess
+import ctypes
+import threading
+import time
+from contextlib import contextmanager
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -127,6 +131,162 @@ class ProgramRecoveryTests(unittest.TestCase):
         self.assertEqual(self.dll.read_bytes(), b"previous-dll")
         self.assertEqual(self.account.read_bytes(), b"account-secret")
         self.assertTrue((self.meta / "manual" / "latestmanualbackup" / "Telegram.exe").is_file())
+
+    @contextmanager
+    def hold_backup_rename(self, source_name, *, release_after=None, directory=False):
+        """Hold a real Windows handle when the selected backup rename starts."""
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong,
+                                      ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+        kernel.CreateFileW.restype = ctypes.c_void_p
+        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        move = program_recovery._move_write_through
+        handles, timers, failures = [], [], []
+        opened = False
+
+        def close_handle():
+            if handles:
+                kernel.CloseHandle(handles.pop())
+
+        def held_move(source, destination, **kwargs):
+            nonlocal opened
+            selected = source.name == source_name
+            if selected and not opened:
+                path = source if directory else source / 'Telegram.exe'
+                handle = kernel.CreateFileW(str(path), 0x80000000, 3 if directory else 7,
+                                            None, 3, 0x02000000, None)
+                if handle == ctypes.c_void_p(-1).value:
+                    raise ctypes.WinError(ctypes.get_last_error())
+                handles.append(handle)
+                opened = True
+            try:
+                return move(source, destination, **kwargs)
+            except OSError as exc:
+                if selected:
+                    failures.append(exc.errno)
+                    if release_after is not None and not timers:
+                        timer = threading.Timer(release_after, close_handle)
+                        timers.append(timer)
+                        timer.start()
+                raise
+
+        try:
+            with patch.object(program_recovery, '_move_write_through', held_move):
+                yield failures
+        finally:
+            for timer in timers:
+                timer.join()
+            close_handle()
+
+    def seed_manual_backup(self, name='latestmanualbackup'):
+        latest = self.meta / 'manual' / name
+        latest.mkdir(parents=True)
+        (latest / 'Telegram.exe').write_bytes(b'older')
+        (latest / 'core.dll').write_bytes(b'older-dll')
+        return latest
+
+    def test_backup_directory_renames_retry_until_child_handle_is_released(self):
+        for source_name in ('latestmanualbackup.new', 'latestmanualbackup',
+                            'latestmanualbackup.previous'):
+            with self.subTest(source=source_name):
+                seed = ('latestmanualbackup.previous' if source_name.endswith('.previous')
+                        else 'latestmanualbackup')
+                latest = self.meta / 'manual/latestmanualbackup'
+                if latest.exists():
+                    (latest / 'Telegram.exe').unlink()
+                    (latest / 'core.dll').unlink()
+                    latest.rmdir()
+                self.seed_manual_backup(seed)
+                self.exe.write_bytes(b'current')
+                self.dll.write_bytes(b'current-dll')
+                with self.hold_backup_rename(source_name, release_after=0.1) as failures:
+                    restore_backup(self.install, self.backup.name,
+                                   confirm_program_restore=self.backup.name, process_running=False)
+                self.assertTrue(failures)
+                self.assertEqual(set(failures), {5})
+                self.assertEqual(self.exe.read_bytes(), b'previous')
+                self.assertEqual(self.dll.read_bytes(), b'previous-dll')
+                self.assertEqual((latest / 'Telegram.exe').read_bytes(), b'current')
+                self.assertEqual((latest / 'core.dll').read_bytes(), b'current-dll')
+                self.assertEqual((self.backup / 'Telegram.exe').read_bytes(), b'previous')
+                self.assertEqual((self.backup / 'core.dll').read_bytes(), b'previous-dll')
+                self.assertEqual(self.account.read_bytes(), b'account-secret')
+
+    def test_backup_directory_sharing_violation_retries_until_release(self):
+        latest = self.seed_manual_backup()
+        with self.hold_backup_rename(latest.name, release_after=0.1, directory=True) as failures:
+            restore_backup(self.install, self.backup.name,
+                           confirm_program_restore=self.backup.name, process_running=False)
+        self.assertTrue(failures)
+        self.assertEqual(set(failures), {32})
+        self.assertEqual(self.exe.read_bytes(), b'previous')
+        self.assertEqual((latest / 'Telegram.exe').read_bytes(), b'current')
+        self.assertEqual(self.account.read_bytes(), b'account-secret')
+
+    def test_persistent_backup_occupation_refuses_and_preserves_program_and_backups(self):
+        latest = self.seed_manual_backup()
+        for source_name in ('latestmanualbackup.new', 'latestmanualbackup'):
+            with self.subTest(source=source_name):
+                started = time.monotonic()
+                with self.hold_backup_rename(source_name) as failures:
+                    with self.assertRaisesRegex(RecoveryError, 'latestmanualbackup'):
+                        restore_backup(self.install, self.backup.name,
+                                       confirm_program_restore=self.backup.name, process_running=False)
+                elapsed = time.monotonic() - started
+                self.assertGreaterEqual(elapsed, 0.9)
+                self.assertLess(elapsed, 2.5)
+                self.assertGreater(len(failures), 1)
+                self.assertEqual(set(failures), {5})
+                self.assertEqual(self.exe.read_bytes(), b'current')
+                self.assertEqual(self.dll.read_bytes(), b'current-dll')
+                self.assertEqual((latest / 'Telegram.exe').read_bytes(), b'older')
+                self.assertEqual((latest / 'core.dll').read_bytes(), b'older-dll')
+                self.assertEqual((self.backup / 'Telegram.exe').read_bytes(), b'previous')
+                self.assertEqual((self.backup / 'core.dll').read_bytes(), b'previous-dll')
+                self.assertEqual(self.account.read_bytes(), b'account-secret')
+                self.assertFalse((self.meta / 'manual/pending').exists())
+
+    def test_backup_rotation_rollback_retries_until_child_handle_is_released(self):
+        latest = self.seed_manual_backup()
+        with self.hold_backup_rename('latestmanualbackup.previous', release_after=0.1) as failures:
+            move = program_recovery._move_write_through
+            def fail_promotion(source, destination, **kwargs):
+                if source.name == 'latestmanualbackup.new':
+                    raise OSError(112, 'disk full')
+                return move(source, destination, **kwargs)
+            with patch.object(program_recovery, '_move_write_through', fail_promotion):
+                with self.assertRaises(RecoveryError) as raised:
+                    restore_backup(self.install, self.backup.name,
+                                   confirm_program_restore=self.backup.name, process_running=False)
+        self.assertEqual(raised.exception.__cause__.errno, 112)
+        self.assertTrue(failures)
+        self.assertEqual(set(failures), {5})
+        self.assertEqual((latest / 'Telegram.exe').read_bytes(), b'older')
+        self.assertEqual((latest / 'core.dll').read_bytes(), b'older-dll')
+        self.assertEqual(self.exe.read_bytes(), b'current')
+        self.assertEqual(self.dll.read_bytes(), b'current-dll')
+        self.assertEqual(self.account.read_bytes(), b'account-secret')
+
+    def test_backup_rename_other_errors_are_not_retried(self):
+        latest = self.seed_manual_backup()
+        move = program_recovery._move_write_through
+        for error in (2, 17, 112):
+            with self.subTest(errno=error):
+                attempts = []
+                def fail_promotion(source, destination, **kwargs):
+                    if source.name == 'latestmanualbackup.new':
+                        attempts.append(source)
+                        raise OSError(error, 'rename failed')
+                    return move(source, destination, **kwargs)
+                with patch.object(program_recovery, '_move_write_through', fail_promotion):
+                    with self.assertRaises(RecoveryError) as raised:
+                        restore_backup(self.install, self.backup.name,
+                                       confirm_program_restore=self.backup.name, process_running=False)
+                self.assertEqual(raised.exception.__cause__.errno, error)
+                self.assertEqual(len(attempts), 1)
+                self.assertEqual((latest / 'Telegram.exe').read_bytes(), b'older')
+                self.assertEqual(self.exe.read_bytes(), b'current')
+                self.assertEqual(self.account.read_bytes(), b'account-secret')
 
     def test_shared_client_session_lease_blocks_then_allows_program_restore(self):
         with _ClientSessionLease(self.install, exclusive=False):

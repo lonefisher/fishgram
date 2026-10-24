@@ -12,6 +12,7 @@ import re
 import shutil
 import struct
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -553,6 +554,23 @@ def _write_json(path: Path, value):
     _move_write_through(temp, path, replace=path.exists())
 
 
+def _move_manual_backup_directory(source: Path, destination: Path):
+    # A short-lived child file handle can deny its parent directory's rename,
+    # even with FILE_SHARE_DELETE. Keep this retry local to backup rotation.
+    deadline = time.monotonic() + 1.0
+    while True:
+        try:
+            return _move_write_through(source, destination)
+        except OSError as exc:
+            # _move_write_through reports the native Win32 error in errno.
+            if exc.errno not in (5, 32):
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(0.05, remaining))
+
+
 def _refresh_latest_manual_backup(install: Path, manual: Path, files, copy_hook=None):
     latest = manual / "latestmanualbackup"
     previous = manual / "latestmanualbackup.previous"
@@ -563,7 +581,7 @@ def _refresh_latest_manual_backup(install: Path, manual: Path, files, copy_hook=
             _validate_tree(latest, directory=True)
             shutil.rmtree(previous)
         else:
-            _move_write_through(previous, latest)
+            _move_manual_backup_directory(previous, latest)
     if staging.exists():
         _validate_tree(staging, directory=True)
         shutil.rmtree(staging)
@@ -574,11 +592,11 @@ def _refresh_latest_manual_backup(install: Path, manual: Path, files, copy_hook=
             _copy_durable(install / name, staging / name, copy_hook)
         if latest.exists():
             _validate_tree(latest, directory=True)
-            _move_write_through(latest, previous)
+            _move_manual_backup_directory(latest, previous)
         try:
-            _move_write_through(staging, latest)
+            _move_manual_backup_directory(staging, latest)
         except Exception:
-            if previous.exists() and not latest.exists(): _move_write_through(previous, latest)
+            if previous.exists() and not latest.exists(): _move_manual_backup_directory(previous, latest)
             raise
         if previous.exists(): shutil.rmtree(previous)
     except Exception:

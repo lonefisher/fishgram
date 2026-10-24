@@ -12,13 +12,30 @@ $SourceRoot=(Resolve-Path -LiteralPath $SourceRoot).ProviderPath
 $SourceRoot=$SourceRoot.Replace('\','/')
 $DependencyRoot=$DependencyRoot.Replace('\','/')
 $qt=Join-Path $DependencyRoot ('Libraries/win64/Qt-'+$recipe.qt)
-$out=Join-Path $root 'build-update-verify-tests'
+$qtMajor=([version]$recipe.qt).Major
+$qtConfig=Join-Path $qt ("lib/cmake/Qt$qtMajor")
+if (-not (Test-Path -LiteralPath (Join-Path $qtConfig "Qt${qtMajor}Config.cmake") -PathType Leaf)) {
+    throw 'Recipe Qt package is missing. Prepare the matching dependencies.'
+}
+$out=Join-Path $root ('build-update-verify-tests/Qt-'+$recipe.qt)
+$logs=Join-Path $root 'logs'
+New-Item -ItemType Directory -Path $logs -Force | Out-Null
 $fixture=Join-Path $root ('.private/test-trust-' + [guid]::NewGuid().ToString('N'))
 & $toolchain.python (Join-Path $root 'tests/create_update_trust_fixture.py') $fixture
 Assert-NativeSuccess 'Generate disposable public trust fixture'
-& $toolchain.cmake -S (Join-Path $root 'tests/update_cpp') -B $out -G Ninja -D CMAKE_BUILD_TYPE=Release -D "SOURCE_ROOT=$SourceRoot" -D "CMAKE_PREFIX_PATH=$qt" -D "DEPENDENCY_ROOT=$DependencyRoot" -D "TEST_TRUST_DIRECTORY=$($fixture.Replace('\','/'))"
+& $toolchain.cmake -S (Join-Path $root 'tests/update_cpp') -B $out -G Ninja -D CMAKE_BUILD_TYPE=Release -D "SOURCE_ROOT=$SourceRoot" -D "CMAKE_PREFIX_PATH=$qt" -D "QT_DIR=$qtConfig" -D "Qt${qtMajor}_DIR=$qtConfig" -D "FISHGRAM_QT_VERSION=$($recipe.qt)" -D "DEPENDENCY_ROOT=$DependencyRoot" -D "TEST_TRUST_DIRECTORY=$($fixture.Replace('\','/'))" *> (Join-Path $logs 'configure-update-tests.log')
+$configureExit=$LASTEXITCODE
+if ($configureExit -ne 0) {
+    & $toolchain.python (Join-Path $PSScriptRoot 'build_diagnostics.py') (Join-Path $logs 'configure-update-tests.log') (Join-Path $root 'reports/configure-update-tests-diagnostics.json')
+}
+$global:LASTEXITCODE=$configureExit
 Assert-NativeSuccess 'Configure production update tests'
-& $toolchain.cmake --build $out --parallel 2
+& $toolchain.cmake --build $out --parallel 2 *> (Join-Path $logs 'build-update-tests.log')
+$compileExit=$LASTEXITCODE
+if ($compileExit -ne 0) {
+    & $toolchain.python (Join-Path $PSScriptRoot 'build_diagnostics.py') (Join-Path $logs 'build-update-tests.log') (Join-Path $root 'reports/build-update-tests-diagnostics.json')
+}
+$global:LASTEXITCODE=$compileExit
 Assert-NativeSuccess 'Compile production update tests'
 & (Join-Path $out 'failure_tests.exe')
 Assert-NativeSuccess 'Run update failure classification tests'

@@ -305,16 +305,23 @@ class PackerRoundTripTests(unittest.TestCase):
         unsigned = sign.parse_envelope(unsigned_path.read_bytes())
         self.assertEqual(signing_input.read_bytes(), unsigned.signed_region + __import__("hashlib").sha256(unsigned.payload).digest())
         signature = keys._sign(issuer_private, password, signing_input.read_bytes())
-        sig_path = root / "issuer.sig"
-        sig_path.write_bytes(signature)
-        result = subprocess.run([os.environ["FISHGRAM_PACKER"], "-unsigned", str(unsigned_path),
-                                 "-keys-loc", str(trust), "-embed-signatures", f"issuer-a:{sig_path}"],
-                                cwd=root, stdin=subprocess.DEVNULL, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace")[-1200:])
-        package = Path(str(unsigned_path)[:-len(".unsigned")])
-        signed = sign.parse_envelope(package.read_bytes())
         parsed_trust = keys.verify_manifest(manifest_bytes, manifest_sig, root_public)
         issuer_raw = keys._public_der(issuer_private, password)[-32:]
+        raw_qa = b'{"kind":"fishgram-signing-qa"}'
+        qa = {'_file': 'approved.json', '_sha256': sign.sha256(raw_qa),
+              '_document': __import__('base64').b64encode(raw_qa).decode(),
+              'approvedAt': '2026-10-13T00:00:00Z'}
+        manifest = {'version': '7.2.9-r9', 'parentCommit': 'b' * 40, 'sourceCommit': 'c' * 40,
+                    'archive': {}, 'sourceArchive': {}}
+        auth = {'updateVersion': str(unsigned.version), 'packer': {'channel': 'stable'}}
+        package, record = sign._embed_and_record(
+            Path(os.environ['FISHGRAM_PACKER']), trust, unsigned_path, signature, 'issuer-a',
+            manifest, auth, parsed_trust, issuer_raw, root_public.read_bytes(), unsigned,
+            root/'signed-output', qa)
+        saved = json.loads(record.read_text())
+        self.assertEqual(__import__('base64').b64decode(saved['qa']['document']), raw_qa)
+        self.assertEqual(saved['qa']['sha256'], sign.sha256(raw_qa))
+        signed = sign.parse_envelope(package.read_bytes())
         sign.verify_envelope(signed, parsed_trust, "issuer-a", issuer_raw,
                              root_public.read_bytes(), "stable", expected_unsigned=unsigned)
 
