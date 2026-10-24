@@ -54,6 +54,36 @@ class BuildDiagnosticsTests(unittest.TestCase):
         value = diagnostics.extract('Could NOT find private-secret (missing: private-secret)')
         self.assertEqual(value["missingDependencies"], [])
 
+    def test_qt6_dependency_errors_discard_paths_and_unknown_variables(self):
+        value = diagnostics.extract(
+            'Could NOT find Qt6Core (missing: Qt6Core_DIR C:/private/secret)\n'
+            'Could NOT find WrapZLIB (missing: WrapZLIB_FOUND secret)\n'
+            'Could NOT find ZLIB (missing: ZLIB_LIBRARY_RELEASE ZLIB_INCLUDE_DIR secret)\n')
+        self.assertEqual(value['missingDependencies'], [
+            {'package': 'Qt6Core', 'variables': ['Qt6Core_DIR']},
+            {'package': 'WrapZLIB', 'variables': ['WrapZLIB_FOUND']},
+            {'package': 'ZLIB', 'variables': ['ZLIB_LIBRARY_RELEASE', 'ZLIB_INCLUDE_DIR']},
+        ])
+        self.assertNotIn('private', str(value))
+        self.assertNotIn('secret', str(value))
+
+    def test_qt6_config_package_failures_use_existing_dependency_fields(self):
+        value = diagnostics.extract(
+            'Could not find a package configuration file provided by "Qt6CoreTools"\n'
+            '  (requested version 6.11.2) with any of the following names:\n'
+            '    Qt6CoreToolsConfig.cmake\n  C:/private/secret\n'
+            'Found package configuration file:\n  C:/private/Qt6Config.cmake\n'
+            'but it set Qt6_FOUND to FALSE so package "Qt6" is considered to be NOT FOUND.\n'
+            'but it set private_secret_FOUND to FALSE\n'
+            'Could not find a package configuration file provided by "private_secret"\n')
+        self.assertEqual(value['missingDependencies'], [
+            {'package': 'Qt6CoreTools', 'variables': ['Qt6CoreTools_DIR']},
+            {'package': 'Qt6', 'variables': []},
+        ])
+        self.assertTrue(value['hasDiagnostic'])
+        self.assertNotIn('private', str(value))
+        self.assertNotIn('secret', str(value))
+
     def test_root_cmake_filename_is_captured(self):
         value = diagnostics.extract('CMake Error at CMakeLists.txt:38 (message):\nprivate-secret')
         self.assertEqual(value["cmakeErrors"], [{"file": "CMakeLists.txt", "line": 38}])

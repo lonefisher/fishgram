@@ -1,0 +1,404 @@
+schema: comet.native.v4
+name: fishgram-repository-architecture
+language: zh-CN
+phase: archive
+status: done
+state_version: 27
+brief: brief.md
+document_constraints_version: 1
+shape_confirmation_hash: 236fd3a16bc026af3a0e231748a0d51fabad874db04245de0d79534db3de7a38
+spec_changes:
+  - capability: repository-architecture
+    operation: create
+    source: specs/repository-architecture/spec.md
+workspace:
+  isolation: worktree
+  change_branch: comet/fishgram-repository-architecture
+  target_branch: main
+  finish: keep
+loop:
+  stage: done
+  goal_cycle: 1
+  iteration: 5
+  attempt: 2
+  retry_epoch: 2
+  failed_iteration_count: 1
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：迁移前已验证 Git bundle、工作树 patch、暂存
+      patch、所有新增源码与实际五组测试的哈希备份；运行数据快照仅在目标实例正常退出后创建，并验证文件完整性。
+    result: passed
+    reason:
+      text: 沿用已正式核实的迁移 bundle、工作树及暂存 patch、新增源码与五组生产测试哈希备份。新增 Runtime check
+        architecture-r7-normal-exit-snapshot
+        passed/exit0：启动前异常退出保全22366项、21843文件、2134114403字节全部哈希匹配；随后7.2.9-r7正常退出快照22412项、21889文件、2148713738字节通过生产_read_snapshot全量哈希与私有ACL验证。保全时间11:09:10早于正常退出后快照11:14:10；用户明确提供并由保存证据佐证登录菜单、同workdir正常-quit、目标进程消失和生产snapshot
+        exit0，原exe
+        SHA256为E1112894343394A62CAC177A39E687C740DBDD0F645393F94391089AB772DCDA。Oct8保全与当前数据分开保留；异常退出保全未充作一致性快照。
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：公开源码 fork 的 parent 是 telegramdesktop/tdesktop；custom/main
+      以固定官方提交与审查的定制源码为基础；所有实际测试被跟踪，AGENTS.md 与对应官方版本完全一致，私有本机文档提交不在公开分支祖先中。
+    result: passed
+    reason:
+      text: 复用 Git 中原有效 A2、旧 architecture-authenticated-public-audit passed 回执及
+        .private/architecture-public-audit-result.json：源码 fork 来源为
+        telegramdesktop/tdesktop，固定官方基线
+        fb2e33209517e1a34637d837bfadb3783f2fd59c、实际生产测试、官方 AGENTS
+        一致性及私有文档分支排除均已验。当前绑定的 architecture-source-tools 为 passed。实读 HEAD
+        为964af5d60435070e19a0447d0616e1f2cf597ea3，tdesktop
+        为160000/af84bb18857d571b8f722b0929e04290e9c4c53d；相对原e056100候选仅有架构状态与验证报告变化。只读
+        gh 再次确认 fork/public/官方 parent，且远端固定 af84 对象可取。当前 custom/main 30cd63d
+        的后续产品历史单独处理。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：公开父仓库 main 的 .gitmodules URL 指向源码 fork，tdesktop gitlink
+      模式为160000且提交在远端可取；全新递归克隆可取得预期源码与子模块，官方历史与当前功能文件保留。
+    result: passed
+    reason:
+      text: 复用原有效 A3 与旧 authenticated-public-audit passed 回执，保持其固定 public
+        parent496910e2254f49ce51369b61f740044e7715b068/source gitlink
+        af84bb18857d571b8f722b0929e04290e9c4c53d 绑定。读回
+        ../fishgram-auto-update/.private/recursive-clone-main-496910e-pins.txt
+        共40条且均为一致指针；当前 .gitmodules 指向
+        https://github.com/lonefisher/tdesktop.git，当前 gitlink 模式160000。只读 gh
+        确认历史父提交的子模块 URL/af84 与固定源码对象仍可取得。旧脚本硬编码 clone 必须等于最新
+        main，移出本轮自动计划不使既有固定递归克隆证据失效；该证据不改绑当前远端main6c10a59或产品候选39128598025。
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：定制指令仅在父 AGENTS.md，唯一更新维护正文在父 docs/UPDATING.md，源码 README 明确 FishGram
+      非官方身份并指向父仓库；维护指南覆盖修复、升级、回退、换机器和后续发行门槛。
+    result: passed
+    reason:
+      text: 复用原有效 A4；实读父 AGENTS.md、docs/UPDATING.md、docs/ARCHITECTURE.md 与源码
+        README，维护正文归属父仓库，README明确 FishGram
+        为非官方定制并链接产品仓库，维护指南覆盖修复、升级、回退、换机器与发行门槛。当前 source-tools passed 回执继续提供源码
+        AGENTS 与固定官方基线完全一致的证据，相关实现相对原已验候选不变。
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：两个公开仓库与待发布历史不含凭据、账户数据、原始日志/截图、真实查询词/私人频道名、机器私有配置；忽略规则覆盖运行时、缓存和暂存包。公开验证记录使用匿名结论与提交、哈希。
+    result: passed
+    reason:
+      text: 原新增公开候选分支历史缺口已由固定内容审查补齐。独立读取
+        ../fishgram-cloud-release/docs/PUBLIC-SOURCE-AUDIT.md：Oct9覆盖原public
+        main、源码custom/main、更新/CI候选及父工具/更新/云端分支，含架构e056100/source
+        af84，并另补审964af5d匿名状态增量；Oct13/17及官方7.3.1增量继续衔接。读取对应Oct17私有内容报告及
+        ../fishgram-cloud-release/.private/public-content-review-20261019.json；Oct19覆盖父dfdb22e..f5caad97并纳入main6c10a59，源码b8343dc..1ab89ec并纳入custom/main30cd63d。通过实际Git逐提交逐父差分重新核对：父13提交/18边/20blob，源码3提交/5边/907blob，提交集合与blob集合均与报告一致，合计16提交、23边、927blob。报告含900文本、27同源二进制、915精确复用对象及12新增文本版本独立内容阅读，0blocking；本Verifier另读11个父新增版本的实际差分/新增测试全文，以及gh返回的源码CMake差分，内容为公开维护数据、工具逻辑与合成测试。4a5c33f至68bc957和e222737至900408b均只有一个同树合并，提交说明已核对；30cd63d与1ab89ec树一致且其合并边已入库存。已读回当前远端6c10a59/30cd63d及合并元数据，固定旧候选两份新增状态文档的个人路径/私钥/token定向扫描为0。父忽略规则覆盖私有区、运行目录、缓存、打包区及本机配置；公开审查记录只含匿名结论、固定提交和计数。
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：构建、测试、准备、打包工具读取固定配方并定位工具链，移除用户名、VS绝对路径、官方版本硬编码；依赖缺失、身份缺失、版本不一致和既有包路径均明确失败，不输出API参数。
+    result: passed
+    reason:
+      text: 复用原有效 A6；当前派发绑定的 architecture-source-tools 与 architecture-package-safety
+        均为 passed、exit0。当前 fishgram.json
+        仍固定7.2.9/fb2e332、MSVC14.44、SDK10.0.26100.0及Qt5.15.19；相关生产工具相对原已验候选不变。原helper4/4涵盖不匹配构建记录、危险载荷和既有输出拒绝等真实行为，固定配方、工具链定位、语法及API参数保密要求继续成立。
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: A7：干净打包暂存区与运行目录不同；包白名单检查拒绝账号数据、私有配置、日志及未批准文件；生成源码/子模块/工具链/产物哈希清单，父许可与依赖许可保留。
+    result: passed
+    reason:
+      text: 复用原有效 A7、当前 package-safety passed
+        回执，以及Git原验证报告的实际内部合成ZIP与baseline-manifest RED/GREEN
+        4/4证据；当前打包实现相对e056100不变。独立暂存目录和白名单拒绝账户/私有配置/日志/未知载荷，manifest同时绑定父/源码/递归依赖、工具链、程序哈希及官方commit/tag/version，许可保留。此项验证对象为打包逻辑与内部合成ZIP；真实产品候选及其云端/Windows11/签名恢复验收归各自后续change。
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: A8：现有 restricted-global-search
+      的状态与八项验收未被重置或伪造通过，r7程序和账号数据未被替换；新增架构、云端发行和自动更新拥有独立 Comet
+      工作；只有完整发行门槛通过才允许公开安装包。
+    result: passed
+    reason:
+      text: 复用原有效
+        A8：该架构历史候选保留原restricted-global-search八项及当时Build/2项通过记录，r7程序和账户保留，架构/云端发行/更新为独立change。当前实读
+        fishgram.json 的
+        releaseReady=false、autoUpdate=false，docs/STATUS.md、ARCHITECTURE.md和UPDATING.md仍明确完整搜索、真实云端候选、Windows11及更新恢复的首次发行门槛。当前产品39128598025/source1ab89ec与本架构964af5d/sourceaf84分别绑定，后续云端进展不改写本项历史验收或代替首次发行验收。
+      truncated: false
+builder_handoff:
+  candidate_id: 675547c6-eb82-4b86-9ba3-4fdb6f49b886
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:715a18ec-88f1-4e6b-b9bc-648aad04bea0
+  iteration: 5
+  summary:
+    text: Architecture input964af5d/sourceaf84 retained. Rebind source/package
+      checks after Runtime input drift. Public history audit now covers original
+      fixed architecture/public inputs plus Oct13/17/19 increments; sibling
+      cloud-release docs/PUBLIC-SOURCE-AUDIT.md and
+      .private/public-content-review-20261019.json provide independent
+      committed-content review with zero blocking findings. A1 normal-exit real
+      account snapshot remains blocked.
+    truncated: false
+  addressed_acceptance_ids:
+    - A5
+  checks:
+    - name:
+        text: Independent public committed-content review
+        truncated: false
+      result: passed
+      note:
+        text: Oct19 report covers parent13/source3 commits,23edges,927blobs;12novel text
+          versions independently read;0blocking findings. Existing fixed
+          clone/public origin evidence retained; current public
+          main6c10a59/source30cd63d separately bound in report.
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: "A1: user reported possible crash or forced exit; normally exited real
+        account consistent snapshot remains pending. User is using desktop: no
+        GUI/input/process termination/account operations."
+      truncated: false
+    - text: Architecture current candidate remains historical fixed
+        input964af5d/sourceaf84; current product cloud
+        candidate39128598025/source1ab89ec is separately bound.
+      truncated: false
+    - text: Full real search, update recovery and public release await their own
+        acceptance.
+      truncated: false
+  known_limits_truncated: false
+  review: null
+  submitted_at: 2026-10-19T05:58:58.767Z
+blockers: []
+verification:
+  candidate_id: 675547c6-eb82-4b86-9ba3-4fdb6f49b886
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:4a4480d6-15ac-4b9b-99c3-07316d45fafc
+  iteration: 5
+  attempt: 2
+  assurance: skill-coordinated
+  verdict: pass
+  checks:
+    - id: architecture-source-tools
+      name:
+        text: Fixed recipe, official instructions, dependencies and PowerShell syntax
+        truncated: false
+      argv_display:
+        - text: -NoProfile
+          truncated: false
+        - text: -Command
+          truncated: false
+        - text: . ./tools/common.ps1; $r=Get-FishGramRecipe; $null=Assert-FishGramSource
+            $PWD.Path $r; git -c core.longpaths=true -C tdesktop diff
+            --exit-code $r.upstreamCommit -- AGENTS.md; if ($LASTEXITCODE) {
+            exit $LASTEXITCODE }; $s=@(git -c core.longpaths=true -C tdesktop
+            status --porcelain); if ($s.Count) { throw 'Source checkout changed'
+            }; foreach ($f in Get-ChildItem tools -Filter '*.ps1') { $t=$null;
+            $e=$null;
+            $null=[Management.Automation.Language.Parser]::ParseFile($f.FullName,[ref]$t,[ref]$e);
+            if($e.Count) { throw $f.Name } }; git -c submodule.recurse=false
+            diff --check --ignore-submodules; exit $LASTEXITCODE
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 2581
+    - id: architecture-package-safety
+      name:
+        text: Production payload allowlist and version helper tests
+        truncated: false
+      argv_display:
+        - text: -m
+          truncated: false
+        - text: unittest
+          truncated: false
+        - text: discover
+          truncated: false
+        - text: -s
+          truncated: false
+        - text: tests
+          truncated: false
+        - text: -p
+          truncated: false
+        - text: "[REDACTED]"
+          truncated: false
+        - text: -v
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 387
+    - id: architecture-r7-normal-exit-snapshot
+      name:
+        text: A1 preservation hashes and normal-exit production snapshot integrity
+        truncated: false
+      argv_display:
+        - text: -B
+          truncated: false
+        - text: .private/architecture-r7-snapshot-check.py
+          truncated: false
+      argv_truncated: false
+      cwd_ref: .
+      status: passed
+      exit_code: 0
+      duration_ms: 48076
+  summary:
+    text: 独立只读复核A1-A8均通过。当前候选675547c6-eb82-4b86-9ba3-4fdb6f49b886绑定parent964af5d60435070e19a0447d0616e1f2cf597ea3/sourceaf84bb18857d571b8f722b0929e04290e9c4c53d；本派发scope保持[A1]。新增正式快照check
+      passed/exit0，原A1正常退出快照缺口已补齐；A2-A8复用仍有效回执并复核实现。核查摘要、全部八项评估与检查证据见.private/architecture-r7-snapshot-verifier-evidence.json。
+    truncated: false
+  risks: []
+  risks_truncated: false
+  completed_at: 2026-10-19T11:22:46.420Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "Builder handoff Runtime checks failed: architecture-source-tools"
+      truncated: false
+    completed_at: 2026-10-08T14:17:27.320Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A2
+      - A3
+      - A5
+      - A6
+      - A7
+    summary:
+      text: 独立核对冻结候选及绑定的三组passed
+        Runtime检查。A4、A8通过；A6依据打包helper源码证据失败；A1、A2、A3、A5、A7因明确缺失的真实快照或不可独立验证的证据而blocked。没有重跑已通过的源码/包安全/搜索helper检查；合成打包补测请求未返回收据。没有读取账号清单、tdata或日志内容，也没有修改源码、Git或正式状态。
+      truncated: false
+    completed_at: 2026-10-08T15:13:58.108Z
+  - goal_cycle: 1
+    iteration: 2
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: User authorized completing the approved full plan autonomously. Preserve
+        the submitted findings. Prepare authenticated Runtime evidence for
+        Git/protection and safely improve packaging traceability under the
+        existing specification; no acceptance relaxation or fabricated account
+        snapshot.
+      truncated: false
+    completed_at: 2026-10-08T15:20:34.997Z
+  - goal_cycle: 1
+    iteration: 3
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A5
+      - A7
+    summary:
+      text: 独立验收冻结候选 2fda54e1fa5b9d9af89da2ea7f67dc8bf402f0c7。复用四项绑定当前候选且通过的 Runtime
+        检查：固定配方/源码工具、包 helper 4/4、原搜索 helper、已认证公开仓库审计。A2/A3/A4/A6/A8 通过；A1/A5
+        阻塞；A7 因清单缺少固定官方基线提交而失败。没有重跑完整检查，也没有进行产品构建或账号/GUI操作。
+      truncated: false
+    completed_at: 2026-10-08T16:07:24.185Z
+  - goal_cycle: 1
+    iteration: 3
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: User authorized full implementation until completion. Fix independently
+        identified manifest omission of fixed upstream baseline without changing
+        requirements; preserve account and privacy audit limitations.
+      truncated: false
+    completed_at: 2026-10-08T16:13:13.172Z
+  - goal_cycle: 1
+    iteration: 4
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+      - A5
+    summary:
+      text: 候选 e0561008d1d382821df6b3b082fe1168a4057427 / source gitlink
+        af84bb18857d571b8f722b0929e04290e9c4c53d。复用三项候选绑定且通过的 Runtime
+        checks；A2/A3/A4/A6/A7/A8通过，A1因缺少正常退出后的真实账户一致性快照阻塞，A5因新增公开候选分支历史尚未完成定向人工内容审查阻塞。没有重复全套检查、运行账号或
+        GUI 操作、修改候选源码/Git/旧报告。
+      truncated: false
+    completed_at: 2026-10-08T16:38:45.148Z
+  - goal_cycle: 1
+    iteration: 4
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "User authorized completing approved plan autonomously. Public history A5
+        missing evidence now available: sibling
+        fishgram-cloud-release/docs/PUBLIC-SOURCE-AUDIT.md and
+        .private/public-content-review-20261019.json independently cover
+        original public inputs and later fixed history. Reassess A5 with
+        existing candidate; preserve A1 normal-exit real account snapshot
+        blocker, no requirements changes."
+      truncated: false
+    completed_at: 2026-10-19T05:57:03.279Z
+  - goal_cycle: 1
+    iteration: 4
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native check input changed after the candidate was built; a new Builder
+        candidate is required before checks can run again.
+      truncated: false
+    completed_at: 2026-10-19T05:57:30.804Z
+  - goal_cycle: 1
+    iteration: 5
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A1
+    summary:
+      text: 独立Verifier已用指定安装CLI提交verifier-started，按A1-A8各给出一次结论。当前架构候选675547c6-eb82-4b86-9ba3-4fdb6f49b886绑定parent964af5d60435070e19a0447d0616e1f2cf597ea3/sourceaf84bb18857d571b8f722b0929e04290e9c4c53d。A5新增公开历史内容审查缺口已补齐，A2-A8共7项passed；A1正常退出后的真实账户一致快照仍缺，整体blocked。完整verifier-response
+        envelope交主代理提交最终Runtime结果。
+      truncated: false
+    completed_at: 2026-10-19T06:05:07.869Z
+  - goal_cycle: 1
+    iteration: 5
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "User authorized autonomous completion of the approved plan. The original
+        r7 was preserved with current-file hashes, launched successfully to its
+        logged-in menu, normally exited and process absence verified. Production
+        snapshot succeeded: root
+        .private/original-r7-normal-exit-snapshots-20261019, ID
+        snapshot-20261019T111410240671Z-abc3532a5cbd4b2bba3e64a630b439a3 in
+        original root workspace. Resolve the prior missing external evidence
+        without changing A1 or other requirements."
+      truncated: false
+    completed_at: 2026-10-19T11:16:19.741Z
+  - goal_cycle: 1
+    iteration: 5
+    attempt: 2
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 独立只读复核A1-A8均通过。当前候选675547c6-eb82-4b86-9ba3-4fdb6f49b886绑定parent964af5d60435070e19a0447d0616e1f2cf597ea3/sourceaf84bb18857d571b8f722b0929e04290e9c4c53d；本派发scope保持[A1]。新增正式快照check
+        passed/exit0，原A1正常退出快照缺口已补齐；A2-A8复用仍有效回执并复核实现。核查摘要、全部八项评估与检查证据见.private/architecture-r7-snapshot-verifier-evidence.json。
+      truncated: false
+    completed_at: 2026-10-19T11:22:46.420Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-10-02T14:10:31.398Z

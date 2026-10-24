@@ -8,9 +8,11 @@ be tested without contacting GitHub.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -20,18 +22,23 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 from typing import Protocol
 from urllib.parse import urlsplit
 
 
 PRODUCT_REPOSITORY = "lonefisher/fishgram"
 SOURCE_REPOSITORY = "lonefisher/tdesktop"
+PUBLISHER_ROOT = Path(__file__).resolve().parents[1]
 HEX = re.compile(r"^[a-f0-9]{64}$")
 COMMIT = re.compile(r"^[a-f0-9]{40}$")
 DECIMAL = re.compile(r"^(0|[1-9][0-9]*)$")
 TAG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 RELEASE_TAG = re.compile(r"^v\d+\.\d+\.\d+-r\d+$")
 MAX_UPDATE_SIZE = 256 * 1024 * 1024
+BETA_LIMITATIONS = ('Beta: large-scale search performance has not reached the original target. '
+                    'Native global-search omission message/media control samples remain unavailable. '
+                    'These search checks remain pending.')
 
 
 def wait_public_page(api, path: str, expected: bytes, *, timeout: float = 180,
@@ -81,6 +88,29 @@ class PublishError(ValueError):
     """An input or promotion condition is unsafe or incomplete."""
 
 
+def signing_approval_matches(original: dict, final: dict) -> bool:
+    """Only pending search/install checks may advance between signing and release."""
+    if (original.get('kind') != 'fishgram-signing-qa'
+            or final.get('kind') not in ('fishgram-candidate-qa', 'fishgram-beta-qa')
+            or original.get('schema') != 2 or final.get('schema') != 2
+            or original.get('candidate') != final.get('candidate')):
+        return False
+    checks = original.get('checks')
+    required = {'searchEightAcceptance', 'updaterFullMatrix', 'sameCandidateCloudConclusion',
+                'localWindows11', 'hashVerification', 'noAccountData'}
+    if final.get('kind') == 'fishgram-beta-qa':
+        final_checks = dict.fromkeys(required | {'remainingSearchAcceptance'}, True)
+        final_checks['searchEightAcceptance'] = False
+        if final.get('deferredSearch') != ['largeScalePerformance', 'nativeOmissionControlSamples']:
+            return False
+    else:
+        final_checks = dict.fromkeys(required, True)
+    return (isinstance(checks, dict) and set(checks) == required
+            and all(type(v) is bool for v in checks.values())
+            and all(checks[n] for n in required - {'searchEightAcceptance', 'updaterFullMatrix'})
+            and final.get('checks') == final_checks)
+
+
 def verify_signing_history(root: Path, signing_sha: str, candidate_sha: str,
                            reviewed_sha: str, qa_path: str) -> None:
     """Bind the signer to reviewed main history and the exact committed QA."""
@@ -96,7 +126,14 @@ def verify_signing_history(root: Path, signing_sha: str, candidate_sha: str,
     git("merge-base", "--is-ancestor", candidate_sha, signing_sha)
     git("merge-base", "--is-ancestor", signing_sha, reviewed_sha)
     if git("rev-parse", f"{signing_sha}:{qa_path}") != git("rev-parse", f"{reviewed_sha}:{qa_path}"):
-        raise PublishError("Signing run QA differs from the reviewed publication QA.")
+        try:
+            original = json.loads(git('show', f'{signing_sha}:{qa_path}'))
+            final = json.loads(git('show', f'{reviewed_sha}:{qa_path}'))
+            matches = signing_approval_matches(original, final)
+        except (ValueError, TypeError, AttributeError):
+            matches = False
+        if not matches:
+            raise PublishError("Signing run QA differs from the reviewed publication QA.")
 
 
 def verify_package_identity(envelope, version: str, channel: str) -> None:
@@ -152,7 +189,7 @@ class PageFile:
         return hashlib.sha256(self.data).hexdigest()
 
 
-def public_acceptance_records(qa_bytes: bytes, signing: dict) -> tuple[Asset, Asset]:
+def public_acceptance_records(qa_bytes: bytes, signing: dict, *, separate_approval=False) -> tuple[Asset, Asset]:
     """Project already-verified private records onto an explicit public schema."""
     qa = json.loads(qa_bytes)
     for value in (qa.get('approvedAt'), signing.get('signedAt'), signing.get('qa', {}).get('approvedAt')):
@@ -162,7 +199,7 @@ def public_acceptance_records(qa_bytes: bytes, signing: dict) -> tuple[Asset, As
             dt.datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ')
         except ValueError as error:
             raise PublishError('Public acceptance timestamp is invalid.') from error
-    if signing['qa']['approvedAt'] != qa['approvedAt']:
+    if not separate_approval and signing['qa']['approvedAt'] != qa['approvedAt']:
         raise PublishError('Signing approval time differs from verified QA.')
     proof_value = {
         'schema': 1, 'kind': 'fishgram-public-qa-proof',
@@ -170,6 +207,9 @@ def public_acceptance_records(qa_bytes: bytes, signing: dict) -> tuple[Asset, As
         'approvedAt': qa['approvedAt'], 'candidate': qa['candidate'],
         'checks': qa['checks'],
     }
+    if qa.get('kind') == 'fishgram-beta-qa':
+        proof_value['deferredSearch'] = qa['deferredSearch']
+        proof_value['releaseChannel'] = 'beta'
     encode = lambda value: (json.dumps(value, sort_keys=True, indent=2) + '\n').encode('utf-8')
     proof = Asset('qa-proof.json', encode(proof_value))
     public_signing = {name: signing[name] for name in (
@@ -189,7 +229,40 @@ def public_acceptance_records(qa_bytes: bytes, signing: dict) -> tuple[Asset, As
         'originalSha256': signing['qa']['sha256'],
         'approvedAt': signing['qa']['approvedAt'], 'publicProofSha256': proof.sha256,
     }
+    if separate_approval:
+        public_signing['qa']['publicProofApprovedAt'] = qa['approvedAt']
+        public_signing['qa']['finalQaSha256'] = hashlib.sha256(qa_bytes).hexdigest()
     return proof, Asset('signing-record.json', encode(public_signing))
+
+
+def verify_signing_approval(manifest, final, signing, qa_name, final_bytes):
+    """Bind an immutable signing request while final QA completes after installation."""
+    try:
+        import release_gate as gate
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import release_gate as gate
+    approval = signing.get('qa')
+    if not isinstance(approval, dict) or approval.get('file') != qa_name:
+        raise PublishError('Signing approval filename differs from final QA.')
+    if (approval.get('sha256') == hashlib.sha256(final_bytes).hexdigest()
+            and approval.get('approvedAt') == final.get('approvedAt')):
+        return False
+    try:
+        original_bytes = base64.b64decode(approval['document'], validate=True)
+        original = json.loads(original_bytes)
+        final_time = dt.datetime.strptime(final['approvedAt'], '%Y-%m-%dT%H:%M:%SZ')
+        signed_time = dt.datetime.strptime(signing['signedAt'], '%Y-%m-%dT%H:%M:%SZ')
+        if (hashlib.sha256(original_bytes).hexdigest() != approval['sha256']
+                or original['approvedAt'] != approval['approvedAt']
+                or original['approvedAt'] > final['approvedAt']
+                or final_time < signed_time
+                or not signing_approval_matches(original, final)):
+            raise ValueError('Signing request differs')
+        gate.verify_qa(manifest, original, for_signing=True)
+    except (ValueError, KeyError, TypeError, gate.GateError) as error:
+        raise PublishError('Original signing approval is not bound to the accepted candidate.') from error
+    return True
 
 
 @dataclass(frozen=True)
@@ -219,6 +292,7 @@ class ReleaseTransport(Protocol):
     def tag_exists(self, repository: str, tag: str) -> bool: ...
     def tag_commit(self, repository: str, tag: str) -> str: ...
     def release_exists(self, tag: str) -> bool: ...
+    def release_prerelease(self, tag: str) -> bool: ...
     def source_tag_exists(self, tag: str) -> bool: ...
     def asset_names(self, tag: str) -> set[str]: ...
     def get_index(self, path: str) -> dict | None: ...
@@ -360,6 +434,108 @@ def _validate_plan_index(plan: PromotionPlan) -> None:
         raise PublishError("Promotion index size or hash does not match its signed package attachment.")
 
 
+def _verify_public_acceptance(plan: PromotionPlan, record: dict) -> dict:
+    """Recheck the public QA binding after the offline handoff, before writes."""
+    try:
+        import release_gate as gate
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import release_gate as gate
+    proofs = [a for a in plan.assets if a.name == 'qa-proof.json']
+    signings = [a for a in plan.assets if a.name == 'signing-record.json']
+    if len(proofs) != 1 or len(signings) != 1:
+        raise PublishError('Promotion requires exactly one qa-proof.json and signing-record.json.')
+    try:
+        proof = json.loads(proofs[0].data)
+        signing = json.loads(signings[0].data)
+        if (not isinstance(proof, dict) or proof.get('schema') != 1
+                or proof.get('kind') != 'fishgram-public-qa-proof'
+                or not isinstance(proof.get('originalSha256'), str)
+                or not HEX.fullmatch(proof['originalSha256'])
+                or not isinstance(signing, dict) or signing.get('schema') != 1
+                or signing.get('kind') != 'fishgram-signed-candidate'
+                or signing.get('channel') != plan.package_channel):
+            raise ValueError('Invalid public acceptance record')
+        channel = proof.get('releaseChannel', 'stable')
+        if channel not in {'stable', 'beta'}:
+            raise ValueError('Invalid QA release channel')
+        if channel == 'beta' and plan.index_channel != 'beta':
+            raise PublishError('Beta acceptance cannot promote the stable index.')
+        approval = signing['qa']
+        if (approval['publicProofSha256'] != proofs[0].sha256
+                or proof['originalSha256'] != approval.get('finalQaSha256', approval['originalSha256'])
+                or approval.get('publicProofApprovedAt', approval['approvedAt']) != proof['approvedAt']):
+            raise ValueError('Public QA hash or approval time differs')
+        if 'publicProofApprovedAt' in approval:
+            # The original signing approval precedes final installation QA.
+            stamps = [dt.datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ') for value in
+                      (approval['approvedAt'], signing['signedAt'], proof['approvedAt'])]
+            if not stamps[0] <= stamps[1] <= stamps[2]:
+                raise ValueError('Final QA must follow the signing approval and signature')
+        fields = {'schema', 'kind', 'originalSha256', 'approvedAt', 'candidate', 'checks'}
+        if 'releaseChannel' in proof:
+            fields.add('releaseChannel')
+        if channel == 'beta':
+            fields.add('deferredSearch')
+        if set(proof) != fields:
+            raise ValueError('Invalid public QA fields')
+        qa = {name: proof[name] for name in ('approvedAt', 'candidate', 'checks')}
+        qa.update(schema=2, kind='fishgram-beta-qa' if channel == 'beta' else 'fishgram-candidate-qa')
+        if channel == 'beta':
+            qa['deferredSearch'] = proof['deferredSearch']
+        gate.verify_qa(record, qa, allow_beta=plan.index_channel == 'beta')
+    except (ValueError, KeyError, TypeError, UnicodeDecodeError) as error:
+        if isinstance(error, PublishError):
+            raise
+        raise PublishError('Public QA proof is invalid or differs from its signing record and candidate.') from error
+    _verify_signed_update(plan, record, signing)
+    return proof
+
+
+def _verify_signed_update(plan: PromotionPlan, record: dict, signing: dict) -> None:
+    """Authenticate the offline update against this publisher checkout before transport."""
+    try:
+        import sign_candidate as sign
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import sign_candidate as sign
+    try:
+        trust = PUBLISHER_ROOT / 'config/update-trust'
+        manifest, issuer_raw, root_pem, _ = sign._verify_trust(PUBLISHER_ROOT, trust)
+        if any(item.data != (trust / PurePosixPath(item.path).name).read_bytes()
+               for item in plan.page_files):
+            raise PublishError('Promotion trust bundle differs from the reviewed publisher config/update-trust.')
+        index = json.loads(plan.index_bytes)
+        name = urlsplit(index['update']['url']).path.rsplit('/', 1)[-1]
+        package = next(asset for asset in plan.assets if asset.name == name)
+        envelope = sign.parse_envelope(package.data)
+        issuer = signing.get('issuer')
+        if (not isinstance(issuer, dict) or not isinstance(issuer.get('id'), str)
+                or issuer.get('alg') != 'Ed25519'
+                or issuer.get('publicKeySha256') != hashlib.sha256(issuer_raw).hexdigest()
+                or signing.get('package') != {'name': package.name, 'size': len(package.data),
+                                               'sha256': package.sha256}
+                or type(signing['package']['size']) is not int
+                or signing.get('candidateVersion') != record['version']
+                or plan.tag != 'v' + record['version']
+                or signing.get('updateVersion') != record['updateVersion']
+                or record['updateVersion'] != plan.version
+                or record['platform'] != 'windows-x64'
+                or record['channel'] != plan.package_channel
+                or signing.get('parentCommit') != record['parentCommit']
+                or signing.get('sourceCommit') != record['sourceCommit']
+                or signing.get('candidateArchive') != record['archive']
+                or signing.get('sourceArchive') != record['sourceArchive']):
+            raise PublishError('Public signing record is not bound to the exact candidate, issuer and update package.')
+        sign.verify_envelope(envelope, manifest, issuer['id'], issuer_raw, root_pem, plan.package_channel)
+        verify_package_identity(envelope, plan.version, plan.package_channel)
+    except (sign.SigningError, sign.keys.KeyManagementError, OSError, ValueError,
+            KeyError, TypeError, StopIteration) as error:
+        if isinstance(error, PublishError):
+            raise
+        raise PublishError('Promotion TDUP v2 signature or reviewed publisher trust verification failed.') from error
+
+
 def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
             context: PublishContext | None) -> None:
     """Publish attachments, read each public byte back, then promote the index."""
@@ -389,12 +565,64 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
         raise PublishError("Candidate record has invalid pinned parent/source commits.")
     if plan.target_commit != parent_commit:
         raise PublishError("Release tag must point to the exact candidate build commit.")
+    try:
+        portable = next(asset for asset in plan.assets
+                        if asset.name == f'FishGram-{plan.tag[1:]}-windows-x64.zip')
+        distribution = json.loads(next(asset.data for asset in plan.assets
+                                       if asset.name == 'distribution-record.json'))
+        reviewed_commit = plan.reviewed_commit or plan.target_commit
+        if (not isinstance(reviewed_commit, str) or not COMMIT.fullmatch(reviewed_commit)
+                or distribution != json.loads(distribution_record(portable, record, reviewed_commit).data)):
+            raise ValueError('Distribution record differs')
+    except (StopIteration, ValueError, KeyError, TypeError) as error:
+        raise PublishError('Distribution record must bind the portable ZIP, candidate record and reviewed publisher commit.') from error
+    proof = _verify_public_acceptance(plan, record)
+    try:
+        expected = set(record['files']) | {'LICENSE', 'LEGAL', 'Start-FishGram.cmd', 'README.txt', 'build-manifest.json'}
+        with zipfile.ZipFile(io.BytesIO(portable.data)) as bundle:
+            entries = bundle.infolist()
+            if len(entries) != len(expected) or {e.filename for e in entries} != expected:
+                raise ValueError('Portable entries differ')
+            for entry in entries:
+                mode = (entry.external_attr >> 16) & 0o170000
+                if entry.is_dir() or entry.flag_bits & 1 or mode not in (0, 0o100000):
+                    raise ValueError('Unsafe portable entry')
+            for name, bound in record['files'].items():
+                data = bundle.read(name)
+                if len(data) != bound['size'] or hashlib.sha256(data).hexdigest() != bound['sha256']:
+                    raise ValueError('Portable program differs')
+            embedded = json.loads(bundle.read('build-manifest.json').decode('utf-8-sig'))
+            if embedded != {k: v for k, v in record.items() if k not in ('archive', 'sourceArchive')}:
+                raise ValueError('Portable build manifest differs')
+            rebuilt = portable_package(portable.data, record['version'], beta=plan.index_channel == 'beta',
+                                       deferred_search=proof.get('releaseChannel') == 'beta')
+            with zipfile.ZipFile(io.BytesIO(rebuilt.data)) as canonical:
+                if bundle.read('README.txt') != canonical.read('README.txt'):
+                    raise ValueError('Portable README differs')
+    except (ValueError, KeyError, TypeError, UnicodeDecodeError, zipfile.BadZipFile) as error:
+        raise PublishError('Portable archive contents differ from the verified candidate.') from error
+    try:
+        expected_source = record['sourceArchive']
+        source = [asset for asset in plan.assets if asset.name == expected_source['name']]
+        if (len(source) != 1 or not source[0].name.endswith('.zip')
+                or source[0].name == portable.name
+                or len(source[0].data) != expected_source['size']
+                or source[0].sha256 != expected_source['sha256']):
+            raise ValueError('Source archive differs')
+    except (KeyError, TypeError, ValueError) as error:
+        raise PublishError('Source archive must match the candidate record name, size and SHA256.') from error
     tag_exists = api.tag_exists(PRODUCT_REPOSITORY, plan.tag)
     source_tag_exists = api.source_tag_exists(plan.tag)
     release_exists = api.release_exists(plan.tag)
     if plan.reuse_release:
         if not tag_exists or not source_tag_exists or not release_exists:
             raise PublishError("Index-only promotion requires both immutable repository tags and the release.")
+        try:
+            prerelease = api.release_prerelease(plan.tag)
+        except Exception as error:
+            raise PublishError('Existing release prerelease status could not be verified.') from error
+        if type(prerelease) is not bool or prerelease != (plan.index_channel == 'beta'):
+            raise PublishError('Existing release prerelease status differs from the index channel; publish a new revision.')
     elif release_exists:
         raise PublishError("Release already exists; published objects are immutable.")
     # Interrupted creation may leave either immutable tag without a release.
@@ -422,9 +650,9 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
     if any(not path.startswith("keys/") or "\\" in path or str(PurePosixPath(path)) != path
            or ".." in PurePosixPath(path).parts for path in paths):
         raise PublishError("Only reviewed public trust files under Pages keys/ may be promoted.")
-    if (f"FishGram-{plan.tag[1:]}-windows-x64-candidate.zip" not in names
+    if (f"FishGram-{plan.tag[1:]}-windows-x64.zip" not in names
             or not {"candidate-record.json", "signing-record.json"}.issubset(names)
-            or sum(name.endswith(".zip") and name != f"FishGram-{plan.tag[1:]}-windows-x64-candidate.zip"
+            or sum(name.endswith(".zip") and name != f"FishGram-{plan.tag[1:]}-windows-x64.zip"
                    for name in names) != 1
             or set(paths) != {"keys/root-public.pem", "keys/issuer-public.pem",
                               "keys/manifest.min.json", "keys/manifest.sig"}):
@@ -436,6 +664,24 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
             raise PublishError("Existing release asset set could not be verified; promotion stopped before writes.") from error
         if existing_assets != set(names):
             raise PublishError("Existing release asset set differs from the reviewed promotion plan.")
+        # A later index promotion has a new reviewed main commit. Preserve the
+        # original publication record while checking every candidate/package field.
+        for asset in plan.assets:
+            if asset.name != 'distribution-record.json':
+                continue
+            original = api.download_asset(plan.tag, asset.name)
+            try:
+                previous = json.loads(original)
+                expected = json.loads(asset.data)
+                publisher = previous.pop('reviewedPublisherCommit')
+                expected.pop('reviewedPublisherCommit')
+                if not isinstance(publisher, str) or not COMMIT.fullmatch(publisher) or previous != expected:
+                    raise ValueError('Distribution record differs')
+            except (ValueError, TypeError, KeyError, AttributeError) as error:
+                raise PublishError('Existing distribution record does not bind the verified candidate and portable ZIP.') from error
+            plan = replace(plan, assets=tuple(
+                Asset(item.name, original) if item.name == asset.name else item
+                for item in plan.assets))
     if not plan.reuse_release:
         pages_config = getattr(api, "pages_config", None)
         if not callable(pages_config):
@@ -461,9 +707,11 @@ def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,
     if not plan.reuse_release and not source_tag_exists:
         api.create_source_tag(plan.tag, source_commit)
     if not plan.reuse_release:
+        limitations = ('\n\n' + BETA_LIMITATIONS if proof.get('deferredSearch') else
+                       '\n\nBeta.' if plan.index_channel == 'beta' else '')
         api.create_release(plan.tag, plan.target_commit, plan.tag,
-                           "FishGram portable release for Windows 11 x64. FishGram update packages use our own update signature, not Windows Authenticode. The Windows executable is not Authenticode-signed. See attached corresponding source, QA records and known limitations.",
-                           prerelease=plan.package_channel == "beta")
+                           f"Download [FishGram {plan.tag[1:]} for Windows 11 x64](https://github.com/{PRODUCT_REPOSITORY}/releases/download/{plan.tag}/FishGram-{plan.tag[1:]}-windows-x64.zip). Extract the ZIP and run Start-FishGram.cmd. Accounts and settings are kept in FishGramData.\n\nCorresponding source is a separate ZIP attachment; it is not needed to run the client.\n\nFishGram update packages use our own update signature, not Windows Authenticode. The Windows executable is not Authenticode-signed. Build and acceptance records are attached." + limitations,
+                           prerelease=plan.index_channel == "beta")
         try:
             if api.tag_commit(PRODUCT_REPOSITORY, plan.tag) != parent_commit:
                 raise PublishError('Created product tag differs from the exact candidate commit.')
@@ -545,6 +793,43 @@ def _promotion_file(root: Path, relative: str) -> bytes:
     return resolved.read_bytes()
 
 
+def portable_package(candidate_bytes: bytes, version: str, *, beta=False, deferred_search=False) -> Asset:
+    """Wrap an already-verified candidate for users without changing programs."""
+    result = io.BytesIO()
+    readme = (
+        f"FishGram {version} - Windows 11 x64 portable\r\n"
+        "Extract all files, then run Start-FishGram.cmd.\r\n"
+        "Accounts and settings are stored in FishGramData beside the program.\r\n"
+        "Close FishGram before replacing program files; keep FishGramData.\r\n"
+        "Corresponding source: the separate source ZIP in this GitHub Release.\r\n"
+        "FishGram update packages use our own signature, not Windows Authenticode.\r\n"
+        + ((BETA_LIMITATIONS + '\r\n') if deferred_search else 'Beta.\r\n' if beta else '')
+    ).encode('utf-8')
+    with zipfile.ZipFile(io.BytesIO(candidate_bytes)) as source, zipfile.ZipFile(
+            result, 'w', compression=zipfile.ZIP_STORED) as target:
+        target.comment = b''
+        for name in sorted(source.namelist()):
+            entry = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
+            entry.create_system = 3  # Unix creator, including on Windows publishers.
+            entry.create_version = entry.extract_version = 20
+            entry.reserved = entry.flag_bits = entry.volume = entry.internal_attr = 0
+            entry.extra = entry.comment = b''
+            entry.compress_type = zipfile.ZIP_STORED
+            entry.external_attr = 0o100644 << 16
+            target.writestr(entry, readme if name == 'README.txt' else source.read(name))
+    return Asset(f'FishGram-{version}-windows-x64.zip', result.getvalue())
+
+
+def distribution_record(portable: Asset, manifest: dict, commit: str) -> Asset:
+    return Asset('distribution-record.json', json.dumps({
+        'schema': 1, 'kind': 'fishgram-portable-distribution',
+        'archive': {'name': portable.name, 'size': len(portable.data), 'sha256': portable.sha256},
+        'candidateArchive': manifest['archive'],
+        'parentCommit': manifest['parentCommit'], 'sourceCommit': manifest['sourceCommit'],
+        'reviewedPublisherCommit': commit, 'files': manifest['files'],
+    }, sort_keys=True, indent=2).encode('utf-8') + b'\n')
+
+
 def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_release: bool,
                     record_path: Path, qa_path: Path,
                     signing_record_path: Path, candidate_zip: Path, source_zip: Path,
@@ -558,9 +843,12 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
         from sign_candidate import _check_record_trust, _record_and_gates, _verify_trust, parse_envelope, verify_envelope
     import release_gate as gate
 
+    index_channel = index_channel if index_channel is not None else _load_json(record_path, 'Candidate record').get('channel')
+    if index_channel not in {'stable', 'beta'}:
+        raise PublishError('Only stable and beta index channels are supported.')
     manifest, authorization, trust_manifest, issuer_raw, root_pem, _ = _record_and_gates(
         root, record_path, candidate_zip, source_zip, qa_path, packer, trust, commit,
-        "release/qa/" + qa_path.name)
+        "release/qa/" + qa_path.name, allow_beta=index_channel == "beta")
     try:
         gate.check_pins(root, commit, manifest,
                         tracked=(*PUBLISH_TRACKED, "release/qa/" + qa_path.name))
@@ -569,6 +857,7 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
     signing = _load_json(signing_record_path, "Signing record")
     qa = _load_json(qa_path, "QA approval")
     signing_qa = signing.get("qa")
+    separate_approval = verify_signing_approval(manifest, qa, signing, qa_path.name, qa_path.read_bytes())
     signing_issuer = signing.get("issuer")
     signed_entry = signing.get("package")
     if (signing.get("schema") != 1 or signing.get("kind") != "fishgram-signed-candidate"
@@ -581,8 +870,6 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
             or signing.get("sourceArchive") != manifest["sourceArchive"]
             or not isinstance(signing_qa, dict)
             or signing_qa.get("file") != qa_path.name
-            or signing_qa.get("sha256") != gate.sha256_file(qa_path)
-            or signing_qa.get("approvedAt") != qa.get("approvedAt")
             or not isinstance(signing_issuer, dict)
             or signing_issuer.get("id") != issuer_id
             or signing_issuer.get("alg") != "Ed25519"
@@ -606,9 +893,6 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
         update_name += "-beta"
     release_tag = "v" + manifest["version"]
     update_url = f"https://github.com/{PRODUCT_REPOSITORY}/releases/download/{release_tag}/{update_name}"
-    index_channel = index_channel or manifest["channel"]
-    if index_channel not in {"stable", "beta"}:
-        raise PublishError("Only stable and beta index channels are supported.")
     if index_channel != manifest["channel"]:
         if not supports_split_channel_feed(root):
             raise PublishError("Beta index promotion of a stable package is held until production ParseFeed supports split channels.")
@@ -616,10 +900,14 @@ def validate_inputs(root: Path, commit: str, index_channel: str | None, reuse_re
                                gate.sha256_file(signed_package), update_url)
     if Path(qa_path.name).name != qa_path.name or "\\" in qa_path.name:
         raise PublishError("QA approval filename is unsafe for a public attachment.")
-    public_qa, public_signing = public_acceptance_records(qa_path.read_bytes(), signing)
+    public_qa, public_signing = public_acceptance_records(qa_path.read_bytes(), signing, separate_approval=separate_approval)
+    portable = portable_package(candidate_zip.read_bytes(), manifest['version'],
+                                beta=index_channel == 'beta',
+                                deferred_search=qa['kind'] == 'fishgram-beta-qa')
     assets = (
         Asset(update_name, signed_package.read_bytes()),
-        Asset(manifest["archive"]["name"], candidate_zip.read_bytes()),
+        portable,
+        distribution_record(portable, manifest, commit),
         Asset(manifest["sourceArchive"]["name"], source_zip.read_bytes()),
         Asset("candidate-record.json", record_path.read_bytes()),
         public_qa,

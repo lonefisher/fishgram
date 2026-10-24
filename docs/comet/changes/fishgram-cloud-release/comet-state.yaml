@@ -3,10 +3,10 @@ name: fishgram-cloud-release
 language: zh-CN
 phase: build
 status: active
-state_version: 24
+state_version: 57
 brief: brief.md
 document_constraints_version: 1
-shape_confirmation_hash: 5a8f359331a601d5770341733413ed4749514880755bea90494bea35e585b112
+shape_confirmation_hash: f287843da61b066bca70e013334708e8ba2d690ce348d8d1021d25be3fb19251
 spec_changes:
   - capability: cloud-release
     operation: create
@@ -17,21 +17,15 @@ workspace:
   target_branch: main
   finish: null
 loop:
-  stage: repairing
-  goal_cycle: 1
-  iteration: 6
+  stage: building
+  goal_cycle: 6
+  iteration: 1
   attempt: 0
-  retry_epoch: 1
+  retry_epoch: 0
   failed_iteration_count: 0
   no_progress_count: 0
   execution_failure_count: 0
-  previous_unresolved_ids:
-    - A3
-    - A4
-    - A5
-    - A6
-    - A7
-    - A8
+  previous_unresolved_ids: []
   next_action: submit-builder-candidate
 acceptance:
   - id: A1
@@ -75,68 +69,7 @@ acceptance:
     text: A8：实测同一云端候选后不重编译，人工签名对应程序哈希，发布附件并公开下载核验后最后更新索引；已发布标签附件不覆盖。
     result: pending
     reason: null
-builder_handoff:
-  candidate_id: e6ca863b-96e6-4971-80d4-e1fb8670dea3
-  identity_provider: skill-coordinated
-  builder_execution_ref: skill-coordinated:builder:4f2f5bf8-73de-4f3c-9bd5-1305cac20909
-  iteration: 5
-  summary:
-    text: "Frozen parent6222387/sourcee222 pushed. New publication findings fixed:
-      candidate tag C vs reviewed Q, global channel lock, protected reuse input,
-      exact existing tags, official ancestor at package/sign gates and complete
-      history. Independent review passed after P2 repair. 247 full Python
-      tests234pass13skip; current focused publication31/transport17/gate46 pass.
-      Prior cfac same-tree cloud success retained as historical only;
-      current38269383003 live. No production candidate or release."
-    truncated: false
-  addressed_acceptance_ids:
-    - A2
-    - A3
-    - A5
-    - A7
-    - A8
-  checks:
-    - name:
-        text: Affected publication and ancestor regression
-        truncated: false
-      result: passed
-      note:
-        text: Publication31 transport17 gate46, independent recheck pass; full
-          suite234passed13skipped not counted passed
-        truncated: false
-    - name:
-        text: Exact current source archive
-        truncated: false
-      result: passed
-      note:
-        text: '{"parentCommit":"6222387aad514b0024b88109d6e4aab0e1d9b82b","sourceCommit":"e222737896c041be450eaac251208d5e1eb76f8e","archive":"cloud-source-6222387.zip","archiveSha256":"e72a97440d81d749c47458521d60cc0cc5bf5953275041c5df14d1dc4ce85295","archiveBytes":85788898,"repositories":41,"verifiedFiles":15825,"licenseSummary":{"repositoryCount":41,"archiveFileCount":15825,"licensePathCount":93,"linkedOnlyRepositoryCount":40,"unresolvedRepositoryCount":0},"productionCandidateEvidence":false}'
-        truncated: false
-    - name:
-        text: Current full cloud and protected production acceptance
-        truncated: false
-      result: not-run
-      note:
-        text: Current38269383003/job114880382939 preparing; prior cfac success does not
-          replace622; product/Win11/account/recovery incomplete
-        truncated: false
-  checks_truncated: false
-  known_limits:
-    - text: Current cloud38269383003 is live; do not restart. Cache hit build remains
-        unverified. Prior cfac successful test identity no product hashes.
-      truncated: false
-    - text: User confirmed reboot; Sandbox exe and services present, actual GUI
-        start/product acceptance not performed. Original search and install
-        matrix incomplete.
-      truncated: false
-    - text: Upstream successful linked PR and CI failure flow remain unverified; daily
-        upgrade bot disabled. No public release approval.
-      truncated: false
-    - text: KeePass root/issuer restore verified; OneDrive full database restoration
-        unverified; user waived offline copy.
-      truncated: false
-  known_limits_truncated: false
-  review: null
-  submitted_at: 2026-10-12T15:23:02.858Z
+builder_handoff: null
 blockers: []
 verification: null
 history:
@@ -307,6 +240,183 @@ history:
         all acceptance requirements.
       truncated: false
     completed_at: 2026-10-12T15:38:39.665Z
+  - goal_cycle: 1
+    iteration: 6
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "Builder handoff Runtime checks failed:
+        cloud-publication-review-regression"
+      truncated: false
+    completed_at: 2026-10-12T15:50:23.334Z
+  - goal_cycle: 1
+    iteration: 7
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A1
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: 唯一独立Comet Verifier已先用指定原CLI提交verifier-started并确认启动；对当前scope
+        A1-A8各作一次最终裁决。冻结父d5/sourcee222：A1 failed（可达About界面仍命名Telegram
+        Desktop，Runtime定向检查exit1），A2 passed，A3-A8
+        blocked，整体fail。复用绑定87项无跳过回归，仅经request-checks追加3项只读检查；当前d5源码15825文件/93许可哈希匹配，补充56项compiled本地日志可佐证。622云端仍准备依赖，d5未push；历史cfac、Sandbox启动/传输、本地合成证据均不冒充生产/真实账号/完整发行验收。不委派、不改实现、不发外部消息、不进入Archive或接受不完整结果；本Verifier在结束时唯一提交此final-result。Runtime0.4.3。
+      truncated: false
+    completed_at: 2026-10-12T16:07:09.810Z
+  - goal_cycle: 1
+    iteration: 8
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: 唯一独立Verifier已先用当前PATH
+        comet提交verifier-started并读回confirmed，同一execution覆盖A1-A8各一次裁决。冻结父91a8/sourceef2：A1/A2
+        passed，A3-A8
+        blocked，整体blocked。旧About标题缺陷已在当前Windows生产路径核实修复；12份当前源码/对象哈希匹配，仍不计GUI或生产实测。复用三项绑定Runtime并只追加两项定向检查，五项均passed。当前父/源完整云端仍live准备依赖，不等待/重启、不移植历史622成功；实际生产候选、缓存复测、机器人全场景、真实搜索/更新/账户/恢复及首发链路缺口全部保留。响应只存.private，交主代理提交final-result。
+      truncated: false
+    completed_at: 2026-10-12T19:02:22.143Z
+  - goal_cycle: 1
+    iteration: 8
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Continue the approved plan by repairing newly verified review defects in
+        recursive source binding, upgrade PR reuse and maintenance entry points;
+        preserve all external acceptance gaps and running CI.
+      truncated: false
+    completed_at: 2026-10-12T19:30:36.676Z
+  - goal_cycle: 1
+    iteration: 9
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A3
+      - A4
+      - A5
+      - A6
+      - A7
+      - A8
+    summary:
+      text: 唯一独立Verifier核验冻结父625165775734157474bd6149feedabddc3e93d81/source
+        ef2e1996a9f2ba639e5cdbb099a0f4188fddcf61，对brief/spec的A1-A8各一次最终裁决：A1产品身份源码/配置、A2全部PR检查覆盖及凭据隔离通过；A3-A8均blocked，完整公开方案没有通过。复用三份新绑定Runtime收据（scripts、107项零skip、精确625源码41/15827/93无缺失），仅Runtime增补只读元数据，确认625现已push且candidate/release
+        main-only人工保护；不可读接口如实保留限制。旧91a8及源ef2观察时仍准备依赖，没有625
+        cloud成功，不移植旧成功或把cancel当结果。264回归的13skip、真实产品/缓存/cleanWin/账号/搜索/更新/恢复/机器人成功场景/首发证据缺口完整保留；private
+        adaptive
+        prototype不计搜索A7。局部修复无具体遗留缺陷不等于全方案通过，无发行依据。结果仅保存并validate-only，交主代理提交。
+      truncated: false
+    completed_at: 2026-10-12T19:59:11.907Z
+  - goal_cycle: 1
+    iteration: 9
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Local standard build reproduced unknown target Updater with
+        autoUpdate=false. Source CMake conditionally defines Updater; repair
+        target selection without weakening cloud/product/real acceptance.
+        Preserve running625 CI and do not push until its live build is terminal.
+      truncated: false
+    completed_at: 2026-10-12T20:12:53.377Z
+  - goal_cycle: 1
+    iteration: 10
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A3
+      - A6
+      - A8
+    summary:
+      text: 唯一独立Verifier已先用同一已安装Comet CLI提交verifier-started且Runtime
+        exit0接受；当前候选A1–A8每项各作一次裁决：A1/A2/A4/A5/A7 passed，A3/A6/A8
+        blocked，整体blocked。当前产品39128598025及冷/热/源码PR构建实际成功已由现场GitHub元数据核实，现存程序/工具/源码哈希匹配，复用绑定Runtime包/源码检查。A3冷构建缺可读程序哈希，A6真实机器人场景不齐，A8实机/账户/完整更新恢复与实际签名发行链路未执行。当前HEAD4b7bd0a相对云端5e366da只有证据文档变化；源码1ab89ec一致。结果JSON供主代理按原Runtime
+        envelope提交。
+      truncated: false
+    completed_at: 2026-10-18T15:15:50.716Z
+  - goal_cycle: 1
+    iteration: 10
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: "Continue authorized implementation: preserve verifier findings, add
+        missing cold-build hash artifact; GUI acceptance remains deferred by
+        user."
+      truncated: false
+    completed_at: 2026-10-18T15:16:30.167Z
+  - goal_cycle: 1
+    iteration: 11
+    attempt: 1
+    outcome: blocked
+    unresolved_ids:
+      - A6
+      - A8
+    summary:
+      text: 唯一独立Verifier已先用指定已安装Comet
+        CLI提交verifier-started并获exit0接受。A1–A8各一次裁决：A1/A2/A3/A4/A5/A7 passed，A6/A8
+        blocked，整体blocked。A1/A2/A4/A5/A7复用上一轮仍有效证据，并核对改动范围、固定源码、产品实物哈希及可变保护元数据；这些证据没有因本次仅增加冷构建哈希上传和文档而失效。A3新增运行39184541382由独立gh元数据、同次资源/程序哈希附件及逐字节核对满足，原冷构建哈希缺口已解除。产品候选仍39128598025/parent5e366da/source1ab89ec，冷构建test身份parent6c10a59与其分开记录。GitHub
+        PR6合入树与本地e595c27相同，localHEAD
+        f5caad9只再增加证据文档。A6真实机器人路径及A8实机/账号/完整更新恢复/生产签名发行缺口保留，完整envelope供主代理提交Runtime。
+      truncated: false
+    completed_at: 2026-10-19T05:43:43.113Z
+  - goal_cycle: 1
+    iteration: 11
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 用户将首次发行验收从Windows Sandbox改为本机Windows
+        11；同一云端候选、独立测试数据目录、搜索和更新恢复测试仍需完成。发行提供可直接运行的便携ZIP，源码独立附件；正式发布后加入lonefisher/scoop-bucket。
+      truncated: false
+    completed_at: 2026-10-19T08:08:27.299Z
+  - goal_cycle: 2
+    iteration: 0
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native Shape artifacts changed
+      truncated: false
+    completed_at: 2026-10-19T08:10:10.310Z
+  - goal_cycle: 3
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native Shape artifacts changed
+      truncated: false
+    completed_at: 2026-10-19T09:31:09.255Z
+  - goal_cycle: 4
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native Shape artifacts changed
+      truncated: false
+    completed_at: 2026-10-21T15:52:04.129Z
+  - goal_cycle: 5
+    iteration: 0
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native Shape artifacts changed
+      truncated: false
+    completed_at: 2026-10-21T15:52:47.646Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null

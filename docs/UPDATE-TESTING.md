@@ -41,7 +41,7 @@ python -m unittest discover -s tests -v
 
 云端开发候选使用 `build-telegram.ps1 -TestIdentity -TestUpdateSystem`；该开关只为测试身份构建生成一次性根信任，不能与生产身份组合。正式产品仅走受保护候选 workflow，需自有 API 身份、生产根授权信任和实际云端验收。
 
-Comet 仍处于实现阶段。完整更新矩阵、干净 Windows 11、真实 UAC/账户迁移、全部搜索验收及正式签名/公开下载链路尚未完成，r7 不发布。
+Comet 处于实现阶段。用户于 2026-10-19 将系统验收改为本机 Windows 11 独立测试目录，首版 Beta 的两项搜索延期见 [Beta 范围](BETA-RELEASE.md)。继续完成更新矩阵、真实 UAC/账户迁移、其余搜索验收及正式签名和公开下载链路，r7 保留为本机历史版本。
 
 ## 2026-10-13 当前工具回归
 
@@ -63,3 +63,8 @@ The native fixtures were not rebuilt in this run. Publisher messages about succe
 ## 7.3.1 Linux 更新兼容限制
 
 首版发行平台为Windows11 x64。7.3.1官方Linux启动器改用ready-package保护目录安装流程，FishGram当前下载暂存仍采用自己的事务路径，两者尚未适配；Linux保护目录的自动更新会失败。Linux产品构建和发行须先适配并验证这条流程。官方新增两处POSIX测试夹具问题保持官方源码，分别涉及GCC预编译头扩展名及echo处理-n参数，随Linux开发处理。
+
+## 2026-10-20 手动程序恢复的短暂占用
+
+本机稳定复现备份目录改名 error 5；真实子文件句柄可触发，释放后可改名。程序恢复只对备份目录轮换的 Windows 错误 5/32 最多重试约一秒，其他错误立即返回；持续占用时保留当前程序、已有备份和账户数据。事务日志写入不使用该重试。38 项恢复测试通过，包含真实句柄短暂释放、持续占用、轮换回滚和其他错误；追加 50 次真实句柄阻断及 20 次普通恢复通过。具体外部占用进程尚未确定。
+
