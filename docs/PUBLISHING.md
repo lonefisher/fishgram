@@ -4,6 +4,8 @@
 
 `tools/publish_release.py publish` 是单独的外部写入入口。它从本地 promotion manifest 重验每个文件的大小和 SHA256，只接受明确的 `--enable-publication`、`workflow_dispatch`、`refs/heads/main`、`release` environment 和审批 marker，并从环境读取两个不同用途的 GitHub App 安装令牌。命令行不接受 token。产品 API 固定到 `lonefisher/fishgram`，源码 ref API 固定到 `lonefisher/tdesktop`；没有 App 凭据时安全停止。源码 tag 必须由单独的源码仓 token 创建，父仓 `GITHUB_TOKEN` 不用于冒充跨仓权限。
 
+进入 `promote()` 后、首次调用发布 transport 前，发布器从自身受审查 checkout 的 `config/update-trust` 重新验证当前根签名清单，要求 promotion 的四个 trust 文件逐字节一致，再复用 `sign_candidate.py` 解析 TDUP v2、验证根签名与发行键签名及当前授权。包的平台、渠道、完整版本必须匹配候选；公开 signing record 同时绑定候选版本、两仓提交、候选及源码归档、发行键和更新包的名称、大小及 SHA256。篡改离线载荷后重算所有 handoff 哈希仍会被签名验证拒绝；替换根或换回旧的根签名清单也无法恢复已吊销发行键。
+
 生产顺序为：核对两仓标签目标及 release 状态；读取并核对 Pages 配置；创建尚不存在的源码仓版本 tag；创建父仓 draft release；逐件上传所有附件并核对 API 返回的名称、大小和 uploaded 状态；发布 draft；从公开 release URL 逐件下载并校验 SHA256；经 Git blobs/tree/commit API 将 `keys/` 中四个 trust 文件放入同一提交，以非强制更新推进 Pages 分支，随后从公开 Pages URL 逐件读回并校验 SHA256；最后更新 `stable.json` 或 `beta.json`，再从公开 Pages URL 读回并校验索引哈希。任何失败均中止后续步骤，不回滚或覆盖已公开对象。错误标签目标、普通发布下已存在的 release、旧/相同完整十进制 update version、Pages 缺失或 Pages 配置不符合 FishGram URL 都会拒绝。
 
 信任授权以 Pages 源分支的固定父提交为准，每次推广都检查完整的四文件 bundle；公开 CDN 字节相同也不能跳过该检查。权威 bundle 完全相同则不创建新提交；不同内容必须保持根 PEM 不变且 `manifest_version` 严格递增，权威文件不完整时停止。Git ref 非强制更新拒绝并发分支推进。索引也从权威分支读回完整版本，写入前按同一 Contents 读取重新比较并使用 SHA 条件更新；公开 CDN 仅用于部署后哈希读回，不决定是否允许版本回退。
@@ -43,7 +45,7 @@ Pages 每次写入后按公开字节进行有界轮询，轮询预算为 180 秒
 签名 workflow 在接触发行密钥前限制 QA 为安全、区分大小写的 `.json` basename，拒绝通配符、目录和其他扩展名，与发布器 `verify_signing_history` 的 `release/qa/<basename>.json` 输入契约一致。
 
 - `python -m unittest discover -s tests -p test_publish_release.py -v` 验证 offline manifest、split-channel、版本单调性、来源候选及门控。
-- `python -m unittest discover -s tests -p test_github_release_transport.py -v` 使用内存 HTTP stub 检查具体 REST method/host/path/body/auth、draft 上传地址、双仓权限分离、Pages 404 fail-closed、公开无 token 下载以及 attachment → keys → index 最后读回的请求顺序。测试不访问 GitHub，不签真实密钥、不公开产物。
+- `python -m unittest discover -s tests -p test_github_release_transport.py -v` 使用内存 HTTP stub 和缓存的一次性 Ed25519 签名夹具，检查具体 REST method/host/path/body/auth、draft 上传地址、双仓权限分离、Pages 404 fail-closed、公开无 token 下载以及 attachment → keys → index 最后读回的请求顺序。发布器测试还覆盖重算离线哈希、替换根、旧清单及已吊销发行键；新签名边界测试执行实际密码学验签。
 - 尚未完成：生产 `config/update-trust` 已在候选分支由客户端代码验签，但仍须随受审查固定提交进入实际人工 workflow；真实已批准候选/签名 artifact、分仓发布 token、release/tag/附件及更新索引推广均待端到端验收。已完成的 App 认证、配置、环境保护和 API stub 不替代这些验收，也不表示已发行。
 
 复用既有发行前，发布器解析两个仓库的实际标签目标（普通标签或附注标签），逐一核对候选 parentCommit/sourceCommit；错误目标、非提交对象、循环或过长标签链会拒绝。标签存在和附件匹配不能代替源码目标一致。该核验在任何 Pages 写入前完成。

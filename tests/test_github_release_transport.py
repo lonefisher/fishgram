@@ -149,6 +149,13 @@ class Stub:
 
 
 class GithubReleaseTransportTests(unittest.TestCase):
+    def setUp(self):
+        from test_publish_release import publish, signed_fixture
+        self.publisher_root = signed_fixture().root
+        checkout = mock.patch.object(publish, 'PUBLISHER_ROOT', self.publisher_root)
+        checkout.start()
+        self.addCleanup(checkout.stop)
+
     def test_release_prerelease_reads_and_validates_github_metadata(self):
         for prerelease in (False, True, None, 'false', 0):
             with self.subTest(prerelease=prerelease):
@@ -237,20 +244,21 @@ class GithubReleaseTransportTests(unittest.TestCase):
                 self.assertFalse(any(call[0] in ("POST", "PATCH", "PUT") for call in stub.calls))
 
     def test_promotion_rejects_authoritative_trust_conflict_before_any_release_write(self):
-        from dataclasses import replace
         from test_publish_release import allowed_context, plan, publish
-        for root_change, version in ((True, 3), (False, 1), (False, 2)):
+        for root_change, version in ((True, 2), (False, 3), (False, 4)):
             with self.subTest(root_change=root_change, version=version):
                 stub = Stub()
-                stub.files.update(self.trust_bundle())
-                target = self.trust_bundle(version)
-                target['keys/issuer-public.pem'] = b'new-issuer'
+                candidate = plan()
+                stub.files = {item.path: item.data for item in candidate.page_files}
+                manifest = json.loads(stub.files['keys/manifest.min.json'])
+                manifest['manifest_version'] = version
+                stub.files['keys/manifest.min.json'] = json.dumps(manifest).encode()
+                stub.files['keys/issuer-public.pem'] = b'old-issuer'
                 if root_change:
-                    target['keys/root-public.pem'] = b'new-root'
-                candidate = replace(plan(), page_files=tuple(
-                    publish.PageFile(path, data) for path, data in target.items()))
+                    stub.files['keys/root-public.pem'] = b'other-root'
                 with self.assertRaises(publish.PublishError):
                     publish.promote(candidate, self.transport(stub), enabled=True, context=allowed_context())
+                self.assertTrue(stub.calls)
                 self.assertFalse(any(call[0] in ('POST', 'PATCH', 'PUT') for call in stub.calls))
 
     def test_trust_preflight_is_read_only_for_newer_same_root_bundle(self):
@@ -396,6 +404,7 @@ class GithubReleaseTransportTests(unittest.TestCase):
         publisher = importlib.util.module_from_spec(publisher_spec)
         sys.modules[publisher_spec.name] = publisher
         publisher_spec.loader.exec_module(publisher)
+        publisher.PUBLISHER_ROOT = self.publisher_root
         from test_publish_release import allowed_context, plan
 
         stub = Stub()
@@ -431,13 +440,14 @@ class GithubReleaseTransportTests(unittest.TestCase):
         self.assertEqual(source_tag_body["tag"], "v7.2.9-r1")
 
     def test_atomic_trust_bundle_conflict_preserves_old_files_and_stops_index(self):
-        from dataclasses import replace
         from test_publish_release import allowed_context, plan, publish
         stub = Stub()
         stub.source_tags = set()
-        stub.files = self.trust_bundle(2)
-        candidate = replace(plan(), page_files=tuple(
-            publish.PageFile(path, data) for path, data in self.trust_bundle(3).items()))
+        candidate = plan()
+        stub.files = {item.path: item.data for item in candidate.page_files}
+        old_manifest = json.loads(stub.files['keys/manifest.min.json'])
+        old_manifest['manifest_version'] -= 1
+        stub.files['keys/manifest.min.json'] = json.dumps(old_manifest).encode()
         old = dict(stub.files)
         stub.fail_atomic_ref = True
         with self.assertRaisesRegex(publish.PublishError, 'atomic promotion'):
@@ -489,6 +499,7 @@ class GithubReleaseTransportTests(unittest.TestCase):
             publisher = importlib.util.module_from_spec(p_spec)
             sys.modules[p_spec.name] = publisher
             p_spec.loader.exec_module(publisher)
+            publisher.PUBLISHER_ROOT = self.publisher_root
             publisher.promote(plan(), self.transport(stub), enabled=True, context=allowed_context())
         self.assertFalse(any(call[0] in {"POST", "PUT", "PATCH"} for call in stub.calls))
 
@@ -498,6 +509,7 @@ class GithubReleaseTransportTests(unittest.TestCase):
         publisher = importlib.util.module_from_spec(p_spec)
         sys.modules[p_spec.name] = publisher
         p_spec.loader.exec_module(publisher)
+        publisher.PUBLISHER_ROOT = self.publisher_root
         stub = Stub()
         failures = [0]
         stub.source_tags = set()
@@ -523,6 +535,7 @@ class GithubReleaseTransportTests(unittest.TestCase):
         sys.modules[p_spec.name] = publisher
         p_spec.loader.exec_module(publisher)
         stub = Stub(fail_upload="qa-proof.json")
+        publisher.PUBLISHER_ROOT = self.publisher_root
         with self.assertRaises(publisher.PublishError):
             publisher.promote(plan(), self.transport(stub), enabled=True, context=allowed_context())
         self.assertFalse(any(call[0] == "PATCH" or urlsplit(call[1]).hostname == "lonefisher.github.io"
@@ -536,6 +549,7 @@ class GithubReleaseTransportTests(unittest.TestCase):
         p_spec.loader.exec_module(publisher)
         candidate = plan()
         stub = Stub(corrupt_asset=candidate.assets[0].name)
+        publisher.PUBLISHER_ROOT = self.publisher_root
         with self.assertRaisesRegex(publisher.PublishError, "SHA256"):
             publisher.promote(candidate, self.transport(stub), enabled=True, context=allowed_context())
         self.assertFalse(any(call[0] == "PUT" for call in stub.calls))
@@ -548,6 +562,7 @@ class GithubReleaseTransportTests(unittest.TestCase):
         p_spec.loader.exec_module(publisher)
         candidate = plan()
         stub = Stub()
+        publisher.PUBLISHER_ROOT = self.publisher_root
         old = json.loads(candidate.index_bytes)
         old["update"]["version"] = "30073399661297665"
         stub.files["stable.json"] = json.dumps(old).encode()

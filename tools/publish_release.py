@@ -29,6 +29,7 @@ from urllib.parse import urlsplit
 
 PRODUCT_REPOSITORY = "lonefisher/fishgram"
 SOURCE_REPOSITORY = "lonefisher/tdesktop"
+PUBLISHER_ROOT = Path(__file__).resolve().parents[1]
 HEX = re.compile(r"^[a-f0-9]{64}$")
 COMMIT = re.compile(r"^[a-f0-9]{40}$")
 DECIMAL = re.compile(r"^(0|[1-9][0-9]*)$")
@@ -487,7 +488,52 @@ def _verify_public_acceptance(plan: PromotionPlan, record: dict) -> dict:
         if isinstance(error, PublishError):
             raise
         raise PublishError('Public QA proof is invalid or differs from its signing record and candidate.') from error
+    _verify_signed_update(plan, record, signing)
     return proof
+
+
+def _verify_signed_update(plan: PromotionPlan, record: dict, signing: dict) -> None:
+    """Authenticate the offline update against this publisher checkout before transport."""
+    try:
+        import sign_candidate as sign
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import sign_candidate as sign
+    try:
+        trust = PUBLISHER_ROOT / 'config/update-trust'
+        manifest, issuer_raw, root_pem, _ = sign._verify_trust(PUBLISHER_ROOT, trust)
+        if any(item.data != (trust / PurePosixPath(item.path).name).read_bytes()
+               for item in plan.page_files):
+            raise PublishError('Promotion trust bundle differs from the reviewed publisher config/update-trust.')
+        index = json.loads(plan.index_bytes)
+        name = urlsplit(index['update']['url']).path.rsplit('/', 1)[-1]
+        package = next(asset for asset in plan.assets if asset.name == name)
+        envelope = sign.parse_envelope(package.data)
+        issuer = signing.get('issuer')
+        if (not isinstance(issuer, dict) or not isinstance(issuer.get('id'), str)
+                or issuer.get('alg') != 'Ed25519'
+                or issuer.get('publicKeySha256') != hashlib.sha256(issuer_raw).hexdigest()
+                or signing.get('package') != {'name': package.name, 'size': len(package.data),
+                                               'sha256': package.sha256}
+                or type(signing['package']['size']) is not int
+                or signing.get('candidateVersion') != record['version']
+                or plan.tag != 'v' + record['version']
+                or signing.get('updateVersion') != record['updateVersion']
+                or record['updateVersion'] != plan.version
+                or record['platform'] != 'windows-x64'
+                or record['channel'] != plan.package_channel
+                or signing.get('parentCommit') != record['parentCommit']
+                or signing.get('sourceCommit') != record['sourceCommit']
+                or signing.get('candidateArchive') != record['archive']
+                or signing.get('sourceArchive') != record['sourceArchive']):
+            raise PublishError('Public signing record is not bound to the exact candidate, issuer and update package.')
+        sign.verify_envelope(envelope, manifest, issuer['id'], issuer_raw, root_pem, plan.package_channel)
+        verify_package_identity(envelope, plan.version, plan.package_channel)
+    except (sign.SigningError, sign.keys.KeyManagementError, OSError, ValueError,
+            KeyError, TypeError, StopIteration) as error:
+        if isinstance(error, PublishError):
+            raise
+        raise PublishError('Promotion TDUP v2 signature or reviewed publisher trust verification failed.') from error
 
 
 def promote(plan: PromotionPlan, api: ReleaseTransport, *, enabled: bool,

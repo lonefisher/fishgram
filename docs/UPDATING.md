@@ -52,7 +52,8 @@ git push --recurse-submodules=check
 每天的机器人只创建候选。先核实官方稳定 tag，再审查源码 PR 及工具链变化。冲突停止并保留冲突文件记录，人工解决；不强制覆盖搜索、品牌或更新实现。重复检测复用既有记录。
 
 ```powershell
-git -C tdesktop fetch upstream --tags
+$officialTag = 'v7.3.3' # 填写已核实的目标稳定 tag。
+git -C tdesktop fetch --no-tags https://github.com/telegramdesktop/tdesktop.git "refs/tags/$officialTag"
 # 从 custom/main 的临时分支合入已核实的官方 tag。
 git -C tdesktop submodule sync --recursive
 git -C tdesktop submodule update --init --recursive
@@ -61,6 +62,8 @@ git -C tdesktop submodule update --init --recursive
 当前 Windows x64 配方跟随官方 7.3.3 使用 Qt 6.11.2，MSVC 14.44、SDK 26100 保持。Qt 主版本切换后重新准备依赖和构建客户端、Packer、Updater及更新测试；依赖缓存按新配方生成，旧 Qt 5 的构建记录保留其原工具链。
 
 变更工具链须修改配方及缓存键并验证。源码 PR 先合并，再更新父指针、重新验证父 PR，最后合入。已有父仓库同步前保存两层本地修改；然后执行递归 sync/update。源码及父仓库标签对应同一构建输入，发布后不可覆盖。
+
+源码 PR 在 GitHub 合并后，更新父指针前先刷新 `origin/custom/main`。若此前只按 SHA fetch，使用 `git -C tdesktop fetch --no-tags origin refs/heads/custom/main:refs/remotes/origin/custom/main`，使 `git push --recurse-submodules=check` 能确认该提交已在源码远端分支中。
 
 ## 测试、构建与候选打包
 

@@ -4,10 +4,14 @@ import importlib.util
 import json
 import io
 import zipfile
+import atexit
+from functools import lru_cache
 from pathlib import Path
+import struct
 import sys
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest import mock
 from types import SimpleNamespace
@@ -17,6 +21,70 @@ spec = importlib.util.spec_from_file_location("publish_release", MODULE)
 publish = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = publish
 spec.loader.exec_module(publish)
+
+
+@lru_cache(maxsize=None)
+def signed_fixture(profile='reviewed'):
+    """One disposable key pair per authority; real TDUP signatures cached below."""
+    sys.path.insert(0, str(MODULE.parent))
+    import sign_candidate as sign
+    keys = sign.keys
+    temporary = tempfile.TemporaryDirectory(prefix='fishgram-publisher-keys-')
+    atexit.register(temporary.cleanup)
+    root = Path(temporary.name)
+    trust = root / 'config/update-trust'
+    trust.mkdir(parents=True)
+    password = 'disposable-publisher-fixture'
+    for name in ('root', 'issuer'):
+        private = root / (name + '-private.pem')
+        keys._openssl('genpkey', '-algorithm', 'Ed25519', '-aes-256-cbc',
+                      '-pass', 'stdin', '-out', str(private), password=password)
+        (trust / (name + '-public.pem')).write_bytes(keys._public_pem(private, password))
+    now = int(time.time())
+    issuer_raw = keys._public_der(root / 'issuer-private.pem', password)[-32:]
+    manifest = {'format': 1, 'manifest_version': 3, 'issued': now - 60,
+        'expires': now + 86400, 'keys': [{'id': 'issuer-a', 'alg': 'Ed25519',
+            'x': keys._b64url(issuer_raw), 'expires': now + 86400}],
+        'channels': {'stable': [['issuer-a']], 'beta': [['issuer-a']]}, 'revoked': []}
+
+    def bundle(value):
+        data = json.dumps(value, separators=(',', ':')).encode()
+        return (publish.PageFile('keys/root-public.pem', (trust / 'root-public.pem').read_bytes()),
+            publish.PageFile('keys/issuer-public.pem', (trust / 'issuer-public.pem').read_bytes()),
+            publish.PageFile('keys/manifest.min.json', data),
+            publish.PageFile('keys/manifest.sig', keys._sign(root / 'root-private.pem', password, data)))
+
+    pages = bundle(manifest)
+    for item in pages:
+        (trust / Path(item.path).name).write_bytes(item.data)
+
+    @lru_cache(maxsize=None)
+    def envelope(channel='stable', version=30073399661297665, target=(0, 1), pages=pages):
+        data, root_sig = pages[2].data, pages[3].data
+        payload = b'disposable-candidate-update-payload'
+        signed_region = (b'TDUP' + struct.pack('<IBBBQQI', 2, int(channel == 'beta'),
+                         *target, version, now, len(data)) + data)
+        signature = keys._sign(root / 'issuer-private.pem', password,
+                               signed_region + hashlib.sha256(payload).digest())
+        field = lambda value: struct.pack('<I', len(value)) + value
+        return (signed_region + field(root_sig) + struct.pack('<I', 1)
+                + field(b'issuer-a') + field(signature) + field(payload))
+
+    return SimpleNamespace(root=root, pages=pages, manifest=manifest, bundle=bundle,
+        envelope=envelope, issuer_raw=issuer_raw)
+
+
+def replace_update(candidate, data):
+    """Rehash every mutable handoff binding, including the public signing record."""
+    from dataclasses import replace
+    package = publish.Asset(candidate.assets[0].name, data)
+    index = json.loads(candidate.index_bytes)
+    index['update'].update(size=str(len(data)), sha256=package.sha256)
+    signing = json.loads(next(a.data for a in candidate.assets if a.name == 'signing-record.json'))
+    signing['package'] = {'name': package.name, 'size': len(data), 'sha256': package.sha256}
+    return replace(candidate, index_bytes=json.dumps(index).encode(), assets=tuple(
+        package if a.name == package.name else publish.Asset(a.name, json.dumps(signing).encode())
+        if a.name == 'signing-record.json' else a for a in candidate.assets))
 
 
 class FakeApi:
@@ -154,8 +222,16 @@ def plan(*, index_channel="stable", package_channel="stable", reuse_release=Fals
         qa['checks']['searchEightAcceptance'] = False
         qa['checks']['remainingSearchAcceptance'] = True
     raw = json.dumps(qa).encode()
+    authority = signed_fixture()
+    update = publish.Asset(update_name, authority.envelope(package_channel))
     private_signing = {
         'schema': 1, 'kind': 'fishgram-signed-candidate', 'channel': package_channel,
+        'candidateVersion': manifest['version'], 'updateVersion': manifest['updateVersion'],
+        'parentCommit': manifest['parentCommit'], 'sourceCommit': manifest['sourceCommit'],
+        'candidateArchive': manifest['archive'], 'sourceArchive': manifest['sourceArchive'],
+        'issuer': {'id': 'issuer-a', 'alg': 'Ed25519',
+                   'publicKeySha256': hashlib.sha256(authority.issuer_raw).hexdigest()},
+        'package': {'name': update.name, 'size': len(update.data), 'sha256': update.sha256},
         'qa': {'file': 'qa.json', 'sha256': hashlib.sha256(raw).hexdigest(), 'approvedAt': qa['approvedAt']},
         'signedAt': qa['approvedAt'],
     }
@@ -171,7 +247,7 @@ def plan(*, index_channel="stable", package_channel="stable", reuse_release=Fals
         assert publish.verify_signing_approval(manifest, qa, private_signing, 'qa.json', raw)
     proof, signing = publish.public_acceptance_records(raw, private_signing, separate_approval=separate_approval)
     assets = (
-        publish.Asset(update_name, b"signed-update"),
+        update,
         publish.portable_package(candidate_zip, manifest['version'], beta=index_channel == 'beta',
                                  deferred_search=deferred_search),
         publish.Asset("FishGram-corresponding-source.zip", b"source-zip"),
@@ -180,12 +256,7 @@ def plan(*, index_channel="stable", package_channel="stable", reuse_release=Fals
         signing,
     )
     assets += (publish.distribution_record(assets[1], manifest, reviewed_commit),)
-    pages = (
-        publish.PageFile("keys/root-public.pem", b"root-public"),
-        publish.PageFile("keys/issuer-public.pem", b"issuer-public"),
-        publish.PageFile("keys/manifest.min.json", b"key-manifest"),
-        publish.PageFile("keys/manifest.sig", b"root-signature"),
-    )
+    pages = authority.pages
     entry = {
         "version": "30073399661297665",
         "size": str(len(assets[0].data)),
@@ -215,6 +286,128 @@ def publish_plan(api, candidate=None):
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def setUp(self):
+        checkout = mock.patch.object(publish, 'PUBLISHER_ROOT', signed_fixture().root)
+        checkout.start()
+        self.addCleanup(checkout.stop)
+
+    def test_rehashed_offline_update_payload_fails_signature_before_transport(self):
+        for channel, reuse in (('stable', False), ('beta', False), ('stable', True), ('beta', True)):
+            with self.subTest(channel=channel, reuse=reuse), tempfile.TemporaryDirectory() as temp:
+                original = plan(index_channel=channel, package_channel=channel, reuse_release=reuse)
+                output = Path(temp) / 'promotion'
+                publish.write_promotion(original, output)
+                data = original.assets[0].data
+                tampered = replace_update(original, data[:-1] + bytes([data[-1] ^ 1]))
+                metadata_path = output / 'promotion.json'
+                metadata = json.loads(metadata_path.read_bytes())
+                for asset in tampered.assets:
+                    (output / 'release-assets' / asset.name).write_bytes(asset.data)
+                    entry = next(a for a in metadata['releaseAssets'] if a['name'] == asset.name)
+                    entry.update(size=len(asset.data), sha256=asset.sha256)
+                (output / 'pages' / tampered.index_path).write_bytes(tampered.index_bytes)
+                metadata['index'].update(size=len(tampered.index_bytes),
+                    sha256=hashlib.sha256(tampered.index_bytes).hexdigest())
+                metadata_path.write_text(json.dumps(metadata))
+                api = FakeApi()
+                with mock.patch.dict(sys.modules, {'github_release_transport': SimpleNamespace(
+                        GitHubReleaseTransport=SimpleNamespace(from_environment=lambda: api))}), \
+                        mock.patch('sys.stderr', new_callable=io.StringIO) as stderr:
+                    self.assertEqual(publish.main(['publish', '--promotion', str(output),
+                        '--enable-publication', '--event', 'workflow_dispatch', '--ref', 'refs/heads/main',
+                        '--environment', 'release', '--approval-marker', '1']), 1)
+                self.assertIn('signature', stderr.getvalue())
+                self.assertEqual(api.events, [])
+
+    def test_valid_envelope_under_replaced_plan_root_is_rejected(self):
+        from dataclasses import replace
+        import sign_candidate as sign
+        attacker = signed_fixture('attacker')
+        candidate = replace_update(plan(), attacker.envelope())
+        candidate = replace(candidate, page_files=attacker.pages)
+        signing = json.loads(next(a.data for a in candidate.assets if a.name == 'signing-record.json'))
+        signing['issuer']['publicKeySha256'] = hashlib.sha256(attacker.issuer_raw).hexdigest()
+        candidate = replace(candidate, assets=tuple(publish.Asset(a.name, json.dumps(signing).encode())
+            if a.name == 'signing-record.json' else a for a in candidate.assets))
+        # The substituted bundle and update really do verify under the attacker's root.
+        manifest, issuer, root, _ = sign._verify_trust(attacker.root, attacker.root / 'config/update-trust')
+        sign.verify_envelope(sign.parse_envelope(candidate.assets[0].data), manifest, 'issuer-a', issuer, root, 'stable')
+        api = FakeApi()
+        with self.assertRaisesRegex(publish.PublishError, 'reviewed publisher'):
+            publish_plan(api, candidate)
+        self.assertEqual(api.events, [])
+
+    def test_rehashed_malformed_or_bad_signature_envelopes_fail_before_transport(self):
+        import sign_candidate as sign
+        original = plan()
+        data = original.assets[0].data
+        envelope = sign.parse_envelope(data)
+        flip = lambda value: bytes([value[0] ^ 1]) + value[1:]
+        for changed in (b'unsigned-update', data[:-1], data + b'extra',
+                        data[:4] + struct.pack('<I', 1) + data[8:],
+                        data.replace(envelope.manifest_signature, flip(envelope.manifest_signature), 1),
+                        data.replace(envelope.signatures[0][1], flip(envelope.signatures[0][1]), 1)):
+            with self.subTest(digest=hashlib.sha256(changed).hexdigest()):
+                api = FakeApi()
+                with self.assertRaises(publish.PublishError):
+                    publish_plan(api, replace_update(original, changed))
+                self.assertEqual(api.events, [])
+
+    def test_old_root_signed_bundle_cannot_restore_revoked_issuer(self):
+        from dataclasses import replace
+        authority = signed_fixture()
+        current = json.loads(json.dumps(authority.manifest))
+        current.update(manifest_version=4, revoked=['issuer-a'])
+        current_pages = authority.bundle(current)
+        with tempfile.TemporaryDirectory() as temp:
+            checkout = Path(temp)
+            trust = checkout / 'config/update-trust'
+            trust.mkdir(parents=True)
+            for item in current_pages:
+                (trust / Path(item.path).name).write_bytes(item.data)
+            # Both packages have real issuer signatures and root-signed manifests.
+            for bundle in (authority.pages, current_pages):
+                with self.subTest(old_bundle=bundle == authority.pages), \
+                        mock.patch.object(publish, 'PUBLISHER_ROOT', checkout):
+                    candidate = replace_update(plan(), authority.envelope(pages=bundle))
+                    candidate = replace(candidate, page_files=bundle)
+                    api = FakeApi()
+                    with self.assertRaises(publish.PublishError):
+                        publish_plan(api, candidate)
+                    self.assertEqual(api.events, [])
+
+    def test_signed_update_identity_must_match_platform_channel_and_full_version(self):
+        authority = signed_fixture()
+        for options in ({'channel': 'beta'}, {'version': 30073399661297666}, {'target': (1, 1)}, {'target': (0, 0)}):
+            with self.subTest(options=options):
+                candidate = replace_update(plan(), authority.envelope(**options))
+                api = FakeApi()
+                with self.assertRaisesRegex(publish.PublishError, 'Windows x64 version and channel'):
+                    publish_plan(api, candidate)
+                self.assertEqual(api.events, [])
+
+    def test_public_signing_record_must_bind_exact_candidate_issuer_and_package(self):
+        from dataclasses import replace
+        original = plan()
+        for field in ('candidateVersion', 'updateVersion', 'channel', 'parentCommit', 'sourceCommit',
+                      'candidateArchive', 'sourceArchive', 'issuer', 'package'):
+            value = json.loads(next(a.data for a in original.assets if a.name == 'signing-record.json'))
+            changes = ({'id': 'other'}, {'alg': 'ES256'}, {'publicKeySha256': '0' * 64}) if field == 'issuer' else (
+                ({'name': 'other'}, {'size': 1}, {'sha256': '0' * 64}) if field == 'package' else ('other',))
+            for change in changes:
+                with self.subTest(field=field, change=change):
+                    record = json.loads(json.dumps(value))
+                    if isinstance(change, dict):
+                        record[field].update(change)
+                    else:
+                        record[field] = change
+                    candidate = replace(original, assets=tuple(publish.Asset(a.name, json.dumps(record).encode())
+                        if a.name == 'signing-record.json' else a for a in original.assets))
+                    api = FakeApi()
+                    with self.assertRaises(publish.PublishError):
+                        publish_plan(api, candidate)
+                    self.assertEqual(api.events, [])
+
     def test_rehashed_portable_must_contain_only_the_verified_candidate_files(self):
         original = plan()
         with zipfile.ZipFile(io.BytesIO(original.assets[1].data)) as archive:
