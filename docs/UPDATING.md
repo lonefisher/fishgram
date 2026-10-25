@@ -99,6 +99,8 @@ Windows Release 配方固定 `releaseDebugInformation=None`，客户端编译显
 
 固定云端产品候选 39128598025 的本机启动、账号快照恢复及 Scoop 外部更新器验证见[本机候选实测](LOCAL-CANDIDATE-TESTING.md)。
 
+7.3.3-r10 Beta 的产品候选、最终便携 ZIP 和本机接续结果见[新版候选实测](LOCAL-CANDIDATE-7.3.3-r10.md)。
+
 通过完整门槛后，人工批准签名；只对已验收候选打包签名，不能重编译。附件发布后重新下载验证哈希与签名，再最后更新索引。机器人不得自动发布。自己的更新签名保证更新来源；不等同 Windows Authenticode，下载说明须明确。
 
 ## 安装、回退与数据恢复
