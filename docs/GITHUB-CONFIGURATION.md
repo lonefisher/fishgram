@@ -18,6 +18,14 @@
 
 根私钥和根口令由维护者通过 KeePass 管理，不作为 Actions secret。应用身份与密钥建立分别见[应用身份](APPLICATION-IDENTITY.md)和[密钥维护](KEY-MANAGEMENT.md)。不要把旧应用身份或一次性测试根当成生产配置。
 
+## Windows 依赖缓存
+
+Cloud build 与受保护产品候选共用 `deps-windows-v3-` 精确键，Actions 只缓存 runner 临时目录中的单个 `fishgram-dependencies-v3.zip`。归档工具只从 `Libraries/ThirdParty` 选取依赖，移除 Git 历史和编译/链接中间文件，保留 Qt 安装树、源码、静态库、Qt 工具及 Rust 生成绑定。上传前实际压缩并验证 ZIP 不超过 8,000,000,000 字节，为默认 10GB 仓库总额度留下余量。缓存规则、恢复和本机验证命令见[维护指南](UPDATING.md#windows-免费依赖缓存)。
+
+可信写入入口为 main 的手动 Cloud build，或 main 手动产品候选在 `candidate` 人工审批后的依赖阶段；保存 step 位于应用 API 身份进入之前。PR 只恢复缓存并完成全部测试身份编译。两种构建都在同一 runner 上准备并继续编译，缓存写入失败时继续使用已准备依赖。需要单独准备或补充缓存时，手动 Cloud build 设置 `prepare_only=true`；`cold=true` 重新准备，`cold=false` 优先恢复，不必再编译测试身份客户端。
+
+免费额度按所有缓存的总量计算，v2 大缓存及旧版本键可能被淘汰；不要提高付费额度或仅拆分文件来规避总量。新键首次运行后读回归档实际大小、Actions 缓存条目及下一次运行的精确命中结果。多个其他大缓存仍可能挤占额度，维护时保留当前依赖键并清理已不用的旧键。
+
 ## 两个独立 App
 
 升级 App 以 `config/github-app-manifest.json` 为权限清单，在自己的 GitHub 账户注册，只安装到 `lonefisher/fishgram` 和 `lonefisher/tdesktop`。当前 workflow 请求 contents/issues/pull requests/workflows 写权限、checks 读权限；它只运行候选脚本。首次、重复、冲突和 CI 失败均实测后，再开启 `UPGRADE_APP_ENABLED`。`upgrade-automation` 仅允许 `main`，无人工审批，以便日常候选自动执行；它不保存发行签名密钥或发布 App 私钥。

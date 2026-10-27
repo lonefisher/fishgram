@@ -48,10 +48,14 @@ jobs:
         id: cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          path: |
-            Libraries
-            ThirdParty
+          path: ${{ runner.temp }}/fishgram-dependencies-v3.zip
           key: ${{ steps.key.outputs.key }}
+      - name: Unpack trusted dependency snapshot
+        if: steps.cache.outputs.cache-hit == 'true'
+        shell: pwsh
+        run: |
+          python tools/dependency_cache_archive.py restore --archive "$env:RUNNER_TEMP/fishgram-dependencies-v3.zip"
+          if ($LASTEXITCODE) { throw 'Dependency restore failed.' }
       - name: Prepare dependencies when exact trusted cache is absent
         if: steps.cache.outputs.cache-hit != 'true'
         shell: pwsh
@@ -60,6 +64,21 @@ jobs:
         if: steps.cache.outputs.cache-hit == 'true'
         shell: pwsh
         run: ./tools/refresh-build-python.ps1
+      - name: Pack dependencies and check compressed size before upload
+        id: pack
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          python tools/dependency_cache_archive.py pack --archive "$env:RUNNER_TEMP/fishgram-dependencies-v3.zip" --github-output $env:GITHUB_OUTPUT
+          if ($LASTEXITCODE) { throw 'Dependency snapshot failed; continuing with prepared dependencies.' }
+      - name: Save cache only from maintainer-reviewed main
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.pack.outputs.ready == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/fishgram-dependencies-v3.zip
+          key: ${{ steps.key.outputs.key }}
       - name: Build protected product candidate
         shell: pwsh
         env:

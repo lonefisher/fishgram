@@ -11,6 +11,7 @@ def preparation_files(root):
         'tools/prepare-dependencies.ps1',
         'tools/prepare-compat.py',
         'tools/refresh-build-python.ps1',
+        'tools/dependency_cache_archive.py',
         'tdesktop/Telegram/build/qt_version.py',
         # prepare.py imports this module even on Windows.
         'tdesktop/Telegram/build/build_mac.py',
@@ -38,7 +39,7 @@ def cache_key(root, runner_label):
         },
     }
     encoded = json.dumps(inputs, sort_keys=True, separators=(',', ':')).encode('utf-8')
-    return 'deps-windows-v2-' + hashlib.sha256(encoded).hexdigest()
+    return 'deps-windows-v3-' + hashlib.sha256(encoded).hexdigest()
 
 
 def main():
