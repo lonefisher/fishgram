@@ -6,7 +6,7 @@
   "upstreamTag": "v7.3.3",
   "upstreamCommit": "5c674f1f6a0f6ace55b67f8bc295138680fe588b",
   "upstreamVersion": "7.3.3",
-  "revision": 10,
+  "revision": 11,
   "channel": "beta",
   "msvc": "14.44",
   "windowsSdk": "10.0.26100.0",

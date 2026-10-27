@@ -31,11 +31,9 @@ jobs:
       - name: Exact cache identity
         id: key
         shell: pwsh
-        env:
-          INPUT_HASH: ${{ hashFiles('fishgram.json', 'tools/prepare*', 'tools/common.ps1', 'tdesktop/Telegram/build/prepare/**', 'tdesktop/Telegram/build/qt_version.py') }}
         run: |
-          if (-not $env:INPUT_HASH) { throw 'Missing dependency identity' }
-          "key=deps-windows2022-x64-$env:INPUT_HASH" >> $env:GITHUB_OUTPUT
+          python tools/dependency_cache_key.py --runner-label windows-2022 --github-output $env:GITHUB_OUTPUT
+          if ($LASTEXITCODE) { throw 'Dependency cache identity failed.' }
       - name: Restore trusted exact cache
         id: cache
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.cold

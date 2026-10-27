@@ -47,6 +47,10 @@ git push --recurse-submodules=check
 
 提交、推送、PR 合并和构建是不同动作。批量处理减少推送和重复构建次数；源码与父仓库仍按上述顺序分别合并，并执行各自要求的检查及环境审批。依赖缓存只按既有可信缓存规则复用。
 
+两个 Windows 构建 workflow 共用 `tools/dependency_cache_key.py`，使用 `deps-windows-v2-` 前缀一次性替换旧缓存。键包含 runner 标签、配方的 `platform/msvc/windowsSdk/qt`，以及本机准备工具、上游 `build/prepare`、`qt_version.py`、其直接导入的 `build_mac.py` 和 Qt 6 实际读取的 ANGLE `qt.cmake` 内容。上游下载依赖及 patches 的固定版本由准备脚本决定，脚本变更会产生新键。
+
+只改 revision、渠道、更新开关、发行元数据或 API 身份时继续复用同一依赖缓存；客户端仍按新的固定输入重新构建。只有 main 上人工 dispatch 的 Cloud build 可以保存 `Libraries/ThirdParty`，PR 和产品候选只恢复可信的精确缓存，不保存客户端构建目录。需要填充新键时，先运行一次 main 的依赖准备；已有精确缓存时，人工 Cloud build 取消 `cold` 即可复用。缓存键测试命令为 `python -B -m unittest discover -s tests -p test_dependency_cache_key.py -v`。
+
 ## 官方升级
 
 每天的机器人只创建候选。先核实官方稳定 tag，再审查源码 PR 及工具链变化。冲突停止并保留冲突文件记录，人工解决；不强制覆盖搜索、品牌或更新实现。重复检测复用既有记录。
