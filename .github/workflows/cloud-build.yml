@@ -7,18 +7,20 @@ on:
         description: Ignore dependency restore cache for a measured cold build
         type: boolean
         default: true
+      prepare_only:
+        description: Prepare and save dependencies without a test identity compile (main only)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
   group: cloud-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  dependencies:
-    name: Prepare trusted dependencies
+  compile:
+    name: Test identity compile
     runs-on: windows-2022
     timeout-minutes: 350
-    outputs:
-      key: ${{ steps.key.outputs.key }}
     steps:
       - run: git config --global core.longpaths true
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -34,66 +36,22 @@ jobs:
         run: |
           python tools/dependency_cache_key.py --runner-label windows-2022 --github-output $env:GITHUB_OUTPUT
           if ($LASTEXITCODE) { throw 'Dependency cache identity failed.' }
-      - name: Restore trusted exact cache
-        id: cache
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.cold
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: |
-            Libraries
-            ThirdParty
-          key: ${{ steps.key.outputs.key }}
-      - name: Measure runner resources
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+      - name: Measure runner resources before dependencies
         shell: pwsh
         run: ./tools/measure-runner.ps1 -Label before-dependencies
-      - name: Prepare without application identity
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: ./tools/prepare-dependencies.ps1 -Silent
-      - name: Measure prepared dependencies
-        if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-        shell: pwsh
-        run: ./tools/measure-runner.ps1 -Label after-dependencies
-      - name: Save cache only from maintainer-reviewed main
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: |
-            Libraries
-            ThirdParty
-          key: ${{ steps.key.outputs.key }}
-      - name: Save sanitized resource measurements
-        if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: dependency-measurements
-          path: reports/runner-*.json
-          retention-days: 7
-  compile:
-    name: Test identity compile
-    needs: dependencies
-    # PR dependency jobs compute the key only. Prepare once here on a cache
-    # miss: PR outputs never populate a cache used by protected product builds.
-    runs-on: windows-2022
-    timeout-minutes: 350
-    steps:
-      - run: git config --global core.longpaths true
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          submodules: recursive
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.13'
       - name: Restore trusted dependencies
         id: cache
+        if: github.event_name != 'workflow_dispatch' || !inputs.cold
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          path: |
-            Libraries
-            ThirdParty
-          key: ${{ needs.dependencies.outputs.key }}
+          path: ${{ runner.temp }}/fishgram-dependencies-v3.zip
+          key: ${{ steps.key.outputs.key }}
+      - name: Unpack trusted dependency snapshot
+        if: steps.cache.outputs.cache-hit == 'true'
+        shell: pwsh
+        run: |
+          python tools/dependency_cache_archive.py restore --archive "$env:RUNNER_TEMP/fishgram-dependencies-v3.zip"
+          if ($LASTEXITCODE) { throw 'Dependency restore failed.' }
       - name: Prepare if trusted cache is unavailable
         if: steps.cache.outputs.cache-hit != 'true'
         shell: pwsh
@@ -102,20 +60,42 @@ jobs:
         if: steps.cache.outputs.cache-hit == 'true'
         shell: pwsh
         run: ./tools/refresh-build-python.ps1
+      - name: Measure prepared dependencies
+        if: always()
+        shell: pwsh
+        run: ./tools/measure-runner.ps1 -Label after-dependencies
+      - name: Pack dependencies and check compressed size before upload
+        id: pack
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          python tools/dependency_cache_archive.py pack --archive "$env:RUNNER_TEMP/fishgram-dependencies-v3.zip" --github-output $env:GITHUB_OUTPUT
+          if ($LASTEXITCODE) { throw 'Dependency snapshot failed; continuing with prepared dependencies.' }
+      - name: Save cache only from maintainer-reviewed main
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.pack.outputs.ready == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/fishgram-dependencies-v3.zip
+          key: ${{ steps.key.outputs.key }}
       - name: Measure runner resources
+        if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || !inputs.prepare_only
         shell: pwsh
         run: ./tools/measure-runner.ps1 -Label before-compile
       - name: Test production update and recovery helpers
+        if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || !inputs.prepare_only
         shell: pwsh
         run: |
           ./tools/test-update-policy.ps1
           ./tools/test-update-transaction.ps1
           ./tools/test-update-verify.ps1
       - name: Build non-releasable test identity
+        if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || !inputs.prepare_only
         shell: pwsh
         run: ./tools/build-telegram.ps1 -TestIdentity -TestUpdateSystem -Parallel 4
       - name: Record actual build result
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || !inputs.prepare_only)
         shell: pwsh
         run: ./tools/measure-runner.ps1 -Label after-compile
       - name: Sanitized resource measurements only

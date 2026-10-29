@@ -47,9 +47,25 @@ git push --recurse-submodules=check
 
 提交、推送、PR 合并和构建是不同动作。批量处理减少推送和重复构建次数；源码与父仓库仍按上述顺序分别合并，并执行各自要求的检查及环境审批。依赖缓存只按既有可信缓存规则复用。
 
-两个 Windows 构建 workflow 共用 `tools/dependency_cache_key.py`，使用 `deps-windows-v2-` 前缀一次性替换旧缓存。键包含 runner 标签、配方的 `platform/msvc/windowsSdk/qt`，以及本机准备工具、上游 `build/prepare`、`qt_version.py`、其直接导入的 `build_mac.py` 和 Qt 6 实际读取的 ANGLE `qt.cmake` 内容。上游下载依赖及 patches 的固定版本由准备脚本决定，脚本变更会产生新键。
+两个 Windows 构建 workflow 共用 `tools/dependency_cache_key.py`，使用独立的 `deps-windows-v3-` 前缀。键包含 runner 标签、配方的 `platform/msvc/windowsSdk/qt`，以及本机准备工具、缓存归档工具、上游 `build/prepare`、`qt_version.py`、其直接导入的 `build_mac.py` 和 Qt 6 实际读取的 ANGLE `qt.cmake` 内容。上游下载依赖及 patches 的固定版本由准备脚本决定，脚本或裁剪规则变更会产生新键。revision、渠道、更新开关、发行元数据和 API 身份不使依赖缓存失效；客户端仍按新的固定输入重新构建。
 
-只改 revision、渠道、更新开关、发行元数据或 API 身份时继续复用同一依赖缓存；客户端仍按新的固定输入重新构建。只有 main 上人工 dispatch 的 Cloud build 可以保存 `Libraries/ThirdParty`，PR 和产品候选只恢复可信的精确缓存，不保存客户端构建目录。需要填充新键时，先运行一次 main 的依赖准备；已有精确缓存时，人工 Cloud build 取消 `cold` 即可复用。缓存键测试命令为 `python -B -m unittest discover -s tests -p test_dependency_cache_key.py -v`。
+### Windows 免费依赖缓存
+
+`tools/dependency_cache_archive.py pack` 从 `Libraries/ThirdParty` 生成单个 `fishgram-dependencies-v3.zip`，原工作依赖保持完整。归档省略 `.git`、`__pycache__` 及 `.obj/.o/.pdb/.pch/.ipch/.ilk/.idb/.tlog` 中间产物，保留 `objects-*` 中 Qt 静态插件所需对象，以及 `cache_keys`、patches。其余内容完整保留，包括 Qt 安装树和工具、全部头文件/静态库、tlottie 与 wallet-engine 源码、tdesktop_rust 的源码及 `out/src` 生成绑定。官方固定基线的 `win.yml` 采用扩展名白名单，但当前准备脚本已说明 Rust 源码与生成绑定不能按该白名单裁剪，因此这里仅排除明确的中间文件。
+
+上传前实际压缩 ZIP 并检查完整文件大小，硬上限为 **8,000,000,000 字节**，为 Actions 的外层 tar/zstd 及仓库其他缓存留出余量；超限就删除本次 ZIP 并跳过保存。GitHub 免费缓存额度按仓库总量计算，多个版本不会增加额度，旧键可被淘汰；长期只需保留当前依赖键，不拆成多个大缓存，也不提高付费额度。日志输出实际归档字节数和保留文件字节数。输入中的 Rustup 等文件链接仅在目标仍位于依赖根目录内时读取，并作为普通文件存入归档；目录链接及越界文件链接拒绝打包。恢复仅接受 v3 格式及两个依赖根目录，目标依赖目录必须不存在；拒绝路径穿越、归档中的链接、Windows 路径别名和重复路径。命中后通过 `refresh-build-python.ps1` 重建 runner 本地 Python。
+
+main 手动 Cloud build 和受保护 `candidate` 环境中的产品候选均可在依赖准备完成后保存精确缓存；产品候选先保存，再在同一 runner 的后续 step 引入应用身份并编译。缓存打包或保存失败时，继续使用该 runner 已准备好的依赖编译。PR 只恢复精确缓存，缺失时在本 runner 准备并完成全部 test-identity 编译，不写入可信缓存。
+
+单独维护依赖缓存：从 main 手动运行 Cloud build，设置 `prepare_only=true`；`cold=true` 强制重新准备，`cold=false` 先尝试复用。正常 Cloud build 设置 `prepare_only=false`，恢复/准备后在同一 runner 编译，避免依赖 job 上传后被淘汰导致下一 job 重复准备。产品候选自身的冷准备也能填充缓存，无需额外跑一遍测试身份客户端。
+
+本机归档验证命令（输出放在依赖目录以外，恢复到全新目录）：
+
+```powershell
+python -B tools/dependency_cache_archive.py pack --root . --archive "$env:TEMP/fishgram-dependencies-v3.zip"
+python -B tools/dependency_cache_archive.py restore --root "$env:TEMP/fishgram-restored" --archive "$env:TEMP/fishgram-dependencies-v3.zip"
+python -B -m unittest discover -s tests -p 'test_dependency_cache_*.py' -v
+```
 
 ## 官方升级
 
