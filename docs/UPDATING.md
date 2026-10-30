@@ -51,6 +51,8 @@ git push --recurse-submodules=check
 
 ### Windows 免费依赖缓存
 
+依赖文件可能带有早于 1980 年或晚于 2107 年的时间戳。归档时将这些日期调整到 ZIP 支持的边界，保留文件内容和原依赖目录的时间；恢复后继续按实际构建验证。准备作业成功后，还须读回缓存上传结论及 GitHub 缓存条目，避免把依赖准备成功当成缓存已保存。
+
 `tools/dependency_cache_archive.py pack` 从 `Libraries/ThirdParty` 生成单个 `fishgram-dependencies-v3.zip`，原工作依赖保持完整。归档省略 `.git`、`__pycache__` 及 `.obj/.o/.pdb/.pch/.ipch/.ilk/.idb/.tlog` 中间产物，保留 `objects-*` 中 Qt 静态插件所需对象，以及 `cache_keys`、patches。其余内容完整保留，包括 Qt 安装树和工具、全部头文件/静态库、tlottie 与 wallet-engine 源码、tdesktop_rust 的源码及 `out/src` 生成绑定。官方固定基线的 `win.yml` 采用扩展名白名单，但当前准备脚本已说明 Rust 源码与生成绑定不能按该白名单裁剪，因此这里仅排除明确的中间文件。
 
 上传前实际压缩 ZIP 并检查完整文件大小，硬上限为 **8,000,000,000 字节**，为 Actions 的外层 tar/zstd 及仓库其他缓存留出余量；超限就删除本次 ZIP 并跳过保存。GitHub 免费缓存额度按仓库总量计算，多个版本不会增加额度，旧键可被淘汰；长期只需保留当前依赖键，不拆成多个大缓存，也不提高付费额度。日志输出实际归档字节数和保留文件字节数。输入中的 Rustup 等文件链接仅在目标仍位于依赖根目录内时读取，并作为普通文件存入归档；目录链接及越界文件链接拒绝打包。恢复仅接受 v3 格式及两个依赖根目录，目标依赖目录必须不存在；拒绝路径穿越、归档中的链接、Windows 路径别名和重复路径。命中后通过 `refresh-build-python.ps1` 重建 runner 本地 Python。
