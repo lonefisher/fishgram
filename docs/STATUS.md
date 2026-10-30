@@ -2,6 +2,16 @@
 
 本页记录实现、验证结果和接续步骤。Comet 的验收结论由 Runtime 管理。
 
+## 2026-10-30 搜索与升级维护
+
+- 两个仓库保持 Public，父仓库 `main`、源码 `custom/main`。官方最新稳定版仍为 `v7.3.3`；当前配方 `7.3.3-r11` 使用 Qt `6.11.2`，源码固定 `6168e8c13c155d404aa11899bd781f6d4f396f82`。
+- [缓存批次 PR #11](https://github.com/lonefisher/fishgram/pull/11)经独立审查、仓库检查及[完整 Qt6 编译](https://github.com/lonefisher/fishgram/actions/runs/40479322466)通过，已合入 `4c60b781fa6d455ea0045acd3bc6a30e6e9674e5`。依赖准备与编译在同一 runner，v3 缓存只保存不超过 8GB 的依赖归档；本机实际 Qt5 归档恢复及原生构建通过，父工具回归 434 项、零跳过。[Qt6 缓存准备](https://github.com/lonefisher/fishgram/actions/runs/40808523638)完成，但归档因依赖文件时间早于 1980 年失败，缓存条目为 0。时间戳修复随本批提交；1970 年与超出 2107 年文件的真实往返及全部 16 项缓存测试通过，云端保存与命中继续验证。
+- [r11 产品候选](https://github.com/lonefisher/fishgram/actions/runs/40447090675)成功，固定父提交 `262f8e166435be130f9de78ab0158a87af43024f`。下载后已核验程序、Packer、递归对应源码和构建来源；同一程序在本机 Windows 11 独立目录启动、正常退出后哈希一致。后续搜索沿用这一候选。
+- r11 真实搜索的零命中样本覆盖 101 个来源，完整结束后显示 `0 messages found` 和 `No Results`。查询替换后旧轮没有插入结果；双账号 A 开启/B 关闭经正常退出和重启后读回一致。隔离断网时显示加载状态，超时后显示不完整原因和整轮重试入口；原代理选项已恢复。恢复后的整轮重试与范围切换继续待验，详见[搜索实测](SEARCH-ACCEPTANCE.md#2026-10-2930-r11-搜索实测)。原搜索 Runtime 保留 2/8，性能与原生遗漏对照样本按此前决定暂缓。
+- 真实升级 App 在[首次当前版本检查](https://github.com/lonefisher/fishgram/actions/runs/40809427693)与[重复检查](https://github.com/lonefisher/fishgram/actions/runs/40809869474)均成功，返回 `No new official stable release.`。这补齐当前版本下的真实认证和重复执行；新版本关联 PR、非冲突复用及 CI 失败处理仍待实际场景，`UPGRADE_APP_ENABLED` 保持 `false`。
+
+本批剩余修改集中完成后一次推送。构建和维护步骤见[维护指南](UPDATING.md#批量提交与构建)，搜索项目见[搜索验收清单](SEARCH-ACCEPTANCE.md)。
+
 ## 2026-10-19 Beta 首发决定
 
 用户允许先发 Beta，公开大范围搜索性能和原生遗漏消息/媒体对照样本的缺口；这两项保留待验，其余搜索、更新安全、安装和恢复仍须完成。发行渠道及准入调整按 [Beta 发行](BETA-RELEASE.md)实施。

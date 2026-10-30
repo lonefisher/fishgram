@@ -56,7 +56,8 @@ def pack(root, archive, max_bytes=MAX_ARCHIVE_BYTES):
     with archive.open('xb') as output:
         try:
             with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED,
-                                 compresslevel=1, allowZip64=True) as bundle:
+                                 compresslevel=1, allowZip64=True,
+                                 strict_timestamps=False) as bundle:
                 bundle.comment = FORMAT
                 for name in ROOTS:
                     for base, directories, files in os.walk(root / name):

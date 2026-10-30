@@ -96,6 +96,18 @@ class DependencyArchiveTests(unittest.TestCase):
             pack(self.root, self.archive, max_bytes=result['archive_bytes'] - 1)
         self.assertFalse(self.archive.exists())
 
+    def test_dependency_timestamps_outside_zip_range_roundtrip(self):
+        files = [('Libraries/win64/old.lib', 0),
+                 ('ThirdParty/future-tool.exe', 5_000_000_000)]
+        for name, stamp in files:
+            path = self.write(name, name.encode())
+            os.utime(path, (stamp, stamp))
+        pack(self.root, self.archive)
+        restore(self.destination, self.archive)
+        for name, stamp in files:
+            self.assertEqual((self.destination / name).read_bytes(), name.encode())
+            self.assertEqual(int((self.root / name).stat().st_mtime), stamp)
+
     def corrupt_member(self, filename, symlink=False):
         # Start from an actual valid archive, then append the external input.
         self.write('Libraries/win64/native.lib')
