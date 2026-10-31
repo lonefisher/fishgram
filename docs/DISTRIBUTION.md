@@ -12,13 +12,15 @@ Release 顶部说明首先链接 Windows 11 x64 便携 ZIP。解压后运行 `St
 
 ## Scoop
 
+2026-10-31 首版按 [Scoop 优先决定](BETA-RELEASE.md#2026-10-31-scoop-优先发行决定)先行发布，完整搜索范围、恢复后重试和更新安装恢复矩阵延期，列入 Release 已知限制。程序沿用产品候选，Scoop 管理更新；便携 ZIP 用户手动下载更新。
+
 首版先发 Beta，使用 `bucket/fishgram-beta.json`，下载说明标注两项搜索限制，检查 GitHub Releases 列表；稳定版后续使用下述 `fishgram` 清单。Beta 不使用排除 prerelease 的 `/releases/latest`。首次 Beta 安装命令为 `scoop install lonefisher/fishgram-beta`。
 
 目标仓库为 `lonefisher/scoop-bucket`，主分支 `master`，清单路径 `bucket/fishgram.json`。正式 Release 公开下载读回成功后提交清单，下载 URL 指向 Release 的便携 ZIP，SHA256 来自该公开附件。版本使用完整 `7.3.1-r9`，检查新版本时保留修订号。
 
 清单仅支持 `64bit`，创建 FishGram 快捷方式和 `fishgram` 命令，`persist` 使用 `FishGramData`。安装及升级时创建该目录；升级前要求目标实例正常退出，随后验证持久化目录和登录状态保留。
 
-Scoop 版由 `scoop update fishgram` 管理版本。客户端已有 `externalupdater.d` 机制：在程序目录内写入文件，内容为当前版本实际解析后的 `Telegram.exe` 绝对路径，即可禁用内置更新。每次 Scoop 安装和升级都重新生成该路径，不持久化旧版本的标记。`-noupdate` 只抑制启动时安装，不能单独用来禁用整个自动更新功能。实测须确认快捷方式、命令启动都读取正确数据目录，且设置中内置更新已禁用。
+Scoop 版由 `scoop update fishgram-beta` 管理版本。客户端已有 `externalupdater.d` 机制：在程序目录建立 `externalupdater.d` 目录，在其中的 `scoop` 文本文件写入当前版本实际解析后的 `Telegram.exe` 绝对路径，路径分隔符使用 `/`，即可禁用内置更新。每次 Scoop 安装和升级都重新生成该路径，不持久化旧版本的标记。`-noupdate` 只抑制启动时安装，不能单独用来禁用整个自动更新功能。
 
 首次 Beta 发布后执行：
 

@@ -2,6 +2,22 @@
 
 本页记录实现、验证结果和接续步骤。Comet 的验收结论由 Runtime 管理。
 
+## 2026-10-31 首版 Scoop Beta
+
+用户要求先发布、尽快通过 Scoop 使用，剩余实测项目延期。[7.3.3-r11 Beta](https://github.com/lonefisher/fishgram/releases/tag/v7.3.3-r11-beta)已公开，使用产品候选 `40447090675` 的同一程序文件，父标签固定 `262f8e166435be130f9de78ab0158a87af43024f`、源码标签固定 `6168e8c13c155d404aa11899bd781f6d4f396f82`。发行说明列出性能、原生遗漏对照样本、完整搜索范围、恢复后重试及更新恢复矩阵的已知缺口。
+
+程序 ZIP 为 94,988,449 字节，SHA256 `108146ed393daaaddbcf0fdf26a4424070cca647b10b5c5f1ce160d823e5812f`；公开下载重新计算一致。对应源码、构建记录、发行记录和校验值作为独立附件提供。
+
+[Scoop 清单](https://github.com/lonefisher/scoop-bucket/blob/master/bucket/fishgram-beta.json)已提交为 `5aa49fc9b2fe24adb53f0d9f19cbedf0ff0cad9e`。本机通过 `scoop install lonefisher/fishgram-beta` 下载、校验及安装成功，创建 `fishgram` 命令和开始菜单快捷方式。`FishGramData` 已持久化，程序文件哈希与候选一致；`externalupdater.d/scoop` 保存规范化的实际程序路径，由 Scoop 管理此安装的版本。
+
+## 2026-10-31 缓存保存与恢复构建
+
+[PR #12](https://github.com/lonefisher/fishgram/pull/12)集中提交 ZIP 时间戳修复及维护记录，435 项仓库测试与[无缓存完整编译](https://github.com/lonefisher/fishgram/actions/runs/41091933689)通过，编译作业总耗时 4 小时 23 分钟。已合入父提交 `51b71f935dfaab46edf1dca2408f455503d66907`，源码和工具链保持本页记录的 r11 输入。
+
+同一父提交的[依赖准备作业](https://github.com/lonefisher/fishgram/actions/runs/41131357739)成功保存 `deps-windows-v3-0573dcc45dea1e984de6498211caf6bf5c3a3cc38b1d95f486682a1492991644`。实际 ZIP 为 3,494,210,833 字节、130,745 个文件，保留内容 12,419,603,105 字节；GitHub 缓存条目为 3,425,480,402 字节，低于 8GB 上限。
+
+随后[缓存恢复完整编译](https://github.com/lonefisher/fishgram/actions/runs/41150569371)成功，总耗时约 1 小时 42 分钟。精确键命中、恢复 130,745 个文件及 runner Python 重建均成功，依赖准备步骤实际跳过，客户端完整编译通过。缓存保存、恢复及编译链路已完成实测；搜索范围切换与恢复后重试继续按原清单执行。
+
 ## 2026-10-30 搜索与升级维护
 
 - 两个仓库保持 Public，父仓库 `main`、源码 `custom/main`。官方最新稳定版仍为 `v7.3.3`；当前配方 `7.3.3-r11` 使用 Qt `6.11.2`，源码固定 `6168e8c13c155d404aa11899bd781f6d4f396f82`。
