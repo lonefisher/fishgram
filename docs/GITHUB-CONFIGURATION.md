@@ -34,7 +34,7 @@ Cloud build 与受保护产品候选共用 `deps-windows-v3-` 精确键，Action
 
 两个仓库均须启用 Issues；源码 fork 默认可能关闭此功能，导致冲突记录的 POST 被拒绝。首次检查读回 `has_issues`，关闭时先启用并读回。机器人从公开父 `main` 的配方及独立临时克隆创建升级父分支，不切换开发工作区；配方在查询与克隆之间变化时停止并重试。
 
-发布 App 单独注册并生成私钥，只安装到这两个仓库。当前发布 workflow 请求父仓 contents 写和 Pages 读权限、源码仓 contents 写权限；分别生成只针对一个仓库的 token。它的 Client ID 与私钥放在 `release` environment，不复用升级 App。设置 App 不代表允许发布；只有完整 QA、固定候选、签名和人工审批门槛满足后才执行外部写入。
+发布 App 单独注册并生成私钥，只安装到这两个仓库。发布 workflow 请求父仓 contents 写、workflows 写和 Pages 读权限、源码仓 contents 写权限；分别生成只针对一个仓库的 token。GitHub 为包含旧版 workflow 的固定候选提交创建标签时也检查 workflows 写权限；用户于 2026-10-31 批准新增并在安装实例中接受这项权限。它的 Client ID 与私钥放在 `release` environment，不复用升级 App。客户端自动更新发布走完整 QA、签名和人工审批流程；Scoop 首版按 [已批准决定](BETA-RELEASE.md#2026-10-31-scoop-优先发行决定)发布。
 
 私钥通过本机安全输入或 GitHub 的 secret 配置入口保存，不在命令参数或输出中打印。换机器时重新确认 App 安装范围、环境审批、分支限制和变量名称；旧私钥失效时先轮换，再撤销旧钥。
 

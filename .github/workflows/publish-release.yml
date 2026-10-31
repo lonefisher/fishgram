@@ -169,6 +169,7 @@ jobs:
           owner: lonefisher
           repositories: fishgram
           permission-contents: write
+          permission-workflows: write
           permission-pages: read
       - name: Create source repository scoped token
         if: inputs.publish_externally

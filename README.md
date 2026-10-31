@@ -2,7 +2,14 @@
 
 基于 Telegram Desktop 的非官方客户端定制。首版支持 **Windows 11 x64 便携版**。
 
-当前仍为内部候选，尚无正式公开安装包。现有搜索功能仍有待验项目；云端候选、签名更新和恢复链路通过后才首次发行。
+[下载 7.3.3-r11 Beta](https://github.com/lonefisher/fishgram/releases/tag/v7.3.3-r11-beta)，或通过 Scoop 安装：
+
+```powershell
+scoop bucket add lonefisher https://github.com/lonefisher/scoop-bucket
+scoop install lonefisher/fishgram-beta
+```
+
+Scoop 保留 `FishGramData` 中的账号与设置，使用 `scoop update fishgram-beta` 更新。便携版解压后运行 `Start-FishGram.cmd`。首版按用户要求先行发布；大范围搜索性能、原生遗漏对照样本、完整搜索范围、恢复后重试和自动更新安装恢复仍有待验项目，见 [Beta 说明](docs/BETA-RELEASE.md)。
 
 本仓库负责配方、构建工具、维护指南、规格、CI 和发行记录；[`lonefisher/tdesktop`](https://github.com/lonefisher/tdesktop) 保存源码，并通过 `tdesktop` 子模块固定具体提交。
 
