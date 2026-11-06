@@ -1,0 +1,114 @@
+name: Publish FishGram Beta attachments
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful protected product-candidate run ID
+        required: true
+        type: string
+      publish_externally:
+        description: Publish Beta attachments only (no client updater promotion)
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: fishgram-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    environment: release
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Enable Windows long paths before recursive checkout
+        shell: pwsh
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Download exact artifact archive using read-only token
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          import json, os, pathlib, re, subprocess
+          run = os.environ['CANDIDATE_RUN_ID']
+          if not re.fullmatch('[1-9][0-9]*', run):
+              raise SystemExit('Positive numeric candidate run ID required.')
+          path = f'repos/lonefisher/fishgram/actions/runs/{run}/artifacts?per_page=100'
+          metadata = json.loads(subprocess.check_output(['gh', 'api', path]))
+          if metadata.get('total_count', 101) > 100:
+              raise SystemExit('Paginated artifact listing rejected.')
+          matches = [a for a in metadata.get('artifacts', []) if a.get('name') == 'fishgram-product-candidate-' + run]
+          if len(matches) != 1 or matches[0].get('expired') is not False or type(matches[0].get('id')) is not int:
+              raise SystemExit('Unique non-expired candidate artifact required.')
+          target = pathlib.Path(os.environ['RUNNER_TEMP']) / 'beta-artifact.zip'
+          with target.open('xb') as output:
+              subprocess.run(['gh', 'api', f"repos/lonefisher/fishgram/actions/artifacts/{matches[0]['id']}/zip"], stdout=output, check=True)
+      - name: Preflight exact candidate and prepare attachment-only handoff
+        id: preflight
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          PUBLISH_EXTERNALLY: ${{ inputs.publish_externally }}
+        run: |
+          python tools/publish_beta_attachments.py prepare --root . --reviewed-commit $env:GITHUB_SHA --candidate-run-id $env:CANDIDATE_RUN_ID --artifact-zip (Join-Path $env:RUNNER_TEMP 'beta-artifact.zip') --output (Join-Path $env:RUNNER_TEMP 'beta-attachments')
+          if ($LASTEXITCODE) { throw 'Beta candidate preflight rejected.' }
+          if ($env:PUBLISH_EXTERNALLY -eq 'true') { 'approval_marker=1' >> $env:GITHUB_OUTPUT }
+      - name: Create product repository scoped publication token
+        if: inputs.publish_externally
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: product-app
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: lonefisher
+          repositories: fishgram
+          permission-contents: write
+          permission-workflows: write
+      - name: Create source repository scoped publication token
+        if: inputs.publish_externally
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: source-app
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: lonefisher
+          repositories: tdesktop
+          permission-contents: write
+      - name: Publish attachments and anonymously verify every public download
+        if: inputs.publish_externally
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT_GITHUB_APP_TOKEN: ${{ steps.product-app.outputs.token }}
+          SOURCE_GITHUB_APP_TOKEN: ${{ steps.source-app.outputs.token }}
+          GITHUB_ENVIRONMENT: release
+          FISHGRAM_RELEASE_APPROVED: ${{ steps.preflight.outputs.approval_marker }}
+        run: |
+          python tools/publish_beta_attachments.py publish --root . --artifact-zip (Join-Path $env:RUNNER_TEMP 'beta-artifact.zip') --output (Join-Path $env:RUNNER_TEMP 'beta-attachments') --enable-publication
+          if ($LASTEXITCODE) { throw 'Beta publication or public read-back failed; do not repair partial releases.' }
+      - name: Retain review handoff and verified public result when available
+        if: always() && steps.preflight.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fishgram-beta-attachments-${{ inputs.candidate_run_id }}
+          path: ${{ runner.temp }}/beta-attachments/**
+          if-no-files-found: error
+          retention-days: 14

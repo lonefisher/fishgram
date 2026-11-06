@@ -26,3 +26,13 @@ GitHub Release 必须标为 prerelease，更新索引只推广 `beta.json`。稳
 Release 说明和便携 ZIP README 都需写明 Beta 及上述两项限制，下载入口优先指向便携 ZIP，源码单独提供。公开 QA 使用明确的 Beta 验收类型，列出这两项暂缓；其他检查仍须通过。该类型不能进入稳定索引。
 
 Scoop 首版使用显式的 `fishgram-beta` 清单，指向已公开的 Beta Release，持久化 `FishGramData`，由 Scoop 管理更新；正式稳定版另外维护 `fishgram`。不使用 GitHub `/releases/latest` 检查 Beta，因为该入口排除 prerelease。
+
+## 2026-11-06 受保护云端附件发布入口
+
+本次明确批准为 Scoop 优先 Beta 增加 `publish-beta-attachments.yml`，手动从 `main` 运行并通过原 `release` 环境人工审批。输入成功的产品候选 run ID；默认 `publish_externally=false` 只生成可审查附件。核验直接读取 GitHub run、job、artifact 元数据并比对下载的外层 ZIP SHA256，再核验候选父提交、源码、递归依赖、程序与许可。不能用本地编造的成功记录代替来源核验。
+
+该入口只发布同一候选的确定性便携 ZIP、对应源码、候选/分发记录及 SHA256，标为 prerelease 且不设为 latest。标签仍指向候选父提交及源码提交，而非后来的工作流提交。既有 Release（含草稿、部分上传）一律拒绝，不修补、删除或覆盖；既有标签只允许核实目标完全一致后复用。中途失败需人工核对报告中的可能已创建对象。
+
+发行说明与 ZIP README 明确披露 Beta、Windows 程序未做 Authenticode 签名、本候选尚未完成 Windows 界面及真实账号测试，以及延期的搜索、更新安装及恢复测试。上述待验项目不能记为通过。每个公开附件匿名重新下载并核对哈希后，才生成供后续 Scoop 更新使用的公开程序 URL/哈希结果。Scoop bucket 由独立步骤更新，安装/数据保留约定不变。
+
+本入口不读取发行签名私钥、不修改 Pages 或 stable/beta 更新索引，不推广客户端内置自动更新。便携用户手动更新，Scoop 用户通过 `scoop update fishgram-beta` 更新。原完整签名、真实验收和客户端更新通道流程保持不变；下文原渠道/QA 要求适用于该完整流程，不代表本附件入口已完成它们。

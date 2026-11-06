@@ -163,6 +163,38 @@ class GitHubReleaseTransport:
             return True
         return False
 
+    def any_release_exists(self, tag: str) -> bool:
+        """Include drafts: the by-tag endpoint alone is not a draft absence proof.
+
+        Request fixed numbered pages rather than following server-provided URLs.
+        A full final page requires another request; an unsupported bound or
+        malformed/repeated metadata fails closed, never implies absence.
+        """
+        if not isinstance(tag, str) or not tag or "/" in tag or ".." in tag:
+            raise TransportError("Release tag name is malformed.")
+        seen = set()
+        for page in range(1, 101):
+            _, _, body = self._api("GET", f"/repos/{PRODUCT_REPOSITORY}/releases?page={page}&per_page=100",
+                                   repository=PRODUCT_REPOSITORY)
+            try:
+                releases = json.loads(body)
+            except (ValueError, UnicodeError) as error:
+                raise TransportError("Release listing is malformed.") from error
+            if not isinstance(releases, list) or len(releases) > 100:
+                raise TransportError("Release listing must be a bounded array.")
+            for release in releases:
+                if (not isinstance(release, dict) or type(release.get("id")) is not int
+                        or release["id"] <= 0 or release["id"] in seen
+                        or not isinstance(release.get("tag_name"), str) or not release["tag_name"]
+                        or type(release.get("draft")) is not bool):
+                    raise TransportError("Release listing metadata is malformed or repeated.")
+                seen.add(release["id"])
+            if any(release["tag_name"] == tag for release in releases):
+                return True
+            if len(releases) < 100:
+                return False
+        raise TransportError("Release listing exceeds the supported pagination bound.")
+
     def release_prerelease(self, tag: str) -> bool:
         release = self._release_by_tag.get(tag)
         if release is None:
@@ -453,13 +485,15 @@ class GitHubReleaseTransport:
                   source_write=True, expected=(201,))
 
     def create_release(self, tag: str, target: str, title: str, body: str,
-                       *, prerelease: bool) -> None:
+                       *, prerelease: bool, make_latest: bool | None = None) -> None:
         _, _, response = self._api("POST", f"/repos/{PRODUCT_REPOSITORY}/releases",
                                    repository=PRODUCT_REPOSITORY,
                                    payload={"tag_name": tag, "target_commitish": target,
                                             "name": title, "body": body, "draft": True,
                                             "prerelease": prerelease,
-                                            "generate_release_notes": False}, expected=(201,))
+                                            "generate_release_notes": False,
+                                            **({"make_latest": "true" if make_latest else "false"}
+                                               if make_latest is not None else {})}, expected=(201,))
         release = self._json(response, "Draft release")
         upload_url = release.get("upload_url")
         parsed = urlsplit(upload_url or "")

@@ -793,7 +793,7 @@ def _promotion_file(root: Path, relative: str) -> bytes:
     return resolved.read_bytes()
 
 
-def portable_package(candidate_bytes: bytes, version: str, *, beta=False, deferred_search=False) -> Asset:
+def portable_package(candidate_bytes: bytes, version: str, *, beta=False, deferred_search=False, readme_override: bytes | None = None) -> Asset:
     """Wrap an already-verified candidate for users without changing programs."""
     result = io.BytesIO()
     readme = (
@@ -805,6 +805,10 @@ def portable_package(candidate_bytes: bytes, version: str, *, beta=False, deferr
         "FishGram update packages use our own signature, not Windows Authenticode.\r\n"
         + ((BETA_LIMITATIONS + '\r\n') if deferred_search else 'Beta.\r\n' if beta else '')
     ).encode('utf-8')
+    if readme_override is not None:
+        if not isinstance(readme_override, bytes):
+            raise PublishError('Portable README override must be bytes.')
+        readme = readme_override
     with zipfile.ZipFile(io.BytesIO(candidate_bytes)) as source, zipfile.ZipFile(
             result, 'w', compression=zipfile.ZIP_STORED) as target:
         target.comment = b''
