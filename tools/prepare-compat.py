@@ -22,4 +22,6 @@ if source.count(clone_command) != 1:
     raise SystemExit('Expected one pinned breakpad clone command.')
 source = source.replace(clone_command, clone_command.replace('git clone', 'git -c http.sslBackend=openssl clone'))
 sys.argv[0] = str(upstream)
+# Match direct script execution so sibling imports (for example msvc) resolve.
+sys.path.insert(0, str(upstream.parent))
 exec(compile(source, str(upstream), 'exec'), {'__file__': str(upstream), '__name__': '__main__'})
