@@ -88,17 +88,10 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || !inputs.prepare_only
         shell: pwsh
         run: ./tools/measure-runner.ps1 -Label before-compile
-      - name: Test production update and recovery helpers
-        if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || !inputs.prepare_only
-        shell: pwsh
-        run: |
-          ./tools/test-update-policy.ps1
-          ./tools/test-update-transaction.ps1
-          ./tools/test-update-verify.ps1
       - name: Build non-releasable test identity
         if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || !inputs.prepare_only
         shell: pwsh
-        run: ./tools/build-telegram.ps1 -TestIdentity -TestUpdateSystem -Parallel 4
+        run: ./tools/build-telegram.ps1 -TestIdentity -Parallel 4
       - name: Record actual build result
         if: always() && (github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || !inputs.prepare_only)
         shell: pwsh

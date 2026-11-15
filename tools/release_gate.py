@@ -151,6 +151,8 @@ def validate_manifest(manifest, recipe=None):
             raise GateError("Manifest release debug information differs from the pinned recipe.")
         payload = set(recipe["payloadFiles"]) | set(recipe["payloadDlls"])
         files = manifest.get("files")
+        if isinstance(files, dict) and "Updater.exe" in files:
+            raise GateError("Updater.exe is not part of the FishGram package.")
         if not isinstance(files, dict) or set(files) != payload:
             raise GateError("Manifest files must bind exactly the recipe payload list.")
         if "recipeAutoUpdate" in manifest and manifest["recipeAutoUpdate"] is not bool(recipe["autoUpdate"]):
@@ -169,8 +171,10 @@ def validate_manifest(manifest, recipe=None):
         raise GateError("Manifest was not produced by a protected product-candidate build.")
     if manifest.get("testUpdateTrust") is not False:
         raise GateError("Disposable test update trust can never be released.")
-    if manifest.get("autoUpdate") is not True:
-        raise GateError("Candidate must be built with the FishGram update system enabled.")
+    if manifest.get("autoUpdate") is not False:
+        raise GateError("Candidate must not enable the in-app updater.")
+    if isinstance(manifest.get("files"), dict) and "Updater.exe" in manifest["files"]:
+        raise GateError("Updater.exe is not part of the FishGram package.")
     if manifest.get("releaseReady") is not False:
         raise GateError("A manifest must not mark itself release ready.")
     submodules = manifest.get("submodules")
@@ -293,14 +297,13 @@ def _check_upstream_ancestry(root, upstream_commit, source_commit):
 
 def package_candidate(root, record_path, output):
     """Create the internal ZIP from the explicitly recorded product build."""
-    import shutil
     root, output = Path(root).resolve(), Path(output).resolve()
     record = json.loads(Path(record_path).read_text(encoding="utf-8-sig"))
     recipe = _recipe_at(root)
     if record.get("identity") != "product" or record.get("productCandidate") is not True:
         raise GateError("Only a protected product candidate can be packaged.")
-    if record.get("autoUpdate") is not True or record.get("testUpdateTrust") is not False:
-        raise GateError("Candidate build must enable FishGram updates with production trust.")
+    if record.get("autoUpdate") is not False or record.get("testUpdateTrust") is not False:
+        raise GateError("Candidate build must leave the in-app updater disabled.")
     if record.get("recipeAutoUpdate") is not recipe.get("autoUpdate"):
         raise GateError("Candidate must preserve the reviewed recipe autoUpdate value.")
     if record.get("version") != f"{recipe['upstreamVersion']}-r{recipe['revision']}":
@@ -311,6 +314,8 @@ def package_candidate(root, record_path, output):
     if record.get("sourceCommit") != git(source, "rev-parse", "HEAD"):
         raise GateError("Build record source commit differs from the pinned checkout.")
     payload_names = set(recipe["payloadFiles"]) | set(recipe["payloadDlls"])
+    if "Updater.exe" in payload_names or "Updater.exe" in (record.get("files") or {}):
+        raise GateError("Updater.exe is not part of the FishGram package.")
     validate_manifest({
         "schema": 1, "product": "FishGram", "version": record["version"],
         "upstreamCommit": recipe["upstreamCommit"], "upstreamTag": recipe["upstreamTag"],
@@ -335,9 +340,6 @@ def package_candidate(root, record_path, output):
         entry = record["files"][name]
         if not path.is_file() or path.stat().st_size != entry["size"] or sha256_file(path) != entry["sha256"]:
             raise GateError("Build output differs from recorded bytes: " + name)
-    packer = build / "Packer.exe"
-    _plain_build_path(root, packer)
-    verify_tool(record, "Packer.exe", packer)
     if output.exists() or output.is_relative_to(root):
         raise GateError("Candidate output must be a new directory outside the checkout.")
     output.mkdir(parents=True)
@@ -349,13 +351,12 @@ def package_candidate(root, record_path, output):
         "upstreamVersion": recipe["upstreamVersion"],
         "updateVersion": _update_version(recipe["upstreamVersion"], recipe["revision"])[1],
         "channel": recipe["channel"], "platform": recipe["platform"],
-        "identity": "product", "productCandidate": True, "autoUpdate": True,
+        "identity": "product", "productCandidate": True, "autoUpdate": False,
         "recipeAutoUpdate": recipe["autoUpdate"], "testUpdateTrust": False,
         "releaseReady": False, "parentCommit": record["parentCommit"],
         "sourceCommit": record["sourceCommit"], "toolchain": record["toolchain"],
         "files": record["files"],
         "submodules": git(source, "submodule", "status", "--recursive").splitlines(),
-        "tools": record.get("tools"),
     }
     try:
         with zipfile.ZipFile(archive_path, "x", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
@@ -364,11 +365,10 @@ def package_candidate(root, record_path, output):
             bundle.write(source / "LICENSE", "LICENSE")
             bundle.write(source / "LEGAL", "LEGAL")
             bundle.writestr("Start-FishGram.cmd", '@echo off\r\nsetlocal\r\nif not exist "%~dp0FishGramData" mkdir "%~dp0FishGramData"\r\nstart "" "%~dp0Telegram.exe" -workdir "%~dp0FishGramData"\r\n')
-            bundle.writestr("README.txt", "FishGram portable package for Windows 11 x64. FishGram update signatures are not Windows Authenticode; the Windows executable is not Authenticode-signed. Check the FishGram release page for this package's acceptance status and known limitations.\r\n")
+            bundle.writestr("README.txt", "FishGram portable package for Windows 11 x64. This package has no in-app updater; install updates with Scoop. The Windows executable is not Windows Authenticode-signed. Check the FishGram release page for this package's acceptance status and known limitations.\r\n")
             bundle.writestr("build-manifest.json", json.dumps(manifest, indent=2) + "\n")
         manifest["archive"] = {"name": archive_path.name, "sha256": sha256_file(archive_path), "size": archive_path.stat().st_size}
         (output / "build-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-        shutil.copyfile(packer, output / "Packer.exe")
     except Exception:
         for item in output.iterdir():
             item.unlink(missing_ok=True)

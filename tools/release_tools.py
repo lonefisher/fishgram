@@ -106,7 +106,7 @@ def make_package(root, payload, output, record_path):
         package.write(root / 'tdesktop' / 'LEGAL', 'LEGAL')
         launcher = '@echo off\r\nsetlocal\r\nif not exist "%~dp0FishGramData" mkdir "%~dp0FishGramData"\r\nstart "" "%~dp0Telegram.exe" -workdir "%~dp0FishGramData"\r\n'
         package.writestr('Start-FishGram.cmd', launcher)
-        package.writestr('README.txt', 'FishGram internal candidate; Windows 11 x64. Run Start-FishGram.cmd. Account data belongs in FishGramData, separate from the package staging directory. This ZIP is not a public release. The updater signature is not Windows Authenticode.\r\n')
+        package.writestr('README.txt', 'FishGram internal candidate; Windows 11 x64. Run Start-FishGram.cmd. Account data belongs in FishGramData, separate from the package staging directory. This ZIP is not a public release and has no in-app updater. The Windows executable is not Windows Authenticode-signed.\r\n')
         package.writestr('build-manifest.json', json.dumps(record, indent=2) + '\n')
     record['archive'] = {'name': archive.name, 'sha256': sha256(archive), 'size': archive.stat().st_size}
     (output / 'build-manifest.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')

@@ -40,21 +40,20 @@ $cache = Join-Path $private ('api-' + [guid]::NewGuid().ToString('N') + '.cmake'
 try {
     $contents = 'set(TDESKTOP_API_ID "' + $apiId + '" CACHE STRING "" FORCE)' + "`n" + 'set(TDESKTOP_API_HASH "' + $apiHash + '" CACHE STRING "" FORCE)' + "`n"
     Set-Content -LiteralPath $cache -Value $contents -Encoding ascii
-    $autoUpdate = [bool]($recipe.autoUpdate -or $TestUpdateSystem -or $ProductCandidate)
+    if ($ProductCandidate) {
+        if ($recipe.autoUpdate) { throw 'Protected product candidates cannot enable the in-app updater.' }
+        $autoUpdate = $false
+    } else {
+        $autoUpdate = [bool]($recipe.autoUpdate -or $TestUpdateSystem)
+    }
     $disabled = if ($autoUpdate) { 'OFF' } else { 'ON' }
     $trust = Join-Path $root 'config/update-trust'
-    if ($ProductCandidate) {
-        foreach ($name in @('root-public.pem', 'issuer-public.pem', 'manifest.min.json', 'manifest.sig')) {
-            if (-not (Test-Path -LiteralPath (Join-Path $trust $name) -PathType Leaf)) { throw ('Product update trust is incomplete: ' + $name) }
-        }
-        if (@(Get-ChildItem -LiteralPath $trust -Force | Where-Object { $_.Name -match 'test|fixture|private|secret' }).Count -gt 0) { throw 'Product update trust contains forbidden test or private material.' }
-    }
     if ($TestUpdateSystem) {
         $trust = Join-Path $private ('build-test-trust-' + [guid]::NewGuid().ToString('N'))
         & $toolchain.python (Join-Path $root 'tests/create_update_trust_fixture.py') $trust
         Assert-NativeSuccess 'Generate disposable public update trust for CI compilation'
     }
-    $buildPacker = if ($ProductCandidate) { 'ON' } else { 'OFF' }
+    $buildPacker = 'OFF'
     & $toolchain.cmake -S $source -B $build -G 'Ninja Multi-Config' -C $cache @releaseCmakeOptions -D "DESKTOP_APP_DISABLE_AUTOUPDATE=$disabled" -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON -D "FISHGRAM_BUILD_PACKER=$buildPacker" -D "FISHGRAM_REVISION=$($recipe.revision)" -D "TDESKTOP_UPDATE_CHANNEL=$($recipe.channel)" -D "FISHGRAM_UPDATE_TRUST_DIRECTORY=$trust" -D CMAKE_CONFIGURATION_TYPES=Release *> (Join-Path $root 'logs\configure.log')
     $configureExit = $LASTEXITCODE
     if ($configureExit -ne 0 -and ($TestIdentity -or $ProductCandidate)) {
@@ -63,8 +62,7 @@ try {
     $global:LASTEXITCODE = $configureExit
     Assert-NativeSuccess 'Configure; inspect private logs locally'
     $targets = @('Telegram')
-    if ($autoUpdate) { $targets += 'Updater' }
-    if ($ProductCandidate) { $targets += 'Packer' }
+    if (-not $ProductCandidate -and $autoUpdate) { $targets += 'Updater' }
     & $toolchain.cmake --build $build --config Release --target $targets --parallel $Parallel *> (Join-Path $root 'logs\build.log')
     $compileExit = $LASTEXITCODE
     $memoryLabel = if ($compileExit -ne 0) { 'build-failure' } else { 'build-complete' }
@@ -90,11 +88,9 @@ try {
     }
     if ($ProductCandidate) {
         foreach ($name in @($recipe.payloadFiles) + @($recipe.payloadDlls)) {
+            if ($name -eq 'Updater.exe') { throw 'Updater.exe is not part of the FishGram package.' }
             if (-not $record.files.Contains($name)) { throw ('Build output is missing ' + $name) }
         }
-        $packer = Join-Path (Join-Path $build 'Release') 'Packer.exe'
-        if (-not (Test-Path -LiteralPath $packer -PathType Leaf)) { throw 'Build output is missing the reviewed signing tool.' }
-        $record.tools = [ordered]@{ 'Packer.exe' = @{ size = (Get-Item -LiteralPath $packer).Length; sha256 = (Get-FileHash -LiteralPath $packer -Algorithm SHA256).Hash.ToLowerInvariant() } }
     }
     if (-not $record.files.Contains('Telegram.exe')) { throw 'Build output is missing the client.' }
     $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $build 'build-record.json') -Encoding utf8

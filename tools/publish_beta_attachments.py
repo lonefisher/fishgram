@@ -79,7 +79,7 @@ def provenance(run_id, expected_parent, artifact_path, fetch=gh_json):
 def extract_candidate(data, output, version):
     """Bounded flat allowlist extraction, independent of host path semantics."""
     allowed = {'candidate-record.json', 'FishGram-corresponding-source.zip',
-               'package/build-manifest.json', 'package/Packer.exe',
+               'package/build-manifest.json',
                f'package/FishGram-{version}-windows-x64-candidate.zip'}
     output = Path(output)
     if output.exists():
@@ -126,7 +126,6 @@ def prepare(root, reviewed, run_id, artifact_zip, output, *, fetch=gh_json):
         package = folder / 'package' / manifest['archive']['name']
         source = folder / 'FishGram-corresponding-source.zip'
         gate.verify_package(manifest, package)
-        gate.verify_tool(manifest, 'Packer.exe', folder / 'package/Packer.exe')
         if json.loads((folder / 'package/build-manifest.json').read_text(encoding='utf-8-sig')) != {
                 k: v for k, v in manifest.items() if k != 'sourceArchive'}:
             raise ValueError('Artifact build manifest differs from the candidate record.')
