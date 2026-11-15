@@ -1704,10 +1704,11 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertEqual(document["channel"], "beta")
         self.assertEqual(document["update"]["channel"], "stable")
 
-    def test_split_channel_contract_matches_current_production_parsefeed(self):
+    def test_split_channel_contract_is_absent_after_updater_removal(self):
         root = MODULE.parents[1]
 
-        self.assertTrue(publish.supports_split_channel_feed(root))
+        self.assertFalse((root / "tdesktop/Telegram/SourceFiles/core/fishgram_update_feed.cpp").exists())
+        self.assertFalse(publish.supports_split_channel_feed(root))
 
 
     def test_index_rejects_non_parsefeed_urls_and_numeric_versions(self):
