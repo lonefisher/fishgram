@@ -1,6 +1,11 @@
 name: FishGram protected product candidate
 on:
   workflow_dispatch:
+    inputs:
+      use_github_hosted:
+        description: Use the GitHub-hosted windows-2022 runner instead of the build PC
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -11,9 +16,25 @@ jobs:
   candidate:
     if: github.ref == 'refs/heads/main'
     environment: candidate
-    runs-on: windows-2022
+    # Push and workflow_dispatch queue on the build PC. A fork pull request, and
+    # workflow_dispatch with use_github_hosted, stay on windows-2022.
+    # docs/self-hosted-runner.md
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.use_github_hosted == true) || (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository)) && 'windows-2022' || fromJSON('["self-hosted","Windows","X64","fishgram-builder"]') }}
     timeout-minutes: 350
+    env:
+      FISHGRAM_PERSISTENT_ROOT: 'C:\fishgram-ci\fishgram\persistent'
     steps:
+      - name: Rescue persisted build trees before checkout
+        if: runner.environment == 'self-hosted'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'tools/persist-build-tree.ps1'
+          if (Test-Path -LiteralPath $script) {
+            & $script -Direction Rescue
+          } else {
+            Write-Output 'No persist script in the workspace yet; nothing to rescue.'
+          }
       - run: git config --global core.longpaths true
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -21,6 +42,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
+          clean: true
       - name: Check out every pinned recursive dependency
         shell: pwsh
         run: |
@@ -36,42 +58,54 @@ jobs:
           if ($LASTEXITCODE) { throw 'Reviewed checkout was rejected.' }
           python tools/release_gate.py check-private-workspace --root .
           if ($LASTEXITCODE) { throw 'Private workspace material was rejected.' }
+      - name: Attach persisted build trees
+        if: runner.environment == 'self-hosted'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./tools/persist-build-tree.ps1 -Direction Attach
       - name: Exact dependency cache identity
         id: key
+        if: runner.environment != 'self-hosted'
         shell: pwsh
         run: |
           python tools/dependency_cache_key.py --runner-label windows-2022 --github-output $env:GITHUB_OUTPUT
           if ($LASTEXITCODE) { throw 'Dependency cache identity failed.' }
       - name: Restore exact trusted dependencies
         id: cache
+        if: runner.environment != 'self-hosted'
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ runner.temp }}/fishgram-dependencies-v3.zip
           key: ${{ steps.key.outputs.key }}
       - name: Unpack trusted dependency snapshot
-        if: steps.cache.outputs.cache-hit == 'true'
+        if: runner.environment != 'self-hosted' && steps.cache.outputs.cache-hit == 'true'
         shell: pwsh
         run: |
           python tools/dependency_cache_archive.py restore --archive "$env:RUNNER_TEMP/fishgram-dependencies-v3.zip"
           if ($LASTEXITCODE) { throw 'Dependency restore failed.' }
       - name: Prepare dependencies when exact trusted cache is absent
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: runner.environment != 'self-hosted' && steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/prepare-dependencies.ps1 -Silent
+      - name: Prepare dependencies on the build PC
+        if: runner.environment == 'self-hosted'
         shell: pwsh
         run: ./tools/prepare-dependencies.ps1 -Silent
       - name: Refresh runner Python after cache restore
-        if: steps.cache.outputs.cache-hit == 'true'
+        if: runner.environment != 'self-hosted' && steps.cache.outputs.cache-hit == 'true'
         shell: pwsh
         run: ./tools/refresh-build-python.ps1
       - name: Pack dependencies and check compressed size before upload
         id: pack
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        if: runner.environment != 'self-hosted' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
         shell: pwsh
         run: |
           python tools/dependency_cache_archive.py pack --archive "$env:RUNNER_TEMP/fishgram-dependencies-v3.zip" --github-output $env:GITHUB_OUTPUT
           if ($LASTEXITCODE) { throw 'Dependency snapshot failed; continuing with prepared dependencies.' }
       - name: Save cache only from maintainer-reviewed main
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.pack.outputs.ready == 'true'
+        if: runner.environment != 'self-hosted' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.pack.outputs.ready == 'true'
         continue-on-error: true
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -102,3 +136,10 @@ jobs:
           path: ${{ runner.temp }}/fishgram-candidate/**
           if-no-files-found: error
           retention-days: 14
+      - name: Return persisted build trees
+        if: always() && runner.environment == 'self-hosted'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'tools/persist-build-tree.ps1'
+          if (Test-Path -LiteralPath $script) { & $script -Direction Detach }
