@@ -189,11 +189,10 @@ class BetaTests(unittest.TestCase):
                 z.writestr('candidate-record.json', beta.json_bytes(record))
                 z.writestr('package/build-manifest.json', beta.json_bytes({k:v for k,v in record.items() if k != 'sourceArchive'}))
                 z.writestr('package/' + record['archive']['name'], package.getvalue())
-                z.writestr('package/Packer.exe', b'packer')
                 z.writestr('FishGram-corresponding-source.zip', b'source')
             with mock.patch.object(beta, 'provenance', return_value={'runId':12}), \
                  mock.patch.multiple(beta.gate, validate_manifest=mock.DEFAULT, check_pins=mock.DEFAULT,
-                                     verify_package=mock.DEFAULT, verify_tool=mock.DEFAULT, verify_source_archive=mock.DEFAULT):
+                                     verify_package=mock.DEFAULT, verify_source_archive=mock.DEFAULT):
                 plan = beta.prepare('.', 'd'*40, 12, archive, Path(tmp) / 'out')
             self.assertEqual(len(plan['assets']), 5)
 

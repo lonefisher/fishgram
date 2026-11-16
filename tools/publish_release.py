@@ -311,7 +311,14 @@ class ReleaseTransport(Protocol):
 
 
 def supports_split_channel_feed(root: Path) -> bool:
+    """True only while the client still ships the custom split-channel ParseFeed.
+
+    r14 removed that feed with the in-app updater. A missing source file means
+    the client cannot accept a stable package from the beta index.
+    """
     source = Path(root) / "tdesktop/Telegram/SourceFiles/core/fishgram_update_feed.cpp"
+    if not source.is_file():
+        return False
     try:
         code = source.read_text(encoding="utf-8")
     except OSError as error:

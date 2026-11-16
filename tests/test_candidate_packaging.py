@@ -39,7 +39,7 @@ class CandidatePackagingTests(unittest.TestCase):
             'upstreamTag': 'v7.2.9', 'upstreamCommit': upstream,
             'revision': 8, 'channel': 'stable', 'msvc': '14.44', 'windowsSdk': '10.0.26100.0',
             'qt': '5.15.19', 'autoUpdate': False, 'releaseReady': False,
-            'payloadFiles': ['Telegram.exe', 'Updater.exe'], 'payloadDlls': [],
+            'payloadFiles': ['Telegram.exe'], 'payloadDlls': [],
         }
         (self.root / '.gitignore').write_text('build-modified/\n', encoding='utf-8')
         (self.root / 'fishgram.json').write_text(json.dumps(self.recipe), encoding='utf-8')
@@ -50,16 +50,15 @@ class CandidatePackagingTests(unittest.TestCase):
         self.commit(self.root)
         self.build = self.root / 'build-modified/Release'
         self.build.mkdir(parents=True)
-        for name in ('Telegram.exe', 'Updater.exe', 'Packer.exe'):
-            (self.build / name).write_bytes(('synthetic ' + name).encode('ascii'))
+        (self.build / 'Telegram.exe').write_bytes(b'synthetic Telegram.exe')
+        (self.build / 'Updater.exe').write_bytes(b'synthetic Updater.exe')
         self.record = {
             'version': '7.2.9-r8', 'channel': 'stable', 'identity': 'product',
-            'productCandidate': True, 'autoUpdate': True, 'recipeAutoUpdate': False,
+            'productCandidate': True, 'autoUpdate': False, 'recipeAutoUpdate': False,
             'testUpdateTrust': False, 'parentCommit': self.git(self.root, 'rev-parse', 'HEAD'),
             'sourceCommit': self.git(self.root / 'tdesktop', 'rev-parse', 'HEAD'),
             'toolchain': {'msvc': '14.44.35207', 'sdk': '10.0.26100.0', 'qt': '5.15.19'},
             'files': {name: self.entry(self.build / name) for name in self.recipe['payloadFiles']},
-            'tools': {'Packer.exe': self.entry(self.build / 'Packer.exe')},
         }
         self.record_path = self.base / 'build-record.json'
         self.output = self.base / 'candidate'
@@ -171,23 +170,26 @@ class CandidatePackagingTests(unittest.TestCase):
     def test_protected_candidate_keeps_recipe_flag_and_binds_actual_zip(self):
         manifest = self.package()
         self.assertFalse(manifest['recipeAutoUpdate'])
-        self.assertTrue(manifest['autoUpdate'])
+        self.assertFalse(manifest['autoUpdate'])
+        self.assertNotIn('tools', manifest)
         self.assertFalse(manifest['releaseReady'])
         for field in ('upstreamCommit', 'upstreamTag', 'upstreamVersion'):
             self.assertEqual(manifest[field], self.recipe[field])
         archive = self.output / manifest['archive']['name']
         gate.validate_manifest(manifest, self.recipe)
         gate.verify_package(manifest, archive)
-        gate.verify_tool(manifest, 'Packer.exe', self.output / 'Packer.exe')
+        self.assertFalse((self.output / 'Packer.exe').exists())
         with zipfile.ZipFile(archive) as bundle:
             embedded = json.loads(bundle.read('build-manifest.json'))
             for field in ('upstreamCommit', 'upstreamTag', 'upstreamVersion'):
                 self.assertEqual(embedded[field], self.recipe[field])
             self.assertEqual(bundle.read('Telegram.exe'), (self.build / 'Telegram.exe').read_bytes())
+            self.assertNotIn('Updater.exe', bundle.namelist())
             self.assertEqual(bundle.read('LICENSE'), b'GPL fixture')
             self.assertEqual(bundle.read('LEGAL'), b'OpenSSL exception fixture')
             self.assertNotIn(b'-many', bundle.read('Start-FishGram.cmd'))
             self.assertNotIn(b'not a public release', bundle.read('README.txt'))
+            self.assertIn(b'no in-app updater', bundle.read('README.txt'))
             self.assertIn(b'not Windows Authenticode', bundle.read('README.txt'))
 
     def test_release_debug_policy_survives_actual_zip_and_rejects_mismatch(self):
@@ -208,7 +210,8 @@ class CandidatePackagingTests(unittest.TestCase):
     def test_test_identity_or_disposable_trust_never_creates_product_output(self):
         original = dict(self.record)
         for override in ({'identity': 'test'}, {'productCandidate': False},
-                         {'testUpdateTrust': True}, {'recipeAutoUpdate': True}):
+                         {'testUpdateTrust': True}, {'recipeAutoUpdate': True},
+                         {'autoUpdate': True}):
             with self.subTest(override=override):
                 self.record = dict(original, **override)
                 with self.assertRaises(gate.GateError):
@@ -228,19 +231,6 @@ class CandidatePackagingTests(unittest.TestCase):
         program.unlink()
         try:
             program.symlink_to(outside)
-        except OSError:
-            self.skipTest('This Windows token cannot create symbolic links.')
-        with self.assertRaisesRegex(gate.GateError, 'link|reparse'):
-            self.package()
-        self.assertFalse(self.output.exists())
-
-    def test_packer_symlink_is_rejected_even_with_matching_hash(self):
-        packer = self.build / 'Packer.exe'
-        outside = self.base / 'outside-packer'
-        outside.write_bytes(packer.read_bytes())
-        packer.unlink()
-        try:
-            packer.symlink_to(outside)
         except OSError:
             self.skipTest('This Windows token cannot create symbolic links.')
         with self.assertRaisesRegex(gate.GateError, 'link|reparse'):

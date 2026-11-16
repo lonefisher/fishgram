@@ -82,7 +82,7 @@ git -C tdesktop submodule sync --recursive
 git -C tdesktop submodule update --init --recursive --checkout
 ```
 
-当前 Windows x64 配方跟随官方 7.3.3 使用 Qt 6.11.2，MSVC 14.44、SDK 26100 保持。Qt 主版本切换后重新准备依赖和构建客户端、Packer、Updater及更新测试；依赖缓存按新配方生成，旧 Qt 5 的构建记录保留其原工具链。
+当前 Windows x64 配方跟随官方 7.4.4 使用 Qt 6.11.2，MSVC 14.44、SDK 26100 保持。当前配方不构建 Updater，也不生成更新包。Qt 主版本切换后重新准备依赖并构建客户端；依赖缓存按新配方生成，旧 Qt 5 的构建记录保留其原工具链。
 
 变更工具链须修改配方及缓存键并验证。源码 PR 先合并，再更新父指针、重新验证父 PR，最后合入。已有父仓库同步前保存两层本地修改；然后执行递归 sync/update。源码及父仓库标签对应同一构建输入，发布后不可覆盖。
 

@@ -26,11 +26,11 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-PAYLOAD = {'Telegram.exe': b'candidate telegram bytes', 'Updater.exe': b'candidate updater bytes'}
+PAYLOAD = {'Telegram.exe': b'candidate telegram bytes'}
 RECIPE = {'product': 'FishGram', 'platform': 'windows-x64', 'upstreamVersion': '7.2.9',
           'upstreamTag': 'v7.2.9', 'upstreamCommit': 'f' * 40,
           'revision': 8, 'channel': 'stable', 'msvc': '14.44', 'windowsSdk': '10.0.26100.0',
-          'qt': '5.15.19', 'autoUpdate': False, 'payloadFiles': ['Telegram.exe', 'Updater.exe'],
+          'qt': '5.15.19', 'autoUpdate': False, 'payloadFiles': ['Telegram.exe'],
           'payloadDlls': []}
 
 
@@ -38,7 +38,7 @@ def manifest(files=None, **overrides):
     record = {
         'schema': 1, 'product': 'FishGram', 'version': '7.2.9-r8',
         'updateVersion': str((7002009 << 32) | 8), 'platform': 'windows-x64', 'channel': 'stable',
-        'identity': 'product', 'productCandidate': True, 'autoUpdate': True,
+        'identity': 'product', 'productCandidate': True, 'autoUpdate': False,
         'recipeAutoUpdate': False, 'testUpdateTrust': False, 'releaseReady': False,
         'parentCommit': PARENT, 'sourceCommit': SOURCE,
         'upstreamVersion': RECIPE['upstreamVersion'], 'upstreamTag': RECIPE['upstreamTag'],
@@ -127,7 +127,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_rejects_test_or_tampered_identity(self):
         for override in ({'identity': 'test'}, {'productCandidate': False},
-                         {'testUpdateTrust': True}, {'autoUpdate': False},
+                         {'testUpdateTrust': True}, {'autoUpdate': True},
                          {'releaseReady': True}):
             with self.subTest(override=override):
                 with self.assertRaises(gate.GateError):
@@ -138,7 +138,7 @@ class ManifestTests(unittest.TestCase):
         self.assertFalse(record['recipeAutoUpdate'])
         self.assertFalse(record['releaseReady'])
         for override in ({'identity': 'test'}, {'productCandidate': False},
-                         {'testUpdateTrust': True}, {'autoUpdate': False}):
+                         {'testUpdateTrust': True}, {'autoUpdate': True}):
             with self.subTest(override=override), self.assertRaises(gate.GateError):
                 gate.validate_manifest(manifest(**override), RECIPE)
 
@@ -151,9 +151,12 @@ class ManifestTests(unittest.TestCase):
                     gate.validate_manifest(manifest(**override), RECIPE)
 
     def test_rejects_missing_and_extra_payload_records(self):
-        only_client = {'Telegram.exe': manifest()['files']['Telegram.exe']}
         with self.assertRaises(gate.GateError):
-            gate.validate_manifest(manifest(files=only_client), RECIPE)
+            gate.validate_manifest(manifest(files={}), RECIPE)
+        tampered = dict(manifest()['files'])
+        tampered['Updater.exe'] = {'size': 1, 'sha256': 'a' * 64}
+        with self.assertRaisesRegex(gate.GateError, 'Updater.exe'):
+            gate.validate_manifest(manifest(files=tampered), RECIPE)
         tampered = dict(manifest()['files'])
         tampered['extra.dll'] = {'size': 1, 'sha256': 'a' * 64}
         with self.assertRaises(gate.GateError):
@@ -180,7 +183,7 @@ class PackageTests(unittest.TestCase):
             package = bound_zip(temp, record)
             gate.verify_package(record, package)
             out = Path(temp) / 'payload'
-            self.assertEqual(gate.extract_payload(record, package, out), ['Telegram.exe', 'Updater.exe'])
+            self.assertEqual(gate.extract_payload(record, package, out), ['Telegram.exe'])
             self.assertEqual((out / 'Telegram.exe').read_bytes(), PAYLOAD['Telegram.exe'])
             with self.assertRaises(gate.GateError):
                 gate.extract_payload(record, package, out)
@@ -188,7 +191,7 @@ class PackageTests(unittest.TestCase):
     def test_tampered_payload_inside_archive_fails(self):
         record = manifest()
         with tempfile.TemporaryDirectory() as temp:
-            package = bound_zip(temp, record, payload={'Telegram.exe': b'tampered', 'Updater.exe': PAYLOAD['Updater.exe']})
+            package = bound_zip(temp, record, payload={'Telegram.exe': b'tampered'})
             with self.assertRaisesRegex(gate.GateError, 'payload differs'):
                 gate.verify_package(record, package)
 
@@ -209,7 +212,7 @@ class PackageTests(unittest.TestCase):
             with self.assertRaises(gate.GateError):
                 gate.verify_package(record, bound_zip(temp, record, extra={'notes.txt': 'x'}))
             with self.assertRaises(gate.GateError):
-                gate.verify_package(record, bound_zip(temp, record, payload={'Telegram.exe': PAYLOAD['Telegram.exe']}))
+                gate.verify_package(record, bound_zip(temp, record, extra={'Updater.exe': b'updater'}))
             with self.assertRaises(gate.GateError):
                 gate.verify_package(record, bound_zip(temp, record, extra={'..\\evil.exe': 'x'}))
 
@@ -437,7 +440,7 @@ class AuthorizeTests(unittest.TestCase):
             self.assertEqual(result['packer']['target'], 'win64')
             self.assertEqual(result['packer']['versionBase'], 7002009)
             self.assertEqual(result['packer']['counter'], 8)
-            self.assertEqual(result['packer']['files'], ['Telegram.exe', 'Updater.exe'])
+            self.assertEqual(result['packer']['files'], ['Telegram.exe'])
             self.assertEqual(result['qa']['sha256'], hashlib.sha256(json.dumps(qa).encode()).hexdigest())
             self.assertIn('indexPublish', result['blocked'])
             self.assertTrue(out.is_file())

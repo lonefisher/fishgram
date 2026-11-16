@@ -1,44 +1,58 @@
-import os
-from pathlib import Path
-import shutil
-import subprocess
-import tempfile
+"""The product source no longer defines an Updater target for FishGram builds."""
+import json
 import unittest
+from pathlib import Path
 
 
-class ProductPackerTargetTests(unittest.TestCase):
-    def test_explicit_product_packer_without_official_special_target(self):
-        root = Path(__file__).parents[1]
-        cmake = shutil.which('cmake')
-        if not cmake:
-            finder = Path(os.environ['ProgramFiles(x86)']) / 'Microsoft Visual Studio/Installer/vswhere.exe'
-            install = subprocess.check_output([str(finder), '-latest', '-products', '*',
-                                               '-property', 'installationPath'], text=True).strip()
-            cmake = str(Path(install) / 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe')
-        source = (root / 'tdesktop/Telegram/CMakeLists.txt').read_text()
-        start = source.index('    if (DESKTOP_APP_SPECIAL_TARGET', source.index('add_executable(Updater WIN32)'))
-        block = source[start:source.index('\nelseif (build_winstore)', start)]
-        prelude = '''cmake_minimum_required(VERSION 3.25)
-project(ProductPacker LANGUAGES CXX)
-set(output_folder "${CMAKE_CURRENT_BINARY_DIR}/bin")
-add_executable(Telegram main.cpp)
-function(init_target)
-endfunction()
-function(nice_target_sources target)
-  target_sources(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
-endfunction()
-function(target_link_libraries)
-endfunction()
-'''
-        with tempfile.TemporaryDirectory(prefix='fishgram-packer-target-') as folder:
-            project = Path(folder)
-            (project / 'main.cpp').write_text('int main() { return 0; }')
-            (project / 'CMakeLists.txt').write_text(prelude + block + '''
-if(NOT TARGET Packer)
-  message(FATAL_ERROR "Product signing tool target is missing")
-endif()
-''')
-            result = subprocess.run([cmake, '-S', str(project), '-B', str(project / 'build'),
-                                     '-G', 'Visual Studio 17 2022', '-A', 'x64',
-                                     '-DFISHGRAM_BUILD_PACKER=ON'], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class ProductBuildTargetTests(unittest.TestCase):
+    def test_source_forces_autoupdate_off_before_an_updater_target_can_be_defined(self):
+        root = (ROOT / 'tdesktop/CMakeLists.txt').read_text(encoding='utf-8')
+        telegram = (ROOT / 'tdesktop/Telegram/CMakeLists.txt').read_text(encoding='utf-8')
+        forced = root.index('set(DESKTOP_APP_DISABLE_AUTOUPDATE ON CACHE BOOL "Disable autoupdate." FORCE)')
+        self.assertNotIn('FISHGRAM_BUILD_PACKER', root)
+        self.assertNotIn('FISHGRAM_BUILD_PACKER', telegram)
+        updater = telegram.index('    add_executable(Updater WIN32)')
+        guard = telegram.rfind('if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE', 0, updater)
+        self.assertGreater(guard, 0)
+        self.assertLess(forced, len(root))
+
+    def test_product_candidate_does_not_build_updater_or_an_update_package(self):
+        script = (ROOT / 'tools/build-telegram.ps1').read_text(encoding='utf-8')
+        candidate = script.index('if ($ProductCandidate) {')
+        following = script.index('    $disabled = if ($autoUpdate)', candidate)
+        block = script[candidate:following]
+        self.assertNotIn('Updater', block)
+        self.assertNotIn('Packer', block)
+        self.assertNotIn('manifest.min.json', block)
+        self.assertIn("$autoUpdate = $false", block)
+        targets = script.index("$targets = @('Telegram')")
+        target_block = script[targets:script.index('& $toolchain.cmake --build', targets)]
+        self.assertIn('if (-not $ProductCandidate -and $autoUpdate)', target_block)
+        self.assertNotIn("+= 'Packer'", target_block)
+
+    def test_recipe_is_v744_r14_without_updater_payload(self):
+        recipe = json.loads((ROOT / 'fishgram.json').read_text(encoding='utf-8-sig'))
+        self.assertEqual(recipe['upstreamTag'], 'v7.4.4')
+        self.assertEqual(recipe['upstreamVersion'], '7.4.4')
+        self.assertEqual(recipe['upstreamCommit'], 'bf4f714036f21c750d535dab199c811b3f9bfdd4')
+        self.assertEqual(recipe['revision'], 14)
+        self.assertFalse(recipe['autoUpdate'])
+        self.assertEqual(recipe['payloadFiles'], ['Telegram.exe'])
+        self.assertNotIn('Updater.exe', recipe['payloadFiles'])
+        self.assertEqual(recipe['product'], 'FishGram')
+
+    def test_build_workflows_do_not_run_update_package_signing_or_manifest_steps(self):
+        cloud = (ROOT / '.github/workflows/cloud-build.yml').read_text(encoding='utf-8')
+        candidate = (ROOT / '.github/workflows/product-candidate.yml').read_text(encoding='utf-8')
+        self.assertNotIn('-TestUpdateSystem', cloud)
+        self.assertNotIn('test-update-verify.ps1', cloud)
+        self.assertNotIn('test-update-policy.ps1', cloud)
+        self.assertNotIn('test-update-transaction.ps1', cloud)
+        self.assertIn('./tools/build-telegram.ps1 -TestIdentity -Parallel 4', cloud)
+        self.assertNotIn('verify-trust', candidate)
+        self.assertNotIn('manifest.min.json', candidate)
+        self.assertNotIn('Updater', candidate)
+        self.assertIn('./tools/build-telegram.ps1 -ProductCandidate -Parallel 4', candidate)

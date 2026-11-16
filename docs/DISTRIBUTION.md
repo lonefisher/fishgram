@@ -4,11 +4,11 @@
 
 Release 顶部说明首先链接 Windows 11 x64 便携 ZIP。解压后运行 `Start-FishGram.cmd`，账户与设置保存在同目录的 `FishGramData`。
 
-便携 ZIP 包含 `Telegram.exe`、`Updater.exe`、启动脚本、许可和简短说明、构建清单。Packer、源码、验收记录和构建工具不放进用户程序包。正式包装可以调整文件名和说明，两个程序文件必须与已验收云端候选的 SHA256 一致；新 ZIP 另行计算哈希并实测解压启动。
+便携 ZIP 包含 `Telegram.exe`、启动脚本、许可和简短说明、构建清单，不包含 `Updater.exe`。Packer、源码、验收记录和构建工具不放进用户程序包。正式包装可以调整文件名和说明，程序文件必须与已验收云端候选的 SHA256 一致；新 ZIP 另行计算哈希并实测解压启动。
 
 对应源码 ZIP 单独作为同一 Release 的附件，包含递归依赖、必要构建脚本和许可。普通用户只需下载便携 ZIP；源码归档服务于复现和 GPLv3 对应源码分发。GitHub 自动生成的父仓库 Source code ZIP 不包含子模块内容，不能替代对应源码归档。
 
-签名更新包用于客户端更新；校验值和构建清单用于核验。Release 说明区分“下载运行”“源码”“更新包与校验”，不要求用户下载整个 Actions Artifact。
+当前版本不提供客户端更新包。更新通过 Scoop 或手动下载新的便携 ZIP。校验值和构建清单用于核验。Release 说明区分“下载运行”和“源码”，不要求用户下载整个 Actions Artifact。
 
 ## Scoop
 
