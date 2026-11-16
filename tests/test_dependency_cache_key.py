@@ -20,9 +20,15 @@ def workflow_key_step(path):
     for job in re.split(r'(?m)^  [\w-]+:\s*\n', jobs)[1:]:
         for step in re.split(r'(?m)^      - ', job)[1:]:
             if re.search(r'^        id: key$', step, re.MULTILINE):
-                runner = re.search(r'^    runs-on: (.+)$', job, re.MULTILINE).group(1)
-                script = step.split('        run: |\n', 1)[1]
-                return runner, textwrap.dedent(script).strip()
+                script = textwrap.dedent(step.split('        run: |\n', 1)[1]).strip()
+                label = re.search(r'--runner-label\s+(\S+)', script)
+                if label is None:
+                    raise ValueError(f'No runner label in {path.name}')
+                runs_on = re.search(r'^    runs-on: (.+)$', job, re.MULTILINE).group(1).strip()
+                # A conditional runs-on still records the hosted cache identity in the script.
+                if not runs_on.startswith('${{') and runs_on != label.group(1):
+                    raise ValueError(f'{path.name} runs-on {runs_on} does not match {label.group(1)}')
+                return label.group(1), script
     raise ValueError(f'No dependency key step in {path.name}')
 
 

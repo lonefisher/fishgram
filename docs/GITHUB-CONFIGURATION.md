@@ -24,7 +24,11 @@ Cloud build 与受保护产品候选共用 `deps-windows-v3-` 精确键，Action
 
 可信写入入口为 main 的手动 Cloud build，或 main 手动产品候选在 `candidate` 人工审批后的依赖阶段；保存 step 位于应用 API 身份进入之前。PR 只恢复缓存并完成全部测试身份编译。两种构建都在同一 runner 上准备并继续编译，缓存写入失败时继续使用已准备依赖。需要单独准备或补充缓存时，手动 Cloud build 设置 `prepare_only=true`；`cold=true` 重新准备，`cold=false` 优先恢复，不必再编译测试身份客户端。
 
-免费额度按所有缓存的总量计算，v2 大缓存及旧版本键可能被淘汰；不要提高付费额度或仅拆分文件来规避总量。新键首次运行后读回归档实际大小、Actions 缓存条目及下一次运行的精确命中结果。多个其他大缓存仍可能挤占额度，维护时保留当前依赖键并清理已不用的旧键。
+免费额度按所有缓存的总量计算，v2 大缓存及旧版本键可能被淘汰；不要提高付费额度或仅拆分文件来规避总量。新键首次运行后读回归档实际大小、Actions 缓存条目及下一次运行的精确命中结果。多个其他大缓存仍可能挤占额度，维护时保留当前依赖键并清理已不用的旧键。构建机上的产品候选不读取、不写入这份 Actions 缓存；只有勾选 `use_github_hosted` 走 `windows-2022` 时，缓存步骤才与现在相同。
+
+## 构建机
+
+`product-candidate.yml` 在 main 上的手动运行默认排到标签 `self-hosted`、`Windows`、`X64`、`fishgram-builder`。本仓库的 push 使用同一条 `runs-on` 规则。电脑关机时作业继续排队；排队超过 24 小时 GitHub 会让它失败，重新运行即可。注册、目录、MSVC 14.44 和校验见 [自托管构建机](self-hosted-runner.md)。不需要新的 token 或 secret。
 
 ## 两个独立 App
 

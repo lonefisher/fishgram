@@ -28,6 +28,22 @@ function Assert-NativeSuccess {
     if ($LASTEXITCODE -ne 0) { throw ($Action + ' failed (exit ' + $LASTEXITCODE + ').') }
 }
 
+function Select-FishGramVisualStudio {
+    param([Parameter(Mandatory)][string]$ToolsetPrefix, [string[]]$Installations)
+    # Walk every install. A newer Visual Studio without this toolset must not hide one that has it.
+    foreach ($install in $Installations) {
+        if ([string]::IsNullOrWhiteSpace($install)) { continue }
+        $path = $install.Trim()
+        $msvcRoot = Join-Path $path 'VC\Tools\MSVC'
+        if (-not (Test-Path -LiteralPath $msvcRoot)) { continue }
+        $versions = @(Get-ChildItem -LiteralPath $msvcRoot -Directory | Where-Object { $_.Name.StartsWith($ToolsetPrefix + '.') })
+        if ($versions.Count -gt 0) {
+            return [pscustomobject]@{ Installation = $path; Versions = $versions }
+        }
+    }
+    return $null
+}
+
 function Get-FishGramToolchain {
     param($Recipe)
     # Optional machine overrides are never committed. No API identity belongs here.
@@ -41,16 +57,20 @@ function Get-FishGramToolchain {
             $overrides[$entry.Name] = [string]$entry.Value
         }
     }
-    if ($overrides.ContainsKey('visualStudio')) { $vs = $overrides.visualStudio }
+    $installations = @()
+    if ($overrides.ContainsKey('visualStudio')) { $installations = @($overrides.visualStudio) }
     else {
         $finder = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
         if (-not (Test-Path -LiteralPath $finder)) { throw 'Install Visual Studio Build Tools with C++ tools.' }
-        $vs = & $finder -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        $raw = & $finder -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
         Assert-NativeSuccess 'Visual Studio discovery'
+        if ($null -ne $raw) { $installations = @($raw) }
     }
-    if (-not $vs) { throw 'No supported Visual Studio installation found.' }
+    $selected = Select-FishGramVisualStudio -ToolsetPrefix $Recipe.msvc -Installations $installations
+    if (-not $selected) { throw ('Required MSVC ' + $Recipe.msvc + ' is missing.') }
+    $vs = $selected.Installation
     $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
-    $versions = @(Get-ChildItem -LiteralPath (Join-Path $vs 'VC\Tools\MSVC') -Directory | Where-Object { $_.Name.StartsWith($Recipe.msvc + '.') })
+    $versions = @($selected.Versions)
     if ($versions.Count -eq 0 -or -not (Test-Path -LiteralPath $vcvars)) { throw ('Required MSVC ' + $Recipe.msvc + ' is missing.') }
     $sdk = Join-Path ${env:ProgramFiles(x86)} ('Windows Kits\10\Include\' + $Recipe.windowsSdk)
     if (-not (Test-Path -LiteralPath $sdk)) { throw ('Required SDK ' + $Recipe.windowsSdk + ' is missing.') }
