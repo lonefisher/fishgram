@@ -2,6 +2,10 @@
 
 本页记录实现、验证结果和接续步骤。Comet 的验收结论由 Runtime 管理。
 
+## 2026-11-18 普通 Release 规则
+
+附件发布改为普通 Release：标签 `v<version>`、`prerelease` 为 false、设为 Latest，Scoop 清单名是 `fishgram`。r14 还没有发布。r11–r13 prerelease 及其附件保持原样。详见 [当前规则](BETA-RELEASE.md#当前规则)。
+
 ## 2026-10-31 首版 Scoop Beta
 
 用户要求先发布、尽快通过 Scoop 使用，剩余实测项目延期。[7.3.3-r11 Beta](https://github.com/lonefisher/fishgram/releases/tag/v7.3.3-r11-beta)已公开，使用产品候选 `40447090675` 的同一程序文件，父标签固定 `262f8e166435be130f9de78ab0158a87af43024f`、源码标签固定 `6168e8c13c155d404aa11899bd781f6d4f396f82`。发行说明列出性能、原生遗漏对照样本、完整搜索范围、恢复后重试及更新恢复矩阵的已知缺口。

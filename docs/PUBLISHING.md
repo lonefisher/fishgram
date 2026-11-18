@@ -55,9 +55,9 @@ Before creating either repository tag or the release, the publisher reads the Pa
 
 便携 ZIP 使用 ZIP_STORED，Python/压缩库升级不改变包装字节。复用既有发行时，读取并保留首次发布的 distribution-record.json，校验其原候选、最终 ZIP 和程序记录与本次已验证输入一致；当前审核提交继续保存在本次 promotion 中。
 
-## 仅发布 Beta 下载附件
+## 发布已验证候选的下载附件
 
-首版 Scoop 优先决定的云端入口为 `Publish FishGram Beta attachments`（`.github/workflows/publish-beta-attachments.yml`），不使用本文件上方的签名/索引推广命令。手动在 `main` 选择成功产品候选 run ID，经 `release` 人工审批；先用默认 `publish_externally=false` 检查 `fishgram-beta-attachments-<run>` 产物，再在明确批准后启用外部发布。两次均读取真实 GitHub 来源并验证外层 artifact ZIP digest、候选和对应源码；离线文件不能代替来源授权。
+Scoop 使用的云端入口是 `Publish FishGram release attachments`（`.github/workflows/publish-beta-attachments.yml`）。它不使用本文件上方的签名/索引推广命令。手动在 `main` 选择成功产品候选 run ID，经 `release` 人工审批；先用默认 `publish_externally=false` 检查 `fishgram-release-attachments-<run>` 产物，再在明确批准后启用外部发布。两次均读取真实 GitHub 来源并验证外层 artifact ZIP digest、候选和对应源码；离线文件不能代替来源授权。
 
 离线准备的 CLI（仍需普通只读 `GH_TOKEN` 与 `gh`，不需要 App 凭据）：
 
@@ -65,6 +65,6 @@ Before creating either repository tag or the release, the publisher reads the Pa
 python tools/publish_beta_attachments.py prepare --root . --reviewed-commit <reviewed-main-sha> --candidate-run-id <run-id> --artifact-zip <exact-github-artifact.zip> --output <new-output-directory>
 ```
 
-发布步骤在预检完成后才请求原有 App 的两个独立仓库 token，不增加 secret 或安装权限、不请求 Pages 权限。发布时重新核验来源及全部附件，然后创建源码标签、候选父提交的草稿 prerelease、上传所有附件并公开。`public-result.json` 只在所有附件匿名下载核验通过后产生，包含后续 Scoop 更新所需程序 URL、SHA256、大小及全部附件记录。上传的工作流审查产物不等同公开发行成功。
+发布步骤在预检完成后才请求原有 App 的两个独立仓库 token，不增加 secret 或安装权限、不请求 Pages 权限。发布时重新核验来源及全部附件，然后创建源码标签、候选父提交上的草稿普通 Release（标签 `v<version>`，不带 `-beta`，`prerelease` 为 false，并设为 Latest）、上传所有附件并公开。`public-result.json` 只在所有附件匿名下载核验通过后产生，包含后续 Scoop 更新所需程序 URL、SHA256、大小及全部附件记录。上传的工作流审查产物不等同公开发行成功。
 
-已有 Release 一律停止，包括草稿与部分上传；不自动恢复或覆盖。失败信息列出可能已创建对象的地址，维护者先读回现场，不得把失败执行当作成功，也不得通过重跑覆盖既有附件。本路径不推广客户端更新通道，未执行的 Windows 界面/账号、搜索、更新及恢复验收须如实披露。原完整签名和索引推广流程保持原门槛。
+已有 Release 一律停止，包括草稿与部分上传，也包括历史 `-beta` prerelease；不自动恢复或覆盖。失败信息列出可能已创建对象的地址，维护者先读回现场，不得把失败执行当作成功，也不得通过重跑覆盖既有附件。本路径不推广客户端更新通道，未执行的 Windows 界面/账号、搜索、更新及恢复验收须如实披露。原完整签名和索引推广流程保持原门槛。Scoop 命令是 `scoop update fishgram`。

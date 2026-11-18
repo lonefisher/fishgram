@@ -112,7 +112,7 @@ Windows Release 配方固定 `releaseDebugInformation=None`，客户端编译显
 
 ## 验收与发行
 
-2026-10-31 用户要求先发布以便通过 Scoop 使用，首版采用 [Scoop 优先发行决定](BETA-RELEASE.md#2026-10-31-scoop-优先发行决定)。直接复用已成功构建的产品候选，核验附件与程序哈希后发布 prerelease，再更新 bucket；剩余实测项目写入发行说明。客户端自动更新通道的后续推广仍按签名与恢复流程执行。
+2026-10-31 用户要求先发布以便通过 Scoop 使用，首版当时发布为 prerelease，见 [Scoop 优先发行决定](BETA-RELEASE.md#2026-10-31-scoop-优先发行决定)。2026-11-18 起，附件发布改为普通 Release：标签 `v<version>`、`prerelease` 为 false、设为 Latest，再更新 `fishgram` 清单。历史 r11–r13 不改。客户端自动更新通道的后续推广仍按签名与恢复流程执行。
 
 2026-10-19 的原 [Beta 验收范围](BETA-RELEASE.md)仅将搜索性能和对照样本两项延期，其余搜索、更新安全、安装和恢复继续保留验收项目。稳定版继续要求原完整标准。
 

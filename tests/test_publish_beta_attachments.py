@@ -1,4 +1,4 @@
-"""Attachment-only Beta publication, with no updater promotion."""
+"""Attachment-only publication of a normal release, with no updater promotion."""
 import importlib.util
 import io
 import json
@@ -19,10 +19,14 @@ class BetaTests(unittest.TestCase):
         import publish_beta_attachments
         return publish_beta_attachments
 
-    def test_beta_readme_discloses_untested_and_manual_updates(self):
+    def test_readme_discloses_untested_and_manual_updates(self):
         beta = self.module()
-        for text in ('Beta', 'unsigned', 'Windows UI', 'account', 'Scoop', 'recovery', 'search', 'not promoted'):
+        for text in ('unsigned', 'Windows UI', 'account', 'Scoop', 'recovery', 'search', 'not promoted',
+                     'scoop update fishgram.'):
             self.assertIn(text, beta.README)
+        self.assertNotIn('Beta', beta.README)
+        self.assertNotIn('fishgram-beta', beta.README)
+        self.assertNotIn('-beta', beta.README)
 
     def test_portable_override_preserves_program_bytes(self):
         beta = self.module()
@@ -108,17 +112,17 @@ class BetaTests(unittest.TestCase):
         root = Path(directory)
         folder = root / 'prepared'; folder.mkdir()
         asset = b'verified portable bytes'
-        plan = {'schema': 1, 'kind': 'fishgram-beta-attachments', 'reviewedCommit': 'd'*40,
-                'parentCommit': 'a'*40, 'sourceCommit': 'b'*40, 'tag': 'v7.3.5-r12-beta',
+        plan = {'schema': 1, 'kind': 'fishgram-release-attachments', 'reviewedCommit': 'd'*40,
+                'parentCommit': 'a'*40, 'sourceCommit': 'b'*40, 'tag': 'v7.3.5-r12',
                 'version': '7.3.5-r12', 'provenance': {'runId': 12},
                 'assets': [{'name': 'program.zip', 'sha256': beta.digest(asset), 'size': len(asset)}]}
         (folder / 'program.zip').write_bytes(asset)
-        (folder / 'beta-plan.json').write_bytes(beta.json_bytes(plan))
+        (folder / 'release-plan.json').write_bytes(beta.json_bytes(plan))
         def prepare(repo, reviewed, run, archive, output, **kwargs):
             output.mkdir()
-            for name in ('program.zip', 'beta-plan.json'):
+            for name in ('program.zip', 'release-plan.json'):
                 (output / name).write_bytes((folder / name).read_bytes())
-            return json.loads((output / 'beta-plan.json').read_text())
+            return json.loads((output / 'release-plan.json').read_text())
         return folder, plan, prepare
 
     def test_publish_order_and_all_public_hashes(self):
@@ -130,7 +134,7 @@ class BetaTests(unittest.TestCase):
             api = mock.Mock()
             api.any_release_exists.return_value = False
             api.release_exists.return_value = True
-            api.release_prerelease.return_value = True
+            api.release_prerelease.return_value = False
             api.tag_commit.side_effect = lambda repo, tag: plan['sourceCommit'] if repo.endswith('/tdesktop') else plan['parentCommit']
             api.tag_exists.return_value = False
             api.source_tag_exists.return_value = False
@@ -144,7 +148,10 @@ class BetaTests(unittest.TestCase):
             self.assertLess(calls.index('create_source_tag'), calls.index('create_release'))
             self.assertLess(calls.index('upload_asset'), calls.index('publish_release'))
             self.assertLess(calls.index('publish_release'), calls.index('download_asset'))
-            self.assertEqual(api.create_release.call_args.kwargs, {'prerelease': True, 'make_latest': False})
+            self.assertEqual(api.create_release.call_args.kwargs, {'prerelease': False, 'make_latest': True})
+            self.assertEqual(api.create_release.call_args.args[0], 'v7.3.5-r12')
+            self.assertEqual(api.create_release.call_args.args[2], 'FishGram 7.3.5-r12')
+            self.assertNotIn('-beta', api.create_release.call_args.args[0])
             self.assertFalse(any('page' in c.lower() or 'index' in c.lower() for c in calls))
 
     def test_existing_release_mismatched_tag_and_corrupt_public_download_fail_closed(self):
@@ -158,7 +165,7 @@ class BetaTests(unittest.TestCase):
                 api.any_release_exists.return_value = scenario == 'release'
                 api.tag_exists.return_value = scenario == 'tag'
                 api.tag_commit.side_effect = lambda repo, tag: 'f'*40 if scenario == 'tag' else plan['sourceCommit'] if repo.endswith('/tdesktop') else plan['parentCommit']
-                api.release_prerelease.return_value = True
+                api.release_prerelease.return_value = False
                 if scenario == 'download': api.release_exists.return_value = True
                 api.source_tag_exists.return_value = False
                 api.download_asset.return_value = b'wrong'
@@ -195,6 +202,9 @@ class BetaTests(unittest.TestCase):
                                      verify_package=mock.DEFAULT, verify_source_archive=mock.DEFAULT):
                 plan = beta.prepare('.', 'd'*40, 12, archive, Path(tmp) / 'out')
             self.assertEqual(len(plan['assets']), 5)
+            self.assertEqual(plan['tag'], 'v7.3.5-r12')
+            self.assertEqual(plan['kind'], 'fishgram-release-attachments')
+            self.assertFalse(plan['tag'].endswith('-beta'))
 
     def test_prepare_rejects_unrelated_root_before_provenance_or_files(self):
         beta = self.module()
@@ -220,6 +230,20 @@ class BetaTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     beta.publish('.', 'artifact.zip', folder, enabled=True, api=api)
             self.assertFalse((folder / 'public-result.json').exists())
+        with tempfile.TemporaryDirectory() as tmp:
+            folder, plan, prepare = self.prepared_fixture(tmp)
+            api = mock.Mock()
+            api.any_release_exists.return_value = False
+            api.tag_exists.return_value = False
+            api.source_tag_exists.return_value = False
+            api.release_exists.return_value = True
+            api.release_prerelease.return_value = True
+            api.tag_commit.side_effect = lambda repo, tag: plan['sourceCommit'] if repo.endswith('/tdesktop') else plan['parentCommit']
+            with mock.patch.dict('os.environ', context), mock.patch.object(beta, 'prepare', side_effect=prepare):
+                with self.assertRaises(ValueError) as error:
+                    beta.publish('.', 'artifact.zip', folder, enabled=True, api=api)
+            self.assertIn('Published release read-back failed', str(error.exception.__cause__))
+            self.assertFalse((folder / 'public-result.json').exists())
 
     def test_production_transport_detects_draft_when_by_tag_returns_404_before_writes(self):
         beta = self.module()
@@ -228,7 +252,7 @@ class BetaTests(unittest.TestCase):
         def request(method, url, headers, body, timeout):
             calls.append((method, url, headers))
             if '/releases?' in url:
-                return 200, {}, json.dumps([{'id': 7, 'tag_name': 'v7.3.5-r12-beta', 'draft': True}]).encode()
+                return 200, {}, json.dumps([{'id': 7, 'tag_name': 'v7.3.5-r12', 'draft': True}]).encode()
             if '/releases/tags/' in url:
                 return 404, {}, b'{}'
             raise AssertionError('No writes or unrelated API calls allowed before rejecting draft')
@@ -283,5 +307,6 @@ class BetaTests(unittest.TestCase):
 
     def test_readme_does_not_claim_update_command_installs_scoop_app(self):
         beta = self.module()
-        self.assertIn('Update with Scoop: scoop update fishgram-beta.', beta.README)
+        self.assertIn('Update with Scoop: scoop update fishgram.', beta.README)
+        self.assertNotIn('fishgram-beta', beta.README)
         self.assertNotIn('Install/update with Scoop', beta.README)
