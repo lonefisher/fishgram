@@ -135,9 +135,19 @@ class SigningEntryTests(unittest.TestCase):
         jobs = {"jobs": [{"name": "candidate", "conclusion": "success"}]}
         artifacts = {"artifacts": [{"name": "fishgram-product-candidate-123", "expired": False,
                                     "workflow_run": {"id": 123}}]}
-        sign.verify_run_provenance(run, jobs, artifacts, "owner/repo", 123, "a" * 40)
-        for changed in ({**run, "conclusion": "failure"}, {**run, "head_branch": "fork"},
-                        {**run, "head_sha": "b" * 40}, {**run, "event": "pull_request"}):
+        for event in ("workflow_dispatch", "push"):
+            with self.subTest(event=event):
+                self.assertEqual(sign.verify_run_provenance(
+                    {**run, "event": event}, jobs, artifacts, "owner/repo", 123, "a" * 40), "a" * 40)
+        for changed in ({**run, "conclusion": "failure"},
+                        {**run, "event": "push", "conclusion": "cancelled"},
+                        {**run, "head_branch": "fork"},
+                        {**run, "event": "push", "head_branch": "feature"},
+                        {**run, "head_sha": "b" * 40},
+                        {**run, "event": "pull_request"},
+                        {**run, "event": "schedule"},
+                        {**run, "path": ".github/workflows/cloud-build.yml"},
+                        {**run, "event": "push", "path": ".github/workflows/checks.yml"}):
             with self.subTest(run=changed), self.assertRaises(sign.SigningError):
                 sign.verify_run_provenance(changed, jobs, artifacts, "owner/repo", 123, "a" * 40)
         wrong_artifact = {"artifacts": [{**artifacts["artifacts"][0], "workflow_run": {"id": 122}}]}
