@@ -57,12 +57,12 @@ def sha256_file(path: Path) -> str:
 
 def verify_run_provenance(run: dict, jobs: dict, artifacts: dict, repository: str,
                           run_id: int, expected_sha: str | None = None) -> str:
-    """Bind the artifact to a successful workflow_dispatch on protected main."""
+    """Bind the artifact to a successful workflow_dispatch or push on protected main."""
     repo = run.get("repository")
     if (not isinstance(repo, dict) or repo.get("full_name") != repository
             or type(run.get("id")) is not int or run["id"] != run_id
             or run.get("path") != WORKFLOW
-            or run.get("event") != "workflow_dispatch"
+            or run.get("event") not in ("workflow_dispatch", "push")
             or run.get("conclusion") != "success"
             or run.get("head_branch") != "main"
             or not isinstance(run.get("head_sha"), str)

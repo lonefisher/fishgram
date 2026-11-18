@@ -95,7 +95,11 @@ class BetaTests(unittest.TestCase):
             def fetch(path):
                 return jobs if '/jobs?' in path else artifacts if '/artifacts?' in path else run
             self.assertEqual(beta.provenance(12, 'a'*40, artifact, fetch)['artifactId'], 34)
-            for change in ('digest', 'parent', 'duplicate', 'expired', 'pagination', 'workflow'):
+            push = {**run, 'event': 'push'}
+            self.assertEqual(beta.provenance(12, 'a'*40, artifact, lambda path: (
+                jobs if '/jobs?' in path else artifacts if '/artifacts?' in path else push))['artifactId'], 34)
+            for change in ('digest', 'parent', 'duplicate', 'expired', 'pagination', 'workflow',
+                           'pull_request', 'schedule', 'branch', 'conclusion'):
                 r, j, a = copy.deepcopy(run), copy.deepcopy(jobs), copy.deepcopy(artifacts)
                 if change == 'digest': a['artifacts'][0]['digest'] = 'sha256:' + '0'*64
                 if change == 'parent': r['head_sha'] = 'b'*40
@@ -103,6 +107,14 @@ class BetaTests(unittest.TestCase):
                 if change == 'expired': a['artifacts'][0]['expired'] = True
                 if change == 'pagination': j['total_count'] = 101
                 if change == 'workflow': r['path'] = '.github/workflows/cloud-build.yml'
+                if change == 'pull_request': r['event'] = 'pull_request'
+                if change == 'schedule': r['event'] = 'schedule'
+                if change == 'branch':
+                    r['event'] = 'push'
+                    r['head_branch'] = 'feature'
+                if change == 'conclusion':
+                    r['event'] = 'push'
+                    r['conclusion'] = 'failure'
                 with self.subTest(change=change), self.assertRaises(ValueError):
                     beta.provenance(12, 'a'*40, artifact,
                         lambda p: j if '/jobs?' in p else a if '/artifacts?' in p else r)
