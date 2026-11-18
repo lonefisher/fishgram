@@ -1,4 +1,4 @@
-name: Publish FishGram Beta attachments
+name: Publish FishGram release attachments
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       publish_externally:
-        description: Publish Beta attachments only (no client updater promotion)
+        description: Publish a normal release (not a prerelease; no client updater promotion)
         required: true
         default: false
         type: boolean
@@ -113,7 +113,7 @@ jobs:
         if: always() && steps.preflight.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: fishgram-beta-attachments-${{ inputs.candidate_run_id }}
+          name: fishgram-release-attachments-${{ inputs.candidate_run_id }}
           path: ${{ runner.temp }}/beta-attachments/**
           if-no-files-found: error
           retention-days: 14

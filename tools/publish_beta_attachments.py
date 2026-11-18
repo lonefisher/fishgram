@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Protected attachment-only Beta publishing. Never signs or promotes updater feeds.
+"""Protected attachment-only publishing. Never signs or promotes updater feeds.
+
+The GitHub release is a normal release: tag ``v<version>`` with no ``-beta``
+suffix, ``prerelease`` false, and marked latest. A candidate may still record
+``channel`` beta or stable; that field is whatever the parent recipe baked in
+and does not select a prerelease.
 
 The artifact ZIP digest is obtained directly from GitHub on every invocation.
 Local provenance JSON is deliberately not an accepted input.
@@ -23,7 +28,7 @@ from github_release_transport import GitHubReleaseTransport, PRODUCT_REPOSITORY,
 
 PUBLISHER_ROOT = Path(__file__).resolve().parents[1]
 
-README = '''FishGram Beta - Windows 11 x64 portable
+README = '''FishGram - Windows 11 x64 portable
 Extract all files, then run Start-FishGram.cmd.
 Accounts and settings are in FishGramData beside the program.
 Close FishGram before replacing program files; preserve FishGramData.
@@ -31,7 +36,7 @@ Windows executables are unsigned (no Windows Authenticode).
 Windows UI and actual account testing have not been completed for this candidate.
 Full search coverage, large-source performance and native omission comparisons remain deferred.
 Update installation, network retry and recovery testing remain deferred.
-Update with Scoop: scoop update fishgram-beta.
+Update with Scoop: scoop update fishgram.
 Portable users must manually download updates from this release.
 The client built-in updater is not promoted by this attachment-only release.
 Corresponding source, build records and SHA256 checksums are separate release attachments.
@@ -117,11 +122,11 @@ def prepare(root, reviewed, run_id, artifact_zip, output, *, fetch=gh_json):
         raw_record = archive.read('candidate-record.json')
     manifest = json.loads(raw_record.decode('utf-8-sig'))
     gate.validate_manifest(manifest)
-    if manifest['channel'] != 'beta' or not isinstance(manifest.get('sourceArchive'), dict):
-        raise ValueError('Only a source-bound Beta product candidate is allowed.')
+    if manifest.get('channel') not in ('stable', 'beta') or not isinstance(manifest.get('sourceArchive'), dict):
+        raise ValueError('Only a source-bound product candidate is allowed.')
     identity = provenance(run_id, manifest['parentCommit'], artifact_zip, fetch)
     gate.check_pins(root, reviewed, manifest)
-    with tempfile.TemporaryDirectory(prefix='fishgram-beta-candidate-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='fishgram-release-candidate-') as tmp:
         folder = extract_candidate(artifact_zip.read_bytes(), Path(tmp) / 'candidate', manifest['version'])
         package = folder / 'package' / manifest['archive']['name']
         source = folder / 'FishGram-corresponding-source.zip'
@@ -135,14 +140,14 @@ def prepare(root, reviewed, run_id, artifact_zip, output, *, fetch=gh_json):
                   Asset('candidate-record.json', raw_record), distribution_record(portable, manifest, reviewed)]
     checksums = ''.join(f'{a.sha256}  {a.name}\n' for a in sorted(assets, key=lambda a: a.name)).encode()
     assets.append(Asset('SHA256SUMS', checksums))
-    plan = {'schema': 1, 'kind': 'fishgram-beta-attachments', 'reviewedCommit': reviewed,
+    plan = {'schema': 1, 'kind': 'fishgram-release-attachments', 'reviewedCommit': reviewed,
             'parentCommit': manifest['parentCommit'], 'sourceCommit': manifest['sourceCommit'],
-            'tag': 'v' + manifest['version'] + '-beta', 'version': manifest['version'],
+            'tag': 'v' + manifest['version'], 'version': manifest['version'],
             'provenance': identity, 'assets': [{'name': a.name, 'size': len(a.data), 'sha256': a.sha256} for a in assets]}
     output.mkdir(parents=True)
     for asset in assets:
         (output / asset.name).write_bytes(asset.data)
-    (output / 'beta-plan.json').write_bytes(json_bytes(plan))
+    (output / 'release-plan.json').write_bytes(json_bytes(plan))
     return plan
 
 def publish(root, artifact_zip, prepared, *, enabled=False, api=None, fetch=gh_json):
@@ -151,9 +156,9 @@ def publish(root, artifact_zip, prepared, *, enabled=False, api=None, fetch=gh_j
             'GITHUB_ENVIRONMENT': 'release', 'FISHGRAM_RELEASE_APPROVED': '1'}.items()):
         raise ValueError('Explicit protected main release approval is required.')
     prepared = Path(prepared)
-    plan = json.loads((prepared / 'beta-plan.json').read_text())
+    plan = json.loads((prepared / 'release-plan.json').read_text())
     # Recompute everything from remotely authenticated immutable candidate bytes.
-    with tempfile.TemporaryDirectory(prefix='fishgram-beta-recheck-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='fishgram-release-recheck-') as tmp:
         fresh = Path(tmp) / 'prepared'
         verified = prepare(root, plan['reviewedCommit'], plan['provenance']['runId'], artifact_zip, fresh, fetch=fetch)
         if verified != plan or {p.name for p in prepared.iterdir()} != {p.name for p in fresh.iterdir()}:
@@ -176,8 +181,8 @@ def publish(root, artifact_zip, prepared, *, enabled=False, api=None, fetch=gh_j
                 objects.append(f'https://github.com/{SOURCE_REPOSITORY}/tree/{tag}')
                 api.create_source_tag(tag, plan['sourceCommit'])
             objects.append(f'https://github.com/{PRODUCT_REPOSITORY}/releases/tag/{tag}')
-            api.create_release(tag, plan['parentCommit'], f'FishGram {plan["version"]} Beta', README,
-                               prerelease=True, make_latest=False)
+            api.create_release(tag, plan['parentCommit'], f'FishGram {plan["version"]}', README,
+                               prerelease=False, make_latest=True)
             for asset in plan['assets']:
                 api.upload_asset(tag, asset['name'], (fresh / asset['name']).read_bytes())
             api.publish_release(tag)
@@ -185,14 +190,14 @@ def publish(root, artifact_zip, prepared, *, enabled=False, api=None, fetch=gh_j
                                  (PRODUCT_REPOSITORY, plan['parentCommit'])):
                 if api.tag_commit(repo, tag) != target:
                     raise ValueError('Published immutable tag target read-back failed.')
-            if not api.release_exists(tag) or api.release_prerelease(tag) is not True:
-                raise ValueError('Published prerelease read-back failed.')
+            if not api.release_exists(tag) or api.release_prerelease(tag) is not False:
+                raise ValueError('Published release read-back failed.')
             for asset in plan['assets']:
                 data = api.download_asset(tag, asset['name'])
                 if len(data) != asset['size'] or digest(data) != asset['sha256']:
                     raise ValueError('Anonymous public attachment hash verification failed.')
             program = plan['assets'][0]
-            result = {'kind': 'fishgram-beta-public-downloads-verified', 'tag': tag,
+            result = {'kind': 'fishgram-public-downloads-verified', 'tag': tag,
                       'url': f'https://github.com/{PRODUCT_REPOSITORY}/releases/download/{tag}/{program["name"]}',
                       'sha256': program['sha256'], 'size': program['size'], 'assets': plan['assets']}
             (prepared / 'public-result.json').write_bytes(json_bytes(result))
